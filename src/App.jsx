@@ -17,67 +17,127 @@ import {
   applyXpGain, newDigimon, abiCap, totalBonusStats,
 } from "./data/engine.js";
 
-// ── Navigation ────────────────────────────────────────────────────────────────
-const NAV = [
-  { id:"dashboard", label:"Home",    icon:"⌂" },
-  { id:"tasks",     label:"Tasks",   icon:"☑" },
-  { id:"team",      label:"Team",    icon:"◈" },
-  { id:"digifarm",  label:"Farm",    icon:"🌿" },
-  { id:"battle",    label:"Battle",  icon:"⚔" },
-  { id:"chat",      label:"Chat",    icon:"💬" },
-  { id:"store",     label:"Store",   icon:"🛒" },
-  { id:"digidex",   label:"Digidex", icon:"📖" },
+// ── Design tokens — dark pixel art system ─────────────────────────────────────
+var T = {
+  bg:         "#0d0f14",
+  bgPanel:    "#111318",
+  bgCard:     "#161a22",
+  border:     "#2a2d3a",
+  pixelBorder:"#7EB8F7",      // replaces Nomi's #3D2C1E — blue tint for dark
+  pixelShadow:"rgba(126,184,247,0.25)",
+  text:       "#e8eaf0",
+  textMid:    "#8a90a8",
+  textDim:    "#4a5070",
+  coral:      "#FF6B6B",
+  teal:       "#4ECDC4",
+  lavender:   "#C3B1E1",
+  mint:       "#A8E6CF",
+  gold:       "#FFD700",
+  red:        "#FF4444",
+  green:      "#5CB85C",
+  pink:       "#FF9EB5",
+};
+
+// Priority colour map
+var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
+
+// Pixel box style — the Nomi signature
+function px(accentColor) {
+  accentColor = accentColor || T.pixelBorder;
+  return {
+    border:    "2px solid " + accentColor,
+    boxShadow: "3px 3px 0 " + accentColor,
+  };
+}
+
+// Nav pages
+var NAV = [
+  { id:"dashboard", label:"HOME",    icon:"⌂" },
+  { id:"tasks",     label:"TASKS",   icon:"☑" },
+  { id:"team",      label:"TEAM",    icon:"◈" },
+  { id:"digifarm",  label:"FARM",    icon:"🌿" },
+  { id:"battle",    label:"BATTLE",  icon:"⚔" },
+  { id:"chat",      label:"CHAT",    icon:"💬" },
+  { id:"store",     label:"STORE",   icon:"🛒" },
+  { id:"digidex",   label:"DIGIDEX", icon:"📖" },
 ];
 
-const STORE_ITEMS = [
-  { id:"stat_hp",   name:"+4 HP Bonus Stat",       cost:1000, icon:"❤️" },
-  { id:"stat_atk",  name:"+4 ATK Bonus Stat",      cost:1000, icon:"⚔️" },
-  { id:"stat_def",  name:"+4 DEF Bonus Stat",       cost:1000, icon:"🛡️" },
-  { id:"stat_spd",  name:"+4 SPD Bonus Stat",       cost:1000, icon:"💨" },
-  { id:"exp",       name:"EXP Booster (+500)",      cost:1000, icon:"⭐" },
-  { id:"random",    name:"Random Digimon Discovery",cost:2000, icon:"🎲" },
-  { id:"xab",       name:"X-Antibody",              cost:3000, icon:"✖️" },
-  { id:"pers",      name:"Personality Changer",     cost:2000, icon:"🎭" },
+var STORE_ITEMS = [
+  { id:"stat_hp",  name:"+4 HP Stat",          cost:1000, icon:"❤️" },
+  { id:"stat_atk", name:"+4 ATK Stat",          cost:1000, icon:"⚔️" },
+  { id:"stat_def", name:"+4 DEF Stat",           cost:1000, icon:"🛡️" },
+  { id:"stat_spd", name:"+4 SPD Stat",           cost:1000, icon:"💨" },
+  { id:"exp",      name:"EXP Booster +500",      cost:1000, icon:"⭐" },
+  { id:"random",   name:"Random Digimon",        cost:2000, icon:"🎲" },
+  { id:"xab",      name:"X-Antibody",            cost:3000, icon:"✖️" },
+  { id:"pers",     name:"Personality Changer",   cost:2000, icon:"🎭" },
 ];
 
-function makeInitialParty() {
+var INV_ITEMS = [
+  { icon:"🍎", count:3 }, { icon:"🍰", count:1 }, { icon:"⚡", count:5 },
+  { icon:"💎", count:2 }, { icon:"🧪", count:1 }, { icon:"🎀", count:4 },
+  { icon:"·",  count:0 }, { icon:"·",  count:0 },
+];
+
+var PET_SPEECHES = [
+  "you can do it! 💪", "finish your tasks!", "i believe in you ✨",
+  "feed me please 🍎", "great job! +10 XP", "keep going!! 🔥", "i'm so proud! ⭐",
+];
+
+function makeParty() {
   var a = newDigimon("agumon",  { level:6, exp:340, abi:8,  bonusStats:{HP:4,SP:2,ATK:5,DEF:3,INT:1,SPD:3} });
   var b = newDigimon("gabumon", { level:4, exp:120, abi:5,  bonusStats:{HP:2,SP:1,ATK:3,DEF:4,INT:2,SPD:2} });
   var c = newDigimon("guilmon", { level:3, exp:60,  abi:3,  bonusStats:{HP:1,SP:0,ATK:2,DEF:1,INT:0,SPD:1} });
   return [a, b, c];
 }
 
+// ── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
   var [page,        setPage]        = useState("dashboard");
-  var [party,       setParty]       = useState(makeInitialParty);
+  var [party,       setParty]       = useState(makeParty);
   var [farm,        setFarm]        = useState([]);
   var [savedStats,  setSavedStats]  = useState(0);
   var [bits,        setBits]        = useState(350);
   var [allDisc,     setAllDisc]     = useState(["koromon","agumon","gabumon","guilmon","greymon"]);
-  var [tasks,       setTasks]       = useState([
-    { id:1, title:"Review sprint backlog",  category:"Work",   priority:"High",   difficulty:"Medium", type:"once",      done:false, streak:0, notes:"" },
-    { id:2, title:"Morning workout",         category:"Health", priority:"Medium", difficulty:"Hard",   type:"daily",     done:true,  streak:4, notes:"30 min min", daysOfWeek:[] },
-    { id:3, title:"Read 20 pages",           category:"Study",  priority:"Low",    difficulty:"Easy",   type:"recurring", done:false, streak:1, notes:"",           daysOfWeek:["Mon","Wed","Fri"] },
+  var [speech,      setSpeech]      = useState("finish your tasks!");
+  var [actLog,      setActLog]      = useState([
+    { icon:"⭐", text:"DailyDigivolve started! Welcome, Tamer.", time:"JUST NOW" },
+  ]);
+  var [tasks, setTasks] = useState([
+    { id:1, title:"Review sprint backlog",  category:"Work",   priority:"High",   difficulty:"Hard",   type:"once",      done:false, streak:0, notes:"" },
+    { id:2, title:"Morning workout",         category:"Health", priority:"Medium", difficulty:"Medium", type:"daily",     done:true,  streak:4, notes:"",            daysOfWeek:[] },
+    { id:3, title:"Read 20 pages",           category:"Study",  priority:"Low",    difficulty:"Easy",   type:"recurring", done:false, streak:1, notes:"",            daysOfWeek:["Mon","Wed","Fri"] },
     { id:4, title:"Fix login bug",           category:"Work",   priority:"High",   difficulty:"Hard",   type:"once",      done:false, streak:0, notes:"Affects mobile" },
-    { id:5, title:"Meal prep",               category:"Health", priority:"Low",    difficulty:"Easy",   type:"daily",     done:false, streak:7, notes:"",           daysOfWeek:[] },
+    { id:5, title:"Meal prep",               category:"Health", priority:"Low",    difficulty:"Easy",   type:"daily",     done:false, streak:7, notes:"",            daysOfWeek:[] },
   ]);
   var [toast,       setToast]       = useState(null);
   var [evoAnim,     setEvoAnim]     = useState(null);
   var [battleState, setBattleState] = useState(null);
   var dragIdx = useRef(null);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
-  var activeDigi  = party[0];
-  var activeInfo  = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
-  var streak      = tasks.reduce(function(m,t){ return Math.max(m,t.streak||0); }, 0);
-  var accent      = activeInfo ? (ATTR_COLOR[activeInfo.attr]||"#7EB8F7") : "#7EB8F7";
-  var pending     = tasks.filter(function(t){ return !t.done; });
-  var done        = tasks.filter(function(t){ return  t.done; });
+  // Derived
+  var activeDigi = party[0];
+  var activeInfo = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
+  var streak     = tasks.reduce(function(m,t){ return Math.max(m,t.streak||0); }, 0);
+  var accent     = activeInfo ? (ATTR_COLOR[activeInfo.attr]||T.teal) : T.teal;
+  var pendTasks  = tasks.filter(function(t){ return !t.done; });
+  var doneTasks  = tasks.filter(function(t){ return  t.done; });
+  var xpToday    = doneTasks.reduce(function(s,t){ return s + calcXpReward(t, streak); }, 0);
+  var questDone  = doneTasks.length;
+  var questTotal = 5;
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  function addLog(icon, text) {
+    setActLog(function(l){ return [{ icon:icon, text:text, time:"JUST NOW" }].concat(l.slice(0,7)); });
+  }
+
   function toast_(msg, color) {
-    setToast({ msg:msg, color:color||"#7EF797" });
+    setToast({ msg:msg, color:color||T.green });
     setTimeout(function(){ setToast(null); }, 2500);
+  }
+
+  function petAction(msg, logMsg) {
+    setSpeech(msg);
+    if (logMsg) addLog("🐾", logMsg);
   }
 
   function completeTask(id) {
@@ -86,8 +146,10 @@ export default function App() {
     setTasks(function(ts){ return ts.map(function(t){ return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1}) : t; }); });
     var xp = calcXpReward(task, streak);
     var sp = calcStatReward(task);
-    setParty(function(p){ return p.map(function(d,i){ var g=i===0?xp:Math.floor(xp*0.5); return Object.assign({},d,applyXpGain(d,g)); }); });
+    setParty(function(p){ return p.map(function(d,i){ return Object.assign({},d,applyXpGain(d,i===0?xp:Math.floor(xp*0.5))); }); });
     setSavedStats(function(s){ return s+sp; });
+    setSpeech("great job! +"+xp+" XP 🔥");
+    addLog("✅", "Completed \""+task.title+"\" +"+xp+" XP");
     toast_("Task done!  +"+xp+" EXP  +"+sp+" stat pts");
   }
 
@@ -102,6 +164,7 @@ export default function App() {
     setAllDisc(function(p){ return p.indexOf(targetId)<0?p.concat([targetId]):p; });
     setEvoAnim(targetId);
     setTimeout(function(){ setEvoAnim(null); }, 3200);
+    addLog("✨", info.name+" digivolved!");
     toast_(info.name+" digivolved!","#FFD700");
   }
 
@@ -127,668 +190,814 @@ export default function App() {
   function editTask(id,u){ setTasks(function(ts){ return ts.map(function(t){ return t.id===id?Object.assign({},t,u):t; }); }); }
   function deleteTask(id){ setTasks(function(ts){ return ts.filter(function(t){ return t.id!==id; }); }); toast_("Task deleted.","#FF8080"); }
 
-  function startBattle(diff) {
-    var candidates = Object.values(DIGIMON_MAP).filter(function(d){
-      return diff==="Easy"   ? (d.stage==="Baby"||d.stage==="Rookie")
-           : diff==="Medium" ? (d.stage==="Rookie"||d.stage==="Champion")
-           :                   (d.stage==="Champion"||d.stage==="Ultimate");
-    });
-    var enemies = [0,1,2].map(function(){
-      var id  = candidates[Math.floor(Math.random()*candidates.length)].id;
-      var lvl = diff==="Easy"?Math.ceil(Math.random()*4):diff==="Medium"?4+Math.ceil(Math.random()*5):9+Math.ceil(Math.random()*6);
-      var tmp = newDigimon(id,{level:lvl});
-      var st  = calcStats(tmp);
-      return Object.assign({},tmp,{currentHp:st.HP,maxHp:st.HP,isEnemy:true});
-    });
-    var playerTeam = party.slice(0,3).map(function(d){ var st=calcStats(d); return Object.assign({},d,{currentHp:st.HP,maxHp:st.HP}); });
-    setBattleState({ playerTeam:playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
-    setPage("battle");
-  }
-
-  function battleAttack(targetIdx) {
-    if (!battleState||battleState.phase!=="fight") return;
-    var bs = JSON.parse(JSON.stringify(battleState));
-    var att = bs.playerTeam[bs.selected];
-    var def = bs.enemyTeam[targetIdx];
-    if (!att||!def||def.currentHp<=0) return;
-    var dmg = Math.max(1,Math.floor(calcStats(att).ATK*1.2 - calcStats(def).DEF*0.5 + Math.random()*20));
-    def.currentHp = Math.max(0,def.currentHp-dmg);
-    bs.log = [att.name+" → "+def.name+"  −"+dmg+" HP"].concat(bs.log).slice(0,6);
-    var aliveE = bs.enemyTeam.filter(function(e){ return e.currentHp>0; });
-    if (aliveE.length>0) {
-      var en  = aliveE[Math.floor(Math.random()*aliveE.length)];
-      var tgt = bs.playerTeam.filter(function(p){ return p.currentHp>0; })[0];
-      if (tgt) {
-        var edm = Math.max(1,Math.floor(calcStats(en).ATK - calcStats(tgt).DEF*0.4 + Math.random()*15));
-        tgt.currentHp = Math.max(0,tgt.currentHp-edm);
-        bs.log = [en.name+" → "+tgt.name+"  −"+edm+" HP"].concat(bs.log).slice(0,6);
-      }
-    }
-    var won  = bs.enemyTeam.every(function(e){ return e.currentHp<=0; });
-    var lost = bs.playerTeam.every(function(p){ return p.currentHp<=0; });
-    if (won||lost) {
-      var r = BATTLE_REWARDS[bs.difficulty]||(won?60:25);
-      var bitsEarned = won?(r.win||60):(r.loss||25);
-      setBits(function(b){ return b+bitsEarned; });
-      bs.log = [(won?"Victory! ":"Defeated... ")+"+"+ bitsEarned+"🪙"].concat(bs.log);
-      bs.phase = won?"won":"lost";
-    }
-    setBattleState(bs);
-  }
-
   function buyItem(item) {
     if (bits<item.cost){ toast_("Not enough bits!","#FF8080"); return; }
     setBits(function(b){ return b-item.cost; });
     toast_("Purchased: "+item.name,"#FFD700");
   }
 
-  // ── CSS variables derived from accent ─────────────────────────────────────
-  var gridPattern = "repeating-linear-gradient(0deg,transparent,transparent 19px,"+accent+"0f 20px),repeating-linear-gradient(90deg,transparent,transparent 19px,"+accent+"0f 20px)";
+  function startBattle(diff) {
+    var candidates = Object.values(DIGIMON_MAP).filter(function(d){
+      return diff==="Easy"?(d.stage==="Baby"||d.stage==="Rookie"):diff==="Medium"?(d.stage==="Rookie"||d.stage==="Champion"):(d.stage==="Champion"||d.stage==="Ultimate");
+    });
+    var enemies = [0,1,2].map(function(){
+      var id  = candidates[Math.floor(Math.random()*candidates.length)].id;
+      var lvl = diff==="Easy"?Math.ceil(Math.random()*4):diff==="Medium"?4+Math.ceil(Math.random()*5):9+Math.ceil(Math.random()*6);
+      var tmp = newDigimon(id,{level:lvl}); var st=calcStats(tmp);
+      return Object.assign({},tmp,{currentHp:st.HP,maxHp:st.HP,isEnemy:true});
+    });
+    var playerTeam = party.slice(0,3).map(function(d){ var st=calcStats(d); return Object.assign({},d,{currentHp:st.HP,maxHp:st.HP}); });
+    setBattleState({ playerTeam:playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
+  }
+
+  function battleAttack(idx) {
+    if (!battleState||battleState.phase!=="fight") return;
+    var bs = JSON.parse(JSON.stringify(battleState));
+    var att=bs.playerTeam[bs.selected], def=bs.enemyTeam[idx];
+    if (!att||!def||def.currentHp<=0) return;
+    var dmg=Math.max(1,Math.floor(calcStats(att).ATK*1.2-calcStats(def).DEF*0.5+Math.random()*20));
+    def.currentHp=Math.max(0,def.currentHp-dmg);
+    bs.log=[att.name+" → "+def.name+"  −"+dmg].concat(bs.log).slice(0,6);
+    var aliveE=bs.enemyTeam.filter(function(e){return e.currentHp>0;});
+    if (aliveE.length>0) {
+      var en=aliveE[Math.floor(Math.random()*aliveE.length)];
+      var tgt=bs.playerTeam.filter(function(p){return p.currentHp>0;})[0];
+      if (tgt){var edm=Math.max(1,Math.floor(calcStats(en).ATK-calcStats(tgt).DEF*0.4+Math.random()*15));tgt.currentHp=Math.max(0,tgt.currentHp-edm);bs.log=[en.name+" → "+tgt.name+"  −"+edm].concat(bs.log).slice(0,6);}
+    }
+    var won=bs.enemyTeam.every(function(e){return e.currentHp<=0;});
+    var lost=bs.playerTeam.every(function(p){return p.currentHp<=0;});
+    if (won||lost){ var r=BATTLE_REWARDS[bs.difficulty]||{win:60,loss:25}; var earn=won?r.win:r.loss; setBits(function(b){return b+earn;}); bs.log=[(won?"⚔ Victory! ":"💀 Defeated... ")+"+"+earn+"🪙"].concat(bs.log); bs.phase=won?"won":"lost"; }
+    setBattleState(bs);
+  }
+
+  // ── CSS ──────────────────────────────────────────────────────────────────
+  var css = `
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;600;700;800&display=swap');
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    body { background:${T.bg}; }
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-thumb { background:${T.border}; border-radius:2px; }
+    select option { background:${T.bgCard}; color:${T.text}; }
+    input, select, textarea, button { font-family:'Nunito',sans-serif; }
+
+    .px8  { font-family:'Press Start 2P',monospace; font-size:8px; }
+    .px9  { font-family:'Press Start 2P',monospace; font-size:9px; }
+    .px10 { font-family:'Press Start 2P',monospace; font-size:10px; }
+    .px12 { font-family:'Press Start 2P',monospace; font-size:12px; }
+
+    @keyframes bob     { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+    @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes fadeUp  { from{opacity:0;transform:translateX(-50%) translateY(-6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    @keyframes slideUp { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
+    @keyframes evoIn   { 0%,100%{opacity:0;transform:scale(0.75)} 35%,65%{opacity:1;transform:scale(1)} }
+    @keyframes shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
+    @keyframes floatUp { from{transform:translateY(100vh) rotate(0deg);opacity:0.12} to{transform:translateY(-10vh) rotate(180deg);opacity:0} }
+
+    .page-in { animation: slideUp 0.22s ease; }
+
+    /* Pixel card */
+    .pcard {
+      background: ${T.bgCard};
+      border: 2px solid ${T.border};
+      box-shadow: 3px 3px 0 ${T.border};
+    }
+    .pcard-accent {
+      border: 2px solid var(--accent);
+      box-shadow: 3px 3px 0 var(--accent);
+      background: ${T.bgCard};
+    }
+
+    /* Nav pill */
+    .nav-pill {
+      font-family:'Press Start 2P',monospace;
+      font-size:7px;
+      padding:7px 11px;
+      border:2px solid ${T.border};
+      background:transparent;
+      cursor:pointer;
+      color:${T.textMid};
+      transition:all 0.1s;
+    }
+    .nav-pill:hover, .nav-pill.active {
+      background:${T.bgCard};
+      color:${T.text};
+      transform:translate(-1px,-1px);
+      box-shadow:2px 2px 0 ${T.border};
+    }
+    .nav-pill.active {
+      border-color:var(--accent);
+      color:var(--accent);
+      box-shadow:2px 2px 0 var(--accent);
+    }
+
+    /* Task card */
+    .task-card {
+      background:${T.bgCard};
+      border:2px solid ${T.border};
+      box-shadow:3px 3px 0 ${T.border};
+      padding:13px 14px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      cursor:pointer;
+      transition:all 0.12s;
+      position:relative;
+      overflow:hidden;
+    }
+    .task-card:hover { transform:translate(-2px,-2px); box-shadow:5px 5px 0 ${T.border}; }
+    .task-card.done  { opacity:0.45; }
+
+    /* Priority left strip */
+    .task-card::before { content:''; position:absolute; left:0;top:0;bottom:0; width:4px; }
+    .tc-high::before   { background:${T.coral}; }
+    .tc-medium::before { background:${T.teal}; }
+    .tc-low::before    { background:${T.lavender}; }
+    .tc-urgent::before { background:${T.red}; }
+
+    /* Task checkbox */
+    .task-check {
+      width:22px; height:22px;
+      border:2px solid ${T.border};
+      background:${T.bgPanel};
+      display:grid; place-items:center;
+      flex-shrink:0; cursor:pointer;
+      transition:background 0.1s;
+    }
+    .task-check.checked { background:${T.teal}; }
+
+    /* Pet action buttons */
+    .pet-btn {
+      font-family:'Press Start 2P',monospace;
+      font-size:7px;
+      padding:9px 6px;
+      border:2px solid ${T.border};
+      cursor:pointer;
+      text-align:center;
+      display:flex; align-items:center; justify-content:center; gap:4px;
+      transition:all 0.1s;
+    }
+    .pet-btn:hover { transform:translate(-1px,-1px); box-shadow:3px 3px 0 ${T.border}; }
+    .pet-btn:active { transform:translate(2px,2px); box-shadow:none !important; }
+
+    /* Task tab */
+    .task-tab {
+      font-family:'Press Start 2P',monospace;
+      font-size:7px;
+      padding:8px 12px;
+      cursor:pointer;
+      border:none;
+      border-right:2px solid ${T.border};
+      background:${T.bgCard};
+      color:${T.textMid};
+      transition:all 0.1s;
+    }
+    .task-tab:last-child { border-right:none; }
+    .task-tab.active { background:${T.bg}; color:var(--accent); }
+
+    /* Inventory slot */
+    .inv-slot {
+      aspect-ratio:1;
+      border:2px solid ${T.border};
+      background:${T.bgPanel};
+      display:grid; place-items:center;
+      font-size:18px; cursor:pointer;
+      transition:all 0.1s; position:relative;
+    }
+    .inv-slot:hover { transform:translate(-1px,-1px); box-shadow:2px 2px 0 ${T.border}; background:${T.bgCard}; }
+    .inv-slot.empty { opacity:0.25; cursor:default; font-size:11px; color:${T.textDim}; }
+    .inv-slot.empty:hover { transform:none; box-shadow:none; }
+
+    /* Digi card in team */
+    .digi-card {
+      background:${T.bgCard};
+      border:2px solid ${T.border};
+      padding:12px;
+      cursor:grab;
+      transition:all 0.12s;
+    }
+    .digi-card:hover { border-color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
+
+    /* Battle */
+    .battle-tile {
+      background:${T.bgCard};
+      border:2px solid ${T.border};
+      padding:12px;
+      text-align:center;
+      cursor:pointer;
+      transition:all 0.12s;
+    }
+    .battle-tile.enemy:hover { border-color:${T.coral}; box-shadow:2px 2px 0 ${T.coral}; }
+    .battle-tile.player.active { border-color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
+
+    /* Store row */
+    .store-row {
+      background:${T.bgCard};
+      border:2px solid ${T.border};
+      padding:12px 14px;
+      display:flex; align-items:center; gap:12px;
+      transition:all 0.12s;
+    }
+    .store-row:hover { border-color:${T.gold}; box-shadow:2px 2px 0 ${T.gold}; }
+
+    /* Floating particles */
+    .particle {
+      position:fixed; pointer-events:none;
+      width:6px; height:6px;
+      border:1.5px solid ${T.border};
+      opacity:0.08;
+      animation:floatUp linear infinite;
+    }
+
+    /* Section label divider (like Nomi) */
+    .sec-label {
+      font-family:'Press Start 2P',monospace;
+      font-size:7px;
+      color:${T.textDim};
+      display:flex; align-items:center; gap:10px;
+      padding:4px 0;
+    }
+    .sec-label::after { content:''; flex:1; height:1px; background:${T.border}; opacity:0.6; }
+
+    /* Section title with divider line */
+    .sec-title {
+      font-family:'Press Start 2P',monospace;
+      font-size:8px;
+      color:${T.text};
+      margin-bottom:12px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .sec-title::after { content:''; flex:1; height:2px; background:${T.border}; }
+
+    /* Evolve banner shimmer */
+    .evo-banner {
+      background: linear-gradient(90deg, #1a1f3a, #1f2a3a, #1a1f3a);
+      background-size:200% auto;
+      animation:shimmer 3s linear infinite;
+      border:2px solid ${T.lavender};
+      box-shadow:3px 3px 0 ${T.lavender};
+      padding:10px 14px;
+      display:flex; align-items:center; gap:10px;
+      cursor:pointer;
+    }
+
+    /* Responsive */
+    @media (max-width:1080px) { .right-col { display:none !important; } }
+    @media (max-width:700px)  { .left-col  { display:none !important; } .main-content { padding:12px; } }
+  `;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#080a12", color:"#fff", fontFamily:"'Segoe UI',sans-serif" }}>
-      <style>{`
-        * { box-sizing:border-box; margin:0; padding:0; }
-        ::-webkit-scrollbar { width:4px; }
-        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.1); border-radius:2px; }
-        select option { background:#0d0f1a; color:#fff; }
-        textarea, input, select, button { font-family:inherit; }
+    <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Nunito',sans-serif", "--accent":accent }}>
+      <style>{css}</style>
 
-        @keyframes slideUp   { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
-        @keyframes evoIn     { 0%,100%{opacity:0;transform:scale(0.75)} 35%,65%{opacity:1;transform:scale(1)} }
-        @keyframes xpPop     { 0%{opacity:1;transform:translate(-50%,0)} 100%{opacity:0;transform:translate(-50%,-36px)} }
-        @keyframes pulse     { 0%,100%{opacity:0.6} 50%{opacity:1} }
-        @keyframes shimmer   { 0%{background-position:200% center} 100%{background-position:-200% center} }
+      {/* Floating pixels */}
+      <div style={{ position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden" }} aria-hidden="true">
+        {[{l:"5%",d:"12s",c:T.teal},{l:"18%",d:"9s",c:T.lavender,dd:"2s"},{l:"35%",d:"15s",c:accent,dd:"4s"},{l:"58%",d:"11s",c:T.coral,dd:"1s"},{l:"74%",d:"14s",c:T.mint,dd:"6s"},{l:"90%",d:"10s",c:T.gold,dd:"3s"}].map(function(p,i){
+          return <div key={i} className="particle" style={{ left:p.l, animationDuration:p.d, animationDelay:p.dd||"0s", background:p.c }}/>;
+        })}
+      </div>
 
-        .page-in  { animation: slideUp 0.22s ease; }
-
-        .card {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 16px;
-          padding: 16px;
-        }
-        .card-accent {
-          background: linear-gradient(135deg,${accent}1a 0%,${accent}06 100%);
-          border: 1px solid ${accent}44;
-          border-radius: 16px;
-          padding: 20px;
-          position: relative;
-          overflow: hidden;
-        }
-        .card-accent::before {
-          content:'';
-          position:absolute;
-          inset:0;
-          background-image: ${gridPattern};
-          pointer-events:none;
-        }
-        .digi-card {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid ${accent}22;
-          border-radius: 12px;
-          padding: 12px;
-          cursor: grab;
-          transition: border-color 0.15s, background 0.15s;
-        }
-        .digi-card:hover {
-          border-color: ${accent}66;
-          background: ${accent}0f;
-        }
-        .task-row {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.07);
-          border-radius: 12px;
-          padding: 12px 14px;
-          transition: border-color 0.15s;
-        }
-        .task-row:hover { border-color: rgba(255,255,255,0.15); }
-
-        .battle-enemy {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,80,80,0.2);
-          border-radius: 12px;
-          padding: 12px;
-          text-align: center;
-          cursor: pointer;
-          transition: border-color 0.15s, background 0.15s;
-        }
-        .battle-enemy:hover { border-color: rgba(255,80,80,0.6); background: rgba(255,50,50,0.08); }
-
-        .battle-player {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 12px;
-          padding: 12px;
-          text-align: center;
-          cursor: pointer;
-          transition: border-color 0.15s;
-        }
-        .battle-player.active { border-color: ${accent}88; background: ${accent}10; }
-
-        .nav-btn {
-          flex: 1;
-          min-width: 56px;
-          padding: 10px 0 14px;
-          background: none;
-          border: none;
-          cursor: pointer;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 3px;
-          transition: color 0.15s;
-          border-top: 2px solid transparent;
-        }
-        .nav-btn.active {
-          color: ${accent} !important;
-          border-top-color: ${accent};
-        }
-
-        .stat-chip {
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 10px;
-          padding: 10px 8px;
-          text-align: center;
-        }
-        .store-row {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.07);
-          border-radius: 12px;
-          padding: 14px 16px;
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          transition: border-color 0.15s;
-        }
-        .store-row:hover { border-color: ${accent}55; }
-      `}</style>
-
-      {/* ── EVOLUTION OVERLAY ───────────────────────────────────────────── */}
+      {/* ── EVOLUTION OVERLAY ─────────────────────────────────────────────── */}
       {evoAnim && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"evoIn 3.2s ease" }}>
-          <div style={{ fontSize:56,marginBottom:20 }}>✨</div>
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:500,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"evoIn 3.2s ease" }}>
+          <div style={{ fontSize:52,marginBottom:16 }}>✨</div>
           <DigiSprite digimonId={evoAnim} size={128} mood="happy"/>
-          <div style={{ marginTop:24,fontSize:11,color:accent,letterSpacing:5,fontWeight:700 }}>DIGIVOLUTION</div>
-          <div style={{ marginTop:8,fontSize:26,fontWeight:900,color:"#fff" }}>
-            {DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].name}
-          </div>
-          <div style={{ marginTop:6,fontSize:12,color:"rgba(255,255,255,0.4)" }}>
-            {DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].stage}
-          </div>
+          <div className="px10" style={{ marginTop:24,color:accent,letterSpacing:4 }}>DIGIVOLUTION</div>
+          <div style={{ marginTop:10,fontSize:24,fontWeight:900 }}>{DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].name}</div>
+          <div className="px8" style={{ marginTop:6,color:T.textMid }}>{DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].stage}</div>
         </div>
       )}
 
-      {/* ── TOAST ───────────────────────────────────────────────────────── */}
+      {/* ── TOAST ─────────────────────────────────────────────────────────── */}
       {toast && (
-        <div style={{ position:"fixed",bottom:88,left:"50%",transform:"translateX(-50%)",background:"#0d1020",border:"1px solid "+toast.color+"44",borderRadius:22,padding:"10px 20px",fontSize:13,color:toast.color,zIndex:200,whiteSpace:"nowrap",boxShadow:"0 6px 24px "+toast.color+"22",animation:"slideUp 0.2s ease" }}>
+        <div style={{ position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:T.bgCard,border:"2px solid "+toast.color,boxShadow:"3px 3px 0 "+toast.color,padding:"9px 20px",zIndex:300,whiteSpace:"nowrap",animation:"slideUp 0.2s ease",color:toast.color,fontWeight:700,fontSize:13 }}>
           {toast.msg}
         </div>
       )}
 
-      {/* ── TOP BAR ─────────────────────────────────────────────────────── */}
-      <div style={{ position:"sticky",top:0,background:"rgba(8,10,18,0.96)",backdropFilter:"blur(16px)",borderBottom:"1px solid rgba(255,255,255,0.07)",zIndex:100,padding:"10px 16px",display:"flex",alignItems:"center",gap:12 }}>
-        <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-          {activeDigi && <DigiSprite digimonId={activeDigi.speciesId} size={28} animate={false}/>}
-          <span style={{ fontWeight:900,fontSize:18,letterSpacing:-0.5 }}>
-            Daily<span style={{ color:accent }}>Digivolve</span>
-          </span>
+      {/* ── TOP NAV ───────────────────────────────────────────────────────── */}
+      <nav style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",background:T.bgPanel,borderBottom:"2px solid "+T.border,boxShadow:"0 2px 0 "+T.border,position:"sticky",top:0,zIndex:200,gap:12,flexWrap:"wrap" }}>
+        {/* Logo */}
+        <div className="px12" style={{ display:"flex",alignItems:"center",gap:10,color:T.text }}>
+          <div style={{ width:10,height:10,background:accent,border:"2px solid "+T.border,animation:"blink 1.2s step-end infinite",display:"inline-block" }}/>
+          DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
-        <div style={{ flex:1 }}/>
-        <div style={{ display:"flex",gap:14,alignItems:"center",fontSize:12 }}>
-          <span style={{ color:"#FFD700",fontWeight:700 }}>🪙 {bits}</span>
-          <span style={{ color:"rgba(255,255,255,0.4)" }}>🔥 {streak}d</span>
-          <span style={{ color:accent }}>◈ {party.length}/{MAX_PARTY_SIZE}</span>
-        </div>
-      </div>
 
-      {/* ── PAGE CONTENT ────────────────────────────────────────────────── */}
-      <div style={{ maxWidth:800,margin:"0 auto",padding:"20px 14px 96px" }}>
-        <div key={page} className="page-in">
-
-          {/* ══ DASHBOARD ══════════════════════════════════════════════════ */}
-          {page==="dashboard" && activeDigi && activeInfo && (function(){
-            var st = calcStats(activeDigi);
-            var persObj = PERSONALITIES.find(function(p){ return p.id===activeDigi.personality; });
-            var urgentTasks = pending.filter(function(t){ return t.priority==="High"||t.priority==="Urgent"; });
+        {/* Nav pills */}
+        <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+          {NAV.map(function(n){
             return (
-              <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
+              <button key={n.id} className={"nav-pill"+(page===n.id?" active":"")} onClick={function(){ setPage(n.id); }}>
+                {n.icon} {n.label}
+              </button>
+            );
+          })}
+        </div>
 
-                {/* Hero card */}
-                <div className="card-accent">
-                  <div style={{ display:"flex",gap:20,alignItems:"center",position:"relative" }}>
-                    <div style={{ position:"relative" }}>
-                      <DigiSprite digimonId={activeDigi.speciesId} size={100} mood="happy"/>
-                      <div style={{ position:"absolute",bottom:-4,left:"50%",transform:"translateX(-50%)",background:"#0d1020",borderRadius:10,padding:"2px 8px",fontSize:9,color:accent,fontWeight:700,whiteSpace:"nowrap",border:"1px solid "+accent+"44" }}>
-                        LV {activeDigi.level}
-                      </div>
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6 }}>
-                        <span style={{ fontSize:20,fontWeight:900 }}>{activeDigi.name}</span>
-                        <Tag color={STAGE_COLOR[activeInfo.stage]||"#aaa"}>{activeInfo.stage}</Tag>
-                        <Tag color={ATTR_COLOR[activeInfo.attr]||"#aaa"}>{activeInfo.attr}</Tag>
-                        {activeDigi.isXForm&&<Tag color="#FFD700">X</Tag>}
-                      </div>
-                      <div style={{ fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:12 }}>
-                        {persObj&&persObj.label} personality · ABI {activeDigi.abi} · {done.length}/{tasks.length} done today
-                      </div>
-                      <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-                        <div>
-                          <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
-                            <span style={{ fontSize:9,color:"rgba(255,255,255,0.35)" }}>EXP</span>
-                            <span style={{ fontSize:9,color:accent }}>{activeDigi.exp} / {activeDigi.expNeeded}</span>
-                          </div>
-                          <Bar value={activeDigi.exp} max={activeDigi.expNeeded} color={accent} h={6}/>
-                        </div>
-                        <div>
-                          <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
-                            <span style={{ fontSize:9,color:"rgba(255,255,255,0.35)" }}>Bonus stats</span>
-                            <span style={{ fontSize:9,color:"#FFD700" }}>{totalBonusStats(activeDigi)} / {Math.floor(abiCap(activeDigi))}</span>
-                          </div>
-                          <Bar value={totalBonusStats(activeDigi)} max={Math.floor(abiCap(activeDigi))} color="#FFD700" h={6}/>
-                        </div>
-                      </div>
-                      {savedStats>0&&(
-                        <div style={{ marginTop:10,background:"rgba(255,215,0,0.12)",border:"1px solid rgba(255,215,0,0.3)",borderRadius:8,padding:"6px 12px",fontSize:11,color:"#FFD700" }}>
-                          ⭐ {savedStats} unallocated stat points — go to Team to assign
-                        </div>
-                      )}
+        {/* User */}
+        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+          <div className="px8" style={{ color:T.textMid }}>LV.{activeDigi&&activeDigi.level}</div>
+          <div style={{ width:34,height:34,border:"2px solid "+T.border,background:T.bgCard,display:"grid",placeItems:"center" }}>
+            {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={26} animate={false}/>}
+          </div>
+          <span style={{ fontWeight:800,fontSize:13 }}>Tamer</span>
+          <div className="px8" style={{ color:T.gold }}>🪙{bits}</div>
+        </div>
+      </nav>
+
+      {/* ── THREE COLUMN LAYOUT ───────────────────────────────────────────── */}
+      <div style={{ display:"grid",gridTemplateColumns:"300px 1fr 260px",minHeight:"calc(100vh - 64px)",position:"relative",zIndex:1 }}>
+
+        {/* ═══ LEFT — PET PANEL ══════════════════════════════════════════ */}
+        <aside className="left-col" style={{ background:T.bgPanel,borderRight:"2px solid "+T.border,padding:"24px 20px",display:"flex",flexDirection:"column",gap:18,overflowY:"auto" }}>
+
+          {/* Pet stage viewport */}
+          <div style={{ background:"linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)",border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,height:210,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14 }}>
+            {/* Dot grid bg */}
+            <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,0.12) 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
+            {/* Speech bubble */}
+            <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+accent,boxShadow:"2px 2px 0 "+accent,padding:"5px 10px",whiteSpace:"nowrap",zIndex:3,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)" }}>
+              <span className="px8" style={{ color:accent }}>{speech}</span>
+              <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+accent }}/>
+            </div>
+            {/* Digimon */}
+            <div style={{ position:"relative",zIndex:2,animation:"bob 2s ease-in-out infinite",cursor:"pointer",transformOrigin:"bottom center" }}
+              onClick={function(){ setSpeech(PET_SPEECHES[Math.floor(Math.random()*PET_SPEECHES.length)]); }}>
+              {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={88} mood="happy"/>}
+            </div>
+            {/* Ground strip */}
+            <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+T.teal+"22 0px,"+T.teal+"22 16px,"+T.teal+"11 16px,"+T.teal+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
+          </div>
+
+          {/* Pet name + level */}
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <div className="px10" style={{ color:T.text }}>{activeDigi&&activeDigi.name}</div>
+            <div className="px8" style={{ background:accent,border:"2px solid "+T.border,padding:"3px 8px",boxShadow:"2px 2px 0 "+T.border,color:T.bg }}>LV.{activeDigi&&activeDigi.level}</div>
+          </div>
+
+          {/* Stat bars */}
+          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+            {[
+              { label:"❤️ HP",   val:activeDigi?Math.min(100,calcStats(activeDigi).HP):75, max:100,  color:T.green  },
+              { label:"⭐ XP",   val:activeDigi?activeDigi.exp:0,                           max:activeDigi?activeDigi.expNeeded:100, color:T.gold  },
+              { label:"😊 MOOD", val:Math.max(30,100-pendTasks.length*12),                  max:100,  color:T.pink   },
+            ].map(function(s){
+              return (
+                <div key={s.label} style={{ display:"flex",flexDirection:"column",gap:5 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between" }}>
+                    <span className="px8" style={{ color:T.textMid }}>{s.label}</span>
+                    <span className="px8" style={{ color:T.textMid }}>{Math.round(s.val)}/{s.max}</span>
+                  </div>
+                  <div style={{ height:12,background:T.bgCard,border:"2px solid "+T.border,overflow:"hidden" }}>
+                    <div style={{ width:Math.min((s.val/s.max)*100,100)+"%",height:"100%",background:s.color,position:"relative",transition:"width 0.8s ease" }}>
+                      <div style={{ position:"absolute",top:2,left:3,right:3,height:3,background:"rgba(255,255,255,0.25)" }}/>
                     </div>
                   </div>
                 </div>
+              );
+            })}
+          </div>
 
-                {/* Stat grid */}
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8 }}>
-                  {[["HP",st.HP,"#7EF797"],["SP",st.SP,"#5BA4CF"],["ATK",st.ATK,"#FF6B35"],["DEF",st.DEF,"#7EB8F7"],["INT",st.INT,"#B8A0E8"],["SPD",st.SPD,"#FFD700"]].map(function(s){
-                    return (
-                      <div key={s[0]} className="stat-chip">
-                        <div style={{ fontSize:16,fontWeight:900,color:s[2] }}>{s[1]}</div>
-                        <div style={{ fontSize:8,color:"rgba(255,255,255,0.35)",marginTop:2 }}>{s[0]}</div>
-                      </div>
-                    );
-                  })}
+          {/* Pet action buttons */}
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+            {[
+              { label:"🍎 FEED",  color:T.coral,    log:"nom nom nom 🍎",       logMsg:"Mochi was fed!" },
+              { label:"🎮 PLAY",  color:T.teal,     log:"yay let's play! 🎮",   logMsg:"Mochi played happily!" },
+              { label:"💤 REST",  color:T.lavender, log:"zzz... 💤",            logMsg:"Mochi is resting." },
+              { label:"⚡ TRAIN", color:T.mint,     log:"getting stronger! ⚡", logMsg:"Mochi trained hard!" },
+            ].map(function(b){
+              return (
+                <button key={b.label} className="pet-btn" style={{ background:b.color+"22",borderColor:b.color,color:b.color }} onClick={function(){ petAction(b.log, b.logMsg); }}>
+                  {b.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Evolution banner */}
+          {activeInfo && (function(){
+            var evoT = (activeInfo.evolvesTo||[]).filter(function(id){ var t=DIGIMON_MAP[id]; return t&&!t.fusionOf&&activeDigi.level>=10; });
+            var xpLeft = (activeDigi.expNeeded - activeDigi.exp);
+            return evoT.length>0 ? (
+              <div className="evo-banner" onClick={function(){ setPage("team"); }}>
+                <span style={{ fontSize:18 }}>✨</span>
+                <div style={{ flex:1 }}>
+                  <div className="px8" style={{ color:T.lavender }}>EVOLUTION READY</div>
+                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>Go to Team to evolve!</div>
                 </div>
+                <span style={{ color:T.lavender,fontWeight:900 }}>→</span>
+              </div>
+            ) : (
+              <div className="evo-banner">
+                <span style={{ fontSize:18 }}>✨</span>
+                <div style={{ flex:1 }}>
+                  <div className="px8" style={{ color:T.lavender }}>EVOLUTION NEAR</div>
+                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>{xpLeft} more XP needed!</div>
+                </div>
+                <span style={{ color:T.lavender }}>→</span>
+              </div>
+            );
+          })()}
 
-                {/* Summary row */}
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10 }}>
+          {/* Saved stats banner */}
+          {savedStats>0&&(
+            <div style={{ background:T.gold+"18",border:"2px solid "+T.gold,boxShadow:"2px 2px 0 "+T.gold,padding:"10px 12px",cursor:"pointer" }} onClick={function(){setPage("team");}}>
+              <div className="px8" style={{ color:T.gold }}>⭐ {savedStats} STAT PTS</div>
+              <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>Tap to allocate in Team</div>
+            </div>
+          )}
+        </aside>
+
+        {/* ═══ MIDDLE — MAIN CONTENT ══════════════════════════════════════ */}
+        <main className="main-content" style={{ padding:"24px 28px",display:"flex",flexDirection:"column",gap:18,overflowY:"auto" }}>
+          <div key={page} className="page-in">
+
+            {/* ── DASHBOARD ────────────────────────────────────────────── */}
+            {page==="dashboard"&&(
+              <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
+
+                {/* Streak row */}
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
                   {[
-                    { label:"Pending", value:pending.length,  color:"#FFB3C6", icon:"⏳" },
-                    { label:"Done",    value:done.length,      color:"#7EF797", icon:"✓"  },
-                    { label:"Streak",  value:streak+"d",       color:"#FFD700", icon:"🔥" },
-                    { label:"Bits",    value:bits,             color:accent,    icon:"🪙" },
+                    { icon:"🔥", val:streak,               label:"day streak" },
+                    { icon:"✅", val:doneTasks.length+"/"+tasks.length, label:"done today" },
+                    { icon:"⭐", val:"+"+xpToday,           label:"XP today" },
                   ].map(function(s){
                     return (
-                      <div key={s.label} className="card" style={{ textAlign:"center",padding:"14px 8px" }}>
-                        <div style={{ fontSize:20,marginBottom:4 }}>{s.icon}</div>
-                        <div style={{ fontSize:20,fontWeight:900,color:s.color }}>{s.value}</div>
-                        <div style={{ fontSize:9,color:"rgba(255,255,255,0.35)" }}>{s.label}</div>
+                      <div key={s.label} className="pcard" style={{ padding:14,display:"flex",alignItems:"center",gap:12 }}>
+                        <div style={{ fontSize:26,lineHeight:1 }}>{s.icon}</div>
+                        <div>
+                          <div className="px12" style={{ color:T.text,lineHeight:1 }}>{s.val}</div>
+                          <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:4 }}>{s.label}</div>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
 
-                {/* Urgent tasks */}
-                {urgentTasks.length>0&&(
-                  <div style={{ background:"rgba(255,68,68,0.07)",border:"1px solid rgba(255,68,68,0.25)",borderRadius:14,padding:16 }}>
-                    <div style={{ fontSize:11,color:"#FF8080",fontWeight:700,marginBottom:10 }}>⚡ URGENT / HIGH PRIORITY</div>
-                    {urgentTasks.map(function(t){
+                {/* Header */}
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end" }}>
+                  <div>
+                    <div className="px12">TODAY'S QUESTS</div>
+                    <div style={{ fontSize:13,fontWeight:700,color:T.textMid,marginTop:4 }}>{pendTasks.length} tasks remaining</div>
+                  </div>
+                  <button className="px8" onClick={function(){setPage("tasks");}} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>
+                    + NEW TASK
+                  </button>
+                </div>
+
+                {/* Priority sections */}
+                {[["High","Urgent"],["Medium"],["Low"]].map(function(pris){
+                  var label = pris[0]==="High"?"⚡ HIGH / URGENT":pris[0]==="Medium"?"🌿 MEDIUM":"💜 LOW";
+                  var tlist = pendTasks.filter(function(t){ return pris.indexOf(t.priority)>=0; });
+                  if (tlist.length===0) return null;
+                  return (
+                    <div key={label} style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      <div className="sec-label">{label}</div>
+                      {tlist.map(function(t){
+                        var xp=calcXpReward(t,streak);
+                        var stars=t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
+                        return (
+                          <div key={t.id} className={"task-card tc-"+(t.priority||"low").toLowerCase()}>
+                            <div className={"task-check"+(t.done?" checked":"")} onClick={function(e){ e.stopPropagation(); completeTask(t.id); }}>
+                              {t.done&&<span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>}
+                            </div>
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:14,fontWeight:800,color:T.text }}>{t.title}</div>
+                              <div style={{ display:"flex",gap:6,marginTop:5,flexWrap:"wrap",alignItems:"center" }}>
+                                <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category.toUpperCase()}</span>
+                                <span className="px8" style={{ padding:"2px 6px",background:"#2a2000",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
+                                <span style={{ fontSize:11,fontWeight:700,color:t.type==="daily"?T.teal:T.textDim }}>{t.type}</span>
+                              </div>
+                            </div>
+                            <div style={{ display:"flex",gap:2,flexShrink:0 }}>
+                              {[1,2,3,4].map(function(n){ return <span key={n} style={{ fontSize:12,color:n<=stars?T.gold:T.textDim }}>★</span>; })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Done tasks */}
+                {doneTasks.length>0&&(
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    <div className="sec-label">✓ COMPLETED</div>
+                    {doneTasks.map(function(t){
                       return (
-                        <div key={t.id} style={{ display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
-                          <button onClick={function(){ completeTask(t.id); }} style={{ width:20,height:20,borderRadius:5,border:"2px solid rgba(255,100,100,0.5)",background:"transparent",cursor:"pointer",flexShrink:0 }}/>
-                          <span style={{ flex:1,fontSize:13 }}>{t.title}</span>
-                          <Tag color={PRIORITY_COLORS[t.priority]||"#aaa"}>{t.priority}</Tag>
+                        <div key={t.id} className="task-card done tc-low">
+                          <div className="task-check checked"><span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span></div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:14,fontWeight:800,color:T.textMid,textDecoration:"line-through" }}>{t.title}</div>
+                          </div>
+                          <span className="px8" style={{ fontSize:"6px",color:T.green }}>DONE</span>
                         </div>
                       );
                     })}
                   </div>
                 )}
-
-                {/* Today's tasks */}
-                <div>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-                    <span style={{ fontSize:11,color:"rgba(255,255,255,0.35)",letterSpacing:1 }}>TODAY'S TASKS</span>
-                    <button onClick={function(){ setPage("tasks"); }} style={{ background:"none",border:"none",color:accent,cursor:"pointer",fontSize:11 }}>View all →</button>
-                  </div>
-                  {pending.slice(0,4).map(function(t){
-                    return (
-                      <div key={t.id} className="task-row" style={{ display:"flex",gap:10,alignItems:"center",marginBottom:6,borderColor:PRIORITY_COLORS[t.priority]+"33" }}>
-                        <button onClick={function(){ completeTask(t.id); }} style={{ width:20,height:20,borderRadius:5,border:"2px solid "+PRIORITY_COLORS[t.priority]+"88",background:"transparent",cursor:"pointer",flexShrink:0 }}/>
-                        <span style={{ flex:1,fontSize:13 }}>{t.title}</span>
-                        <Tag color={PRIORITY_COLORS[t.priority]||"#aaa"}>{t.priority}</Tag>
-                        <span style={{ fontSize:9,color:"rgba(255,255,255,0.25)" }}>+{calcXpReward(t,streak)} XP</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Party strip */}
-                <div>
-                  <div style={{ fontSize:11,color:"rgba(255,255,255,0.35)",letterSpacing:1,marginBottom:10 }}>YOUR PARTY</div>
-                  <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
-                    {party.map(function(d,i){
-                      var inf2 = DIGIMON_MAP[d.speciesId];
-                      return (
-                        <div key={d.uid} className="digi-card" style={{ display:"flex",alignItems:"center",gap:10,minWidth:160 }}
-                          draggable onDragStart={function(){ dragIdx.current=i; }} onDrop={function(){ if(dragIdx.current!==null&&dragIdx.current!==i){setParty(function(p){var a=p.slice();var tmp=a[dragIdx.current];a[dragIdx.current]=a[i];a[i]=tmp;return a;});} dragIdx.current=null; }} onDragOver={function(e){ e.preventDefault(); }}>
-                          <DigiSprite digimonId={d.speciesId} size={38} animate={false}/>
-                          <div style={{ flex:1 }}>
-                            <div style={{ fontSize:12,fontWeight:700 }}>{d.name}</div>
-                            <div style={{ fontSize:10,color:"rgba(255,255,255,0.35)" }}>Lv.{d.level} · {inf2&&inf2.stage}</div>
-                          </div>
-                          {i===0&&<span style={{ fontSize:9,color:accent }}>★</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Chat CTA */}
-                <div style={{ background:"linear-gradient(135deg,rgba(126,184,247,0.1) 0%,rgba(184,160,232,0.1) 100%)",border:"1px solid rgba(126,184,247,0.2)",borderRadius:14,padding:16,display:"flex",alignItems:"center",gap:14 }}>
-                  <DigiSprite digimonId={activeDigi.speciesId} size={44} mood="happy"/>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13,fontWeight:700,marginBottom:3 }}>{activeDigi.name} wants to talk</div>
-                    <div style={{ fontSize:11,color:"rgba(255,255,255,0.45)" }}>AI-powered companion chat — responds based on your tasks</div>
-                  </div>
-                  <Btn small color={accent} onClick={function(){ setPage("chat"); }}>💬 Chat</Btn>
-                </div>
-
               </div>
-            );
-          })()}
+            )}
 
-          {/* ══ TASKS ═══════════════════════════════════════════════════════ */}
-          {page==="tasks"&&(
-            <TasksPage tasks={tasks} onComplete={completeTask} onAdd={addTask} onEdit={editTask} onDelete={deleteTask} accent={accent} streak={streak}/>
-          )}
+            {/* ── TASKS FULL ───────────────────────────────────────────── */}
+            {page==="tasks"&&(
+              <TasksPage tasks={tasks} onComplete={completeTask} onAdd={addTask} onEdit={editTask} onDelete={deleteTask} accent={accent} streak={streak} T={T}/>
+            )}
 
-          {/* ══ TEAM ════════════════════════════════════════════════════════ */}
-          {page==="team"&&(
-            <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <span style={{ fontSize:16,fontWeight:800 }}>Team Manager</span>
-                <Tag color={accent}>{party.length}/{MAX_PARTY_SIZE} active</Tag>
-              </div>
-
-              {savedStats>0&&(
-                <div style={{ background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.3)",borderRadius:14,padding:16 }}>
-                  <div style={{ fontSize:12,color:"#FFD700",fontWeight:700,marginBottom:10 }}>⭐ {savedStats} stat points to allocate to active Digimon</div>
-                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                    {["HP","SP","ATK","DEF","INT","SPD"].map(function(stat){
-                      return (
-                        <Btn key={stat} small color="#FFD700" onClick={function(){
-                          if (savedStats<=0) return;
-                          setParty(function(p){ return p.map(function(d,i){
-                            if (i!==0) return d;
-                            if (totalBonusStats(d)>=abiCap(d)){ toast_("ABI cap reached!","#FF8080"); return d; }
-                            var nb=Object.assign({},d.bonusStats); nb[stat]=(nb[stat]||0)+1;
-                            return Object.assign({},d,{bonusStats:nb});
-                          }); });
-                          setSavedStats(function(s){ return s-1; });
-                        }}>+{stat}</Btn>
-                      );
-                    })}
-                  </div>
+            {/* ── TEAM ─────────────────────────────────────────────────── */}
+            {page==="team"&&(
+              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div className="px12">TEAM MANAGER</div>
+                  <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
                 </div>
-              )}
-
-              {party.map(function(digi,i){
-                var inf2 = DIGIMON_MAP[digi.speciesId];
-                var st2  = calcStats(digi);
-                var evoT = (inf2&&inf2.evolvesTo||[]).filter(function(id){ var t=DIGIMON_MAP[id]; return t&&!t.fusionOf&&digi.level>=10; });
-                return (
-                  <div key={digi.uid} className="card" style={{ borderColor:i===0?accent+"44":"rgba(255,255,255,0.08)" }}>
-                    <div style={{ display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap" }}>
-                      <div style={{ position:"relative" }}>
-                        <DigiSprite digimonId={digi.speciesId} size={80} mood="happy"/>
-                        {i===0&&<div style={{ position:"absolute",top:-6,right:-6,background:accent,borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#0d0f1a",fontWeight:900 }}>★</div>}
-                      </div>
-                      <div style={{ flex:1,minWidth:180 }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4 }}>
-                          <span style={{ fontSize:15,fontWeight:800 }}>{digi.name}</span>
-                          <Tag color={STAGE_COLOR[inf2&&inf2.stage]||"#aaa"}>{inf2&&inf2.stage}</Tag>
-                          <Tag color={ATTR_COLOR[inf2&&inf2.attr]||"#aaa"}>{inf2&&inf2.attr}</Tag>
-                          {digi.isXForm&&<Tag color="#FFD700">X</Tag>}
-                        </div>
-                        <div style={{ fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:10 }}>
-                          Lv.{digi.level} · ABI {digi.abi} · {PERSONALITIES.find(function(p){return p.id===digi.personality;})&&PERSONALITIES.find(function(p){return p.id===digi.personality;}).label}
-                        </div>
-                        <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10 }}>
-                          {[["HP",st2.HP,"#7EF797"],["ATK",st2.ATK,"#FF6B35"],["DEF",st2.DEF,"#7EB8F7"],["SP",st2.SP,"#5BA4CF"],["INT",st2.INT,"#B8A0E8"],["SPD",st2.SPD,"#FFD700"]].map(function(s){
-                            var bonus=(digi.bonusStats[s[0]]||0);
-                            return (
-                              <div key={s[0]} style={{ fontSize:11,color:"rgba(255,255,255,0.5)" }}>
-                                <span style={{ color:"#fff",fontWeight:700 }}>{s[1]}</span> {s[0]}
-                                {bonus>0&&<span style={{ color:"#FFD700",fontSize:9 }}> +{bonus}</span>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div style={{ marginBottom:10 }}>
-                          <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
-                            <span style={{ fontSize:9,color:"rgba(255,255,255,0.35)" }}>EXP</span>
-                            <span style={{ fontSize:9,color:accent }}>{digi.exp}/{digi.expNeeded}</span>
-                          </div>
-                          <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={5}/>
-                        </div>
-                        <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                          {evoT.map(function(tid){
-                            return <Btn key={tid} small color="#FFD700" onClick={function(){ evolve(digi.uid,tid); }}>→ {DIGIMON_MAP[tid]&&DIGIMON_MAP[tid].name}</Btn>;
-                          })}
-                          {party.length>1&&<Btn small outline color="rgba(255,255,255,0.3)" onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</Btn>}
-                        </div>
-                      </div>
+                {savedStats>0&&(
+                  <div style={{ background:T.gold+"15",border:"2px solid "+T.gold,boxShadow:"3px 3px 0 "+T.gold,padding:14 }}>
+                    <div className="px8" style={{ color:T.gold,marginBottom:10 }}>⭐ {savedStats} STAT POINTS</div>
+                    <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                      {["HP","SP","ATK","DEF","INT","SPD"].map(function(stat){
+                        return (
+                          <button key={stat} className="px8" style={{ padding:"6px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px" }} onClick={function(){
+                            if(savedStats<=0)return;
+                            setParty(function(p){return p.map(function(d,i){if(i!==0)return d;if(totalBonusStats(d)>=abiCap(d)){toast_("ABI cap reached!","#FF8080");return d;}var nb=Object.assign({},d.bonusStats);nb[stat]=(nb[stat]||0)+1;return Object.assign({},d,{bonusStats:nb});});});
+                            setSavedStats(function(s){return s-1;});
+                          }}>+{stat}</button>
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ══ DIGIFARM ════════════════════════════════════════════════════ */}
-          {page==="digifarm"&&(
-            <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <span style={{ fontSize:16,fontWeight:800 }}>DigiFarm</span>
-                <Tag color="#7EF797">{farm.length} stored</Tag>
-              </div>
-              {farm.length===0
-                ? <div className="card" style={{ textAlign:"center",padding:40,color:"rgba(255,255,255,0.3)" }}>No Digimon in the farm yet.<br/>Send party members here to store them.</div>
-                : farm.map(function(d){
-                  var inf3=DIGIMON_MAP[d.speciesId];
+                )}
+                {party.map(function(digi,i){
+                  var inf2=DIGIMON_MAP[digi.speciesId]; var st2=calcStats(digi);
+                  var evoT=(inf2&&inf2.evolvesTo||[]).filter(function(id){var t=DIGIMON_MAP[id];return t&&!t.fusionOf&&digi.level>=10;});
                   return (
-                    <div key={d.uid} className="card" style={{ display:"flex",alignItems:"center",gap:14 }}>
-                      <DigiSprite digimonId={d.speciesId} size={56} animate={false}/>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontWeight:700,fontSize:14 }}>{d.name}</div>
-                        <div style={{ fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:2 }}>Lv.{d.level} · {inf3&&inf3.stage} · ABI {d.abi}</div>
+                    <div key={digi.uid} className="pcard" style={{ padding:16,borderColor:i===0?accent:T.border,boxShadow:"3px 3px 0 "+(i===0?accent:T.border) }}>
+                      <div style={{ display:"flex",gap:14,flexWrap:"wrap" }}>
+                        <div style={{ position:"relative" }}>
+                          <DigiSprite digimonId={digi.speciesId} size={80} mood="happy"/>
+                          {i===0&&<div style={{ position:"absolute",top:-6,right:-6,background:accent,border:"2px solid "+T.border,width:18,height:18,display:"grid",placeItems:"center",fontSize:9,color:T.bg,fontWeight:900 }}>★</div>}
+                        </div>
+                        <div style={{ flex:1,minWidth:160 }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6 }}>
+                            <div className="px10">{digi.name}</div>
+                            <div className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"6px" }}>{inf2&&inf2.stage}</div>
+                          </div>
+                          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"6px" }}>Lv.{digi.level} · ABI {digi.abi} · {PERSONALITIES.find(function(p){return p.id===digi.personality;})&&PERSONALITIES.find(function(p){return p.id===digi.personality;}).label}</div>
+                          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10 }}>
+                            {[["HP",st2.HP,T.green],["ATK",st2.ATK,T.coral],["DEF",st2.DEF,T.teal],["SP",st2.SP,T.lavender],["INT",st2.INT,T.lavender],["SPD",st2.SPD,T.gold]].map(function(s){
+                              return <div key={s[0]} style={{ fontSize:11,fontWeight:700,color:T.textMid }}><span style={{ color:s[2],fontWeight:900 }}>{s[1]}</span> {s[0]}</div>;
+                            })}
+                          </div>
+                          <div style={{ marginBottom:10 }}>
+                            <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={8}/>
+                          </div>
+                          <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                            {evoT.map(function(tid){return <button key={tid} className="px8" style={{ padding:"6px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"6px" }} onClick={function(){evolve(digi.uid,tid);}}>→ {DIGIMON_MAP[tid]&&DIGIMON_MAP[tid].name}</button>;})}
+                            {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){sendToFarm(digi.uid);}}>→ Farm</button>}
+                          </div>
+                        </div>
                       </div>
-                      <Btn small color={accent} onClick={function(){ recallFromFarm(d.uid); }}>Recall</Btn>
-                    </div>
-                  );
-                })
-              }
-              {/* Playground */}
-              {farm.length>0&&(
-                <div style={{ background:"rgba(126,184,247,0.06)",border:"1px solid rgba(126,184,247,0.2)",borderRadius:14,padding:16,marginTop:4 }}>
-                  <div style={{ fontSize:12,fontWeight:700,color:"#7EB8F7",marginBottom:10 }}>Playground Mode</div>
-                  <div style={{ display:"flex",gap:12,flexWrap:"wrap" }}>
-                    {farm.slice(0,5).map(function(d){
-                      return (
-                        <div key={d.uid} style={{ textAlign:"center",cursor:"pointer" }} onClick={function(){ toast_(d.name+" plays happily! 🎉","#FFD700"); }}>
-                          <DigiSprite digimonId={d.speciesId} size={48} mood="happy"/>
-                          <div style={{ fontSize:9,color:"rgba(255,255,255,0.35)",marginTop:4 }}>{d.name}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ══ BATTLE ══════════════════════════════════════════════════════ */}
-          {page==="battle"&&(
-            <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-              <span style={{ fontSize:16,fontWeight:800 }}>Battle Arena</span>
-
-              {!battleState ? (
-                <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                  <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
-                    {["Easy","Medium","Hard"].map(function(diff){
-                      var r=BATTLE_REWARDS[diff]||{win:60,loss:25};
-                      var c=diff==="Easy"?"#7EF797":diff==="Medium"?"#FFB34D":"#FF8080";
-                      return (
-                        <div key={diff} className="card" style={{ textAlign:"center",cursor:"pointer",borderColor:c+"33",padding:20 }} onClick={function(){ startBattle(diff); }}>
-                          <div style={{ fontSize:15,fontWeight:900,color:c,marginBottom:6 }}>{diff}</div>
-                          <div style={{ fontSize:10,color:"rgba(255,255,255,0.4)" }}>Win {r.win}🪙</div>
-                          <div style={{ fontSize:10,color:"rgba(255,255,255,0.25)" }}>Loss {r.loss}🪙</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : battleState.phase==="fight" ? (
-                <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-                  <div style={{ fontSize:11,color:"rgba(255,255,255,0.35)",letterSpacing:1 }}>ENEMY TEAM — tap to attack</div>
-                  <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                    {battleState.enemyTeam.map(function(e,i){
-                      return (
-                        <div key={i} className="battle-enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){ battleAttack(i); }}>
-                          <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0}/>
-                          <div style={{ fontSize:11,fontWeight:700,marginTop:6,marginBottom:4 }}>{e.name}</div>
-                          <Bar value={e.currentHp} max={e.maxHp} color="#FF4444" h={4}/>
-                          <div style={{ fontSize:9,color:"rgba(255,255,255,0.35)",marginTop:2 }}>{e.currentHp}/{e.maxHp}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ fontSize:11,color:"rgba(255,255,255,0.35)",letterSpacing:1 }}>YOUR TEAM — select attacker</div>
-                  <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                    {battleState.playerTeam.map(function(p,i){
-                      var isActive=battleState.selected===i;
-                      return (
-                        <div key={i} className={"battle-player"+(isActive?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){ setBattleState(function(bs){ return Object.assign({},bs,{selected:i}); }); }}>
-                          <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isActive?"happy":"stoic"} animate={isActive&&p.currentHp>0}/>
-                          <div style={{ fontSize:11,fontWeight:700,marginTop:6,marginBottom:4 }}>{p.name}</div>
-                          <Bar value={p.currentHp} max={p.maxHp} color="#7EF797" h={4}/>
-                          <div style={{ fontSize:9,color:"rgba(255,255,255,0.35)",marginTop:2 }}>{p.currentHp}/{p.maxHp}</div>
-                          {isActive&&<div style={{ fontSize:9,color:accent,marginTop:4 }}>★ Attacker</div>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="card" style={{ maxHeight:160,overflowY:"auto" }}>
-                    {battleState.log.length===0
-                      ? <div style={{ fontSize:12,color:"rgba(255,255,255,0.35)" }}>Tap an enemy to attack</div>
-                      : battleState.log.map(function(l,i){ return <div key={i} style={{ fontSize:12,color:i===0?"#fff":"rgba(255,255,255,0.4)",padding:"3px 0",borderBottom:"1px solid rgba(255,255,255,0.04)" }}>{l}</div>; })
-                    }
-                  </div>
-                </div>
-              ) : (
-                <div className="card" style={{ textAlign:"center",padding:40 }}>
-                  <div style={{ fontSize:40,marginBottom:12 }}>{battleState.phase==="won"?"🏆":"💀"}</div>
-                  <div style={{ fontSize:20,fontWeight:900,color:battleState.phase==="won"?"#7EF797":"#FF8080",marginBottom:6 }}>{battleState.phase==="won"?"Victory!":"Defeated"}</div>
-                  <div style={{ fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:20 }}>{battleState.log[0]}</div>
-                  <Btn color={accent} onClick={function(){ setBattleState(null); }}>Return to Arena</Btn>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ══ CHAT ════════════════════════════════════════════════════════ */}
-          {page==="chat"&&activeDigi&&(
-            <ChatPage
-              digimon={Object.assign({},activeDigi,{ stage:activeInfo?activeInfo.stage:"Rookie", streak:streak, hp:75 })}
-              tasks={tasks}
-            />
-          )}
-
-          {/* ══ STORE ═══════════════════════════════════════════════════════ */}
-          {page==="store"&&(
-            <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <span style={{ fontSize:16,fontWeight:800 }}>Neemon's Shop</span>
-                <Tag color="#FFD700">🪙 {bits} bits</Tag>
-              </div>
-              <div style={{ fontSize:11,color:"rgba(255,255,255,0.35)",marginBottom:4 }}>Earn bits by winning Arena battles. Higher difficulty = more bits.</div>
-              {STORE_ITEMS.map(function(item){
-                return (
-                  <div key={item.id} className="store-row">
-                    <span style={{ fontSize:26,flexShrink:0 }}>{item.icon}</span>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13,fontWeight:700 }}>{item.name}</div>
-                      <div style={{ fontSize:10,color:"rgba(255,255,255,0.35)",marginTop:2 }}>One-time use</div>
-                    </div>
-                    <Btn small color={bits>=item.cost?"#FFD700":"rgba(255,255,255,0.2)"} disabled={bits<item.cost} onClick={function(){ buyItem(item); }}>
-                      {item.cost}🪙
-                    </Btn>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ══ DIGIDEX ═════════════════════════════════════════════════════ */}
-          {page==="digidex"&&(
-            <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <span style={{ fontSize:16,fontWeight:800 }}>Digidex</span>
-                <Tag color={accent}>{allDisc.length}/{Object.keys(DIGIMON_MAP).length} discovered</Tag>
-              </div>
-              <div style={{ marginBottom:4 }}>
-                <Bar value={allDisc.length} max={Object.keys(DIGIMON_MAP).length} color={accent} h={6}/>
-              </div>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10 }}>
-                {Object.values(DIGIMON_MAP).map(function(d){
-                  var known = allDisc.indexOf(d.id)>=0;
-                  return (
-                    <div key={d.id} className="card" style={{ textAlign:"center",opacity:known?1:0.3,padding:14 }}>
-                      {known
-                        ? <DigiSprite digimonId={d.id} size={52} animate={false}/>
-                        : <div style={{ width:52,height:52,margin:"0 auto",background:"rgba(255,255,255,0.05)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"rgba(255,255,255,0.2)" }}>?</div>
-                      }
-                      <div style={{ fontSize:11,fontWeight:700,marginTop:8 }}>{known?d.name:"???"}</div>
-                      {known&&(
-                        <div style={{ display:"flex",justifyContent:"center",gap:4,marginTop:6,flexWrap:"wrap" }}>
-                          <Tag color={STAGE_COLOR[d.stage]||"#aaa"}>{d.stage}</Tag>
-                          {d.isX&&<Tag color="#FFD700">X</Tag>}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
               </div>
+            )}
+
+            {/* ── DIGIFARM ─────────────────────────────────────────────── */}
+            {page==="digifarm"&&(
+              <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div className="px12">DIGIFARM</div>
+                  <span className="px8" style={{ color:T.mint }}>{farm.length} stored</span>
+                </div>
+                {farm.length===0
+                  ? <div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No Digimon in the farm yet.</div>
+                  : farm.map(function(d){
+                    return (
+                      <div key={d.uid} className="pcard" style={{ padding:14,display:"flex",alignItems:"center",gap:14 }}>
+                        <DigiSprite digimonId={d.speciesId} size={54} animate={false}/>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:800,fontSize:14 }}>{d.name}</div>
+                          <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>Lv.{d.level} · ABI {d.abi}</div>
+                        </div>
+                        <button className="px8" style={{ padding:"7px 12px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){recallFromFarm(d.uid);}}>RECALL</button>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            )}
+
+            {/* ── BATTLE ───────────────────────────────────────────────── */}
+            {page==="battle"&&(
+              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+                <div className="px12">BATTLE ARENA</div>
+                {!battleState?(
+                  <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
+                    {["Easy","Medium","Hard"].map(function(diff){
+                      var r=BATTLE_REWARDS[diff]||{win:60,loss:25};
+                      var c=diff==="Easy"?T.green:diff==="Medium"?T.gold:T.coral;
+                      return (
+                        <div key={diff} className="pcard" style={{ padding:20,textAlign:"center",cursor:"pointer",borderColor:c,boxShadow:"3px 3px 0 "+c }} onClick={function(){startBattle(diff);}}>
+                          <div className="px10" style={{ color:c,marginBottom:8 }}>{diff.toUpperCase()}</div>
+                          <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}>Win {r.win}🪙</div>
+                          <div style={{ fontSize:11,fontWeight:700,color:T.textDim }}>Loss {r.loss}🪙</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ):battleState.phase==="fight"?(
+                  <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+                    <div className="sec-label">ENEMY TEAM — tap to attack</div>
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
+                      {battleState.enemyTeam.map(function(e,i){
+                        return (
+                          <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){battleAttack(i);}}>
+                            <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0}/>
+                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{e.name}</div>
+                            <Bar value={e.currentHp} max={e.maxHp} color={T.coral} h={6}/>
+                            <div style={{ fontSize:9,color:T.textMid,marginTop:2 }}>{e.currentHp}/{e.maxHp}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="sec-label">YOUR TEAM — select attacker</div>
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
+                      {battleState.playerTeam.map(function(p,i){
+                        var isAct=battleState.selected===i;
+                        return (
+                          <div key={i} className={"battle-tile player"+(isAct?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){setBattleState(function(bs){return Object.assign({},bs,{selected:i});});}}>
+                            <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isAct?"happy":"stoic"} animate={isAct&&p.currentHp>0}/>
+                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{p.name}</div>
+                            <Bar value={p.currentHp} max={p.maxHp} color={T.green} h={6}/>
+                            {isAct&&<div className="px8" style={{ color:accent,marginTop:4,fontSize:"6px" }}>★ ATTACKER</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="pcard" style={{ padding:12,maxHeight:150,overflowY:"auto" }}>
+                      {battleState.log.length===0
+                        ? <div style={{ fontSize:12,color:T.textMid }}>Tap an enemy to attack</div>
+                        : battleState.log.map(function(l,i){ return <div key={i} style={{ fontSize:12,color:i===0?T.text:T.textMid,padding:"3px 0",borderBottom:"1px solid "+T.border }}>{l}</div>; })
+                      }
+                    </div>
+                  </div>
+                ):(
+                  <div className="pcard" style={{ padding:40,textAlign:"center" }}>
+                    <div style={{ fontSize:42,marginBottom:12 }}>{battleState.phase==="won"?"🏆":"💀"}</div>
+                    <div className="px12" style={{ color:battleState.phase==="won"?T.green:T.coral,marginBottom:8 }}>{battleState.phase==="won"?"VICTORY!":"DEFEATED"}</div>
+                    <div style={{ fontSize:12,color:T.textMid,marginBottom:20 }}>{battleState.log[0]}</div>
+                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"7px" }} onClick={function(){setBattleState(null);}}>RETURN</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── CHAT ─────────────────────────────────────────────────── */}
+            {page==="chat"&&activeDigi&&(
+              <ChatPage digimon={Object.assign({},activeDigi,{stage:activeInfo?activeInfo.stage:"Rookie",streak:streak,hp:75})} tasks={tasks}/>
+            )}
+
+            {/* ── STORE ────────────────────────────────────────────────── */}
+            {page==="store"&&(
+              <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div className="px12">NEEMON'S SHOP</div>
+                  <div className="px8" style={{ color:T.gold }}>🪙 {bits} BITS</div>
+                </div>
+                <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>Earn bits by winning Arena battles.</div>
+                {STORE_ITEMS.map(function(item){
+                  return (
+                    <div key={item.id} className="store-row">
+                      <span style={{ fontSize:24,flexShrink:0 }}>{item.icon}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:14,fontWeight:800 }}>{item.name}</div>
+                        <div className="px8" style={{ color:T.textDim,marginTop:3,fontSize:"6px" }}>ONE-TIME USE</div>
+                      </div>
+                      <button className="px8" style={{ padding:"7px 12px",background:bits>=item.cost?T.gold+"22":"transparent",border:"2px solid "+(bits>=item.cost?T.gold:T.textDim),color:bits>=item.cost?T.gold:T.textDim,cursor:bits>=item.cost?"pointer":"not-allowed",fontSize:"6px",boxShadow:bits>=item.cost?"2px 2px 0 "+T.gold:"none" }} onClick={function(){buyItem(item);}}>
+                        {item.cost}🪙
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── DIGIDEX ──────────────────────────────────────────────── */}
+            {page==="digidex"&&(
+              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div className="px12">DIGIDEX</div>
+                  <span className="px8" style={{ color:accent }}>{allDisc.length}/{Object.keys(DIGIMON_MAP).length}</span>
+                </div>
+                <Bar value={allDisc.length} max={Object.keys(DIGIMON_MAP).length} color={accent} h={8}/>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10 }}>
+                  {Object.values(DIGIMON_MAP).map(function(d){
+                    var known=allDisc.indexOf(d.id)>=0;
+                    return (
+                      <div key={d.id} className="pcard" style={{ padding:14,textAlign:"center",opacity:known?1:0.3 }}>
+                        {known
+                          ? <DigiSprite digimonId={d.id} size={48} animate={false}/>
+                          : <div style={{ width:48,height:48,margin:"0 auto",background:T.bgPanel,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:18,color:T.textDim }}>?</div>
+                        }
+                        <div style={{ fontSize:11,fontWeight:800,marginTop:8 }}>{known?d.name:"???"}</div>
+                        {known&&<div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:5,fontSize:"6px" }}>{d.stage}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+          </div>
+        </main>
+
+        {/* ═══ RIGHT — INVENTORY + LOG ════════════════════════════════════ */}
+        <aside className="right-col" style={{ background:T.bgPanel,borderLeft:"2px solid "+T.border,padding:"24px 18px",display:"flex",flexDirection:"column",gap:22,overflowY:"auto" }}>
+
+          {/* Daily Quest */}
+          <div>
+            <div className="sec-title">DAILY QUEST</div>
+            <div style={{ background:"linear-gradient(135deg,#1a1a00,#1f1800)",border:"2px solid "+T.gold,boxShadow:"3px 3px 0 "+T.gold,padding:14 }}>
+              <div className="px8" style={{ color:T.gold,marginBottom:6 }}>🗡 PRODUCTIVITY WARRIOR</div>
+              <div style={{ fontSize:12,fontWeight:700,color:T.textMid,marginBottom:10,lineHeight:1.5 }}>Complete {questTotal} tasks before midnight to earn a Rare Treat!</div>
+              <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                <div style={{ flex:1,height:10,background:T.bgCard,border:"1.5px solid "+T.border,overflow:"hidden" }}>
+                  <div style={{ width:Math.min((questDone/questTotal)*100,100)+"%",height:"100%",background:T.coral }}/>
+                </div>
+                <div className="px8" style={{ color:T.gold,fontSize:"6px" }}>{questDone}/{questTotal}</div>
+              </div>
             </div>
-          )}
+          </div>
 
-        </div>
-      </div>
+          {/* Inventory */}
+          <div>
+            <div className="sec-title">INVENTORY</div>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6 }}>
+              {INV_ITEMS.map(function(item,i){
+                return (
+                  <div key={i} className={"inv-slot"+(item.count===0?" empty":"")} title={item.count>0?item.icon:""}>
+                    <span>{item.icon}</span>
+                    {item.count>0&&<span className="px8" style={{ position:"absolute",bottom:2,right:3,fontSize:"5px",color:T.textMid }}>{item.count}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-      {/* ── BOTTOM NAV ──────────────────────────────────────────────────── */}
-      <div style={{ position:"fixed",bottom:0,left:0,right:0,background:"rgba(8,10,18,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",overflowX:"auto",zIndex:100 }}>
-        {NAV.map(function(n){
-          var isActive = page===n.id;
-          return (
-            <button key={n.id} onClick={function(){ setPage(n.id); }} className={"nav-btn"+(isActive?" active":"")}
-              style={{ color:isActive?accent:"rgba(255,255,255,0.3)" }}>
-              <span style={{ fontSize:18 }}>{n.icon}</span>
-              <span style={{ fontSize:8 }}>{n.label}</span>
-            </button>
-          );
-        })}
+          {/* Activity Log */}
+          <div>
+            <div className="sec-title">ACTIVITY LOG</div>
+            <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+              {actLog.map(function(entry,i){
+                return (
+                  <div key={i} style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
+                    <div style={{ width:24,height:24,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:12,flexShrink:0,background:T.bgCard }}>
+                      {entry.icon}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11,fontWeight:700,color:T.textMid,lineHeight:1.5 }}>{entry.text}</div>
+                      <div className="px8" style={{ color:T.textDim,marginTop:2,fontSize:"5px" }}>{entry.time}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Party quick-view */}
+          <div>
+            <div className="sec-title">PARTY</div>
+            <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+              {party.map(function(d,i){
+                var inf2=DIGIMON_MAP[d.speciesId];
+                return (
+                  <div key={d.uid} className="digi-card" style={{ display:"flex",alignItems:"center",gap:10,borderColor:i===0?accent:T.border }}
+                    draggable onDragStart={function(){dragIdx.current=i;}} onDrop={function(){if(dragIdx.current!==null&&dragIdx.current!==i){setParty(function(p){var a=p.slice();var tmp=a[dragIdx.current];a[dragIdx.current]=a[i];a[i]=tmp;return a;});}dragIdx.current=null;}} onDragOver={function(e){e.preventDefault();}}>
+                    <DigiSprite digimonId={d.speciesId} size={32} animate={false}/>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12,fontWeight:800 }}>{d.name}</div>
+                      <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginTop:2 }}>Lv.{d.level} · {inf2&&inf2.stage}</div>
+                    </div>
+                    {i===0&&<span className="px8" style={{ color:accent,fontSize:"6px" }}>★</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+        </aside>
       </div>
     </div>
   );
 }
 
 // ── TasksPage ─────────────────────────────────────────────────────────────────
-function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak }) {
-  var [filterCat, setFilterCat] = useState("All");
-  var [filterType,setFilterType]= useState("All");
-  var [showAdd,   setShowAdd]   = useState(false);
-  var [editId,    setEditId]    = useState(null);
+function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak, T }) {
+  var [filterCat,  setFilterCat]  = useState("All");
+  var [filterType, setFilterType] = useState("All");
+  var [showAdd,    setShowAdd]    = useState(false);
+  var [editId,     setEditId]     = useState(null);
   var [form, setForm] = useState({ title:"",category:"Work",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[] });
 
   function reset(){ setForm({title:"",category:"Work",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[]}); }
@@ -796,71 +1005,64 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak 
   function submitEdit(){ if(!editId||!form.title.trim())return; onEdit(editId,form); setEditId(null); reset(); }
   function startEdit(t){ setEditId(t.id); setForm({title:t.title,category:t.category,priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[]}); }
 
-  var priColor  = {Low:"#7EB8F7",Medium:"#FFD700",High:"#FF9940",Urgent:"#FF4444"};
-  var diffColor = {Easy:"#7EF797",Medium:"#FFD700",Hard:"#FF8080"};
-  var typeColor = {once:"#B8A0E8",daily:"#7EB8F7",recurring:"#7EF797"};
+  var typeColor = {once:T.lavender,daily:T.teal,recurring:T.mint};
+  var visible   = tasks.filter(function(t){ return (filterCat==="All"||t.category===filterCat)&&(filterType==="All"||t.type===filterType); });
 
-  var visible = tasks.filter(function(t){
-    return (filterCat==="All"||t.category===filterCat) && (filterType==="All"||t.type===filterType);
-  });
+  var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif" };
+  var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
 
   return (
-    <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-
+    <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
       {/* Category filters */}
-      <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+      <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,width:"fit-content",flexWrap:"wrap" }}>
         {["All"].concat(CATEGORIES).map(function(c){
           var a=filterCat===c;
-          return <button key={c} onClick={function(){setFilterCat(c);}} style={{ padding:"4px 12px",borderRadius:20,border:"1px solid rgba(255,255,255,0.1)",cursor:"pointer",fontSize:10,background:a?accent:"rgba(255,255,255,0.04)",color:a?"#0d0f1a":"rgba(255,255,255,0.5)",fontWeight:a?700:400 }}>{c}</button>;
+          return <button key={c} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid,borderRight:"2px solid "+T.border }} onClick={function(){setFilterCat(c);}}>{c.toUpperCase()}</button>;
         })}
       </div>
-
-      {/* Type filters */}
-      <div style={{ display:"flex",gap:4 }}>
+      <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,width:"fit-content" }}>
         {["All","once","daily","recurring"].map(function(t){
-          var a=filterType===t; var col=typeColor[t]||accent;
-          return <button key={t} onClick={function(){setFilterType(t);}} style={{ padding:"4px 12px",borderRadius:20,border:"1px solid "+(t!=="All"?col+"44":"rgba(255,255,255,0.1)"),cursor:"pointer",fontSize:10,background:a?col:"rgba(255,255,255,0.04)",color:a?"#0d0f1a":(col||"rgba(255,255,255,0.5)"),fontWeight:a?700:400 }}>{t==="once"?"One-Time":t.charAt(0).toUpperCase()+t.slice(1)}</button>;
+          var a=filterType===t;
+          return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid,borderRight:"2px solid "+T.border }} onClick={function(){setFilterType(t);}}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
         })}
       </div>
 
-      {/* Add form */}
-      {showAdd&&!editId&&<TaskForm form={form} setForm={setForm} onSubmit={submitAdd} onCancel={function(){setShowAdd(false);reset();}} label="Add Task" accent={accent}/>}
-
-      {/* Add button */}
+      {showAdd&&!editId&&<TaskForm form={form} setForm={setForm} onSubmit={submitAdd} onCancel={function(){setShowAdd(false);reset();}} label="ADD TASK" accent={accent} T={T}/>}
       {!showAdd&&!editId&&(
-        <button onClick={function(){setShowAdd(true);}} style={{ background:accent+"15",border:"1.5px dashed "+accent+"55",borderRadius:12,padding:"12px 20px",color:accent,cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left" }}>
-          + New Task
-        </button>
+        <button className="px8" style={{ padding:"11px 18px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer",textAlign:"left",fontSize:"7px" }} onClick={function(){setShowAdd(true);}}>+ NEW TASK</button>
       )}
 
-      {visible.length===0&&<div style={{ textAlign:"center",padding:40,color:"rgba(255,255,255,0.25)",fontSize:13 }}>No tasks found.</div>}
+      {visible.length===0&&<div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No tasks found.</div>}
 
       {visible.map(function(t){
-        var xp = calcXpReward(t, streak);
-        var sp = calcStatReward(t);
+        var xp=calcXpReward(t,streak); var sp=calcStatReward(t);
+        var stars=t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
         return (
           <div key={t.id}>
             {editId===t.id
-              ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){setEditId(null);reset();}} label="Save" accent={accent}/>
+              ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){setEditId(null);reset();}} label="SAVE" accent={accent} T={T}/>
               : (
-                <div className="task-row" style={{ display:"flex",alignItems:"flex-start",gap:10,borderColor:t.done?"rgba(255,255,255,0.04)":priColor[t.priority]+"33",opacity:t.done?0.5:1 }}>
-                  <button onClick={function(){if(!t.done)onComplete(t.id);}} style={{ width:22,height:22,borderRadius:6,flexShrink:0,cursor:t.done?"default":"pointer",border:"2px solid "+(t.done?"#7EF797":priColor[t.priority]||"#7EB8F7"),background:t.done?"#7EF797":"transparent",color:"#0d0f1a",fontSize:12,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",marginTop:1 }}>{t.done?"✓":""}</button>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13,fontWeight:600,textDecoration:t.done?"line-through":"none" }}>{t.title}</div>
-                    {t.notes&&<div style={{ fontSize:11,color:"rgba(255,255,255,0.4)",marginTop:2 }}>{t.notes}</div>}
-                    <div style={{ display:"flex",gap:5,marginTop:6,flexWrap:"wrap" }}>
-                      <Tag color={typeColor[t.type]||"#aaa"}>{t.type==="once"?"One-Time":t.type}</Tag>
-                      <Tag color="rgba(255,255,255,0.2)">{t.category}</Tag>
-                      <Tag color={priColor[t.priority]||"#aaa"}>{t.priority}</Tag>
-                      <Tag color={diffColor[t.difficulty]||"#aaa"}>{t.difficulty}</Tag>
-                      {(t.streak||0)>0&&<Tag color="#FFD700">🔥 {t.streak}d</Tag>}
-                      {t.daysOfWeek&&t.daysOfWeek.length>0&&<Tag color="#B8A0E8">{t.daysOfWeek.join(" ")}</Tag>}
-                    </div>
-                    <div style={{ fontSize:9,color:"rgba(255,255,255,0.25)",marginTop:4 }}>+{xp} EXP · +{sp} stat pts</div>
+                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()+(t.done?" done":"")} style={{ borderColor:T.border }}>
+                  <div className={"task-check"+(t.done?" checked":"")} onClick={function(){if(!t.done)onComplete(t.id);}}>
+                    {t.done&&<span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>}
                   </div>
-                  <div style={{ display:"flex",gap:2,flexShrink:0 }}>
-                    <button onClick={function(){startEdit(t);}} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:14,padding:"2px 6px" }}>✏</button>
-                    <button onClick={function(){onDelete(t.id);}} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }}>×</button>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14,fontWeight:800,textDecoration:t.done?"line-through":"none" }}>{t.title}</div>
+                    {t.notes&&<div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.notes}</div>}
+                    <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center" }}>
+                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category.toUpperCase()}</span>
+                      <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"6px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
+                      <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
+                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"6px" }}>{t.priority.toUpperCase()}</span>
+                      {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"6px" }}>🔥 {t.streak}D</span>}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
+                    <div style={{ display:"flex",gap:2 }}>{[1,2,3,4].map(function(n){return <span key={n} style={{ fontSize:13,color:n<=stars?T.gold:T.textDim }}>★</span>;})}</div>
+                    <div style={{ display:"flex",gap:4 }}>
+                      <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:14,padding:"2px 4px" }} onClick={function(){startEdit(t);}}>✏</button>
+                      <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }} onClick={function(){onDelete(t.id);}}>×</button>
+                    </div>
                   </div>
                 </div>
               )
@@ -872,40 +1074,39 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak 
   );
 }
 
-function TaskForm({ form, setForm, onSubmit, onCancel, label, accent }) {
-  var priColor  = {Low:"#7EB8F7",Medium:"#FFD700",High:"#FF9940"};
-  var diffColor = {Easy:"#7EF797",Medium:"#FFD700",Hard:"#FF8080"};
-  var sel = { background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"7px 10px",color:"#fff",fontSize:12,cursor:"pointer",outline:"none" };
+function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
+  var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif",boxSizing:"border-box" };
+  var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
   return (
-    <div style={{ background:accent+"0f",border:"1px solid "+accent+"44",borderRadius:14,padding:18,display:"flex",flexDirection:"column",gap:10 }}>
-      <input value={form.title} onChange={function(e){setForm(function(f){return Object.assign({},f,{title:e.target.value});});}} onKeyDown={function(e){if(e.key==="Enter")onSubmit();}} placeholder="Task title..." autoFocus style={{ background:"rgba(0,0,0,0.25)",border:"1px solid "+accent+"55",borderRadius:8,padding:"10px 14px",color:"#fff",fontSize:14,outline:"none",width:"100%" }}/>
+    <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"3px 3px 0 "+accent,padding:16,display:"flex",flexDirection:"column",gap:10 }}>
+      <input value={form.title} onChange={function(e){setForm(function(f){return Object.assign({},f,{title:e.target.value});});}} onKeyDown={function(e){if(e.key==="Enter")onSubmit();}} placeholder="Task title..." autoFocus style={inputSt}/>
       <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-        <select value={form.type} onChange={function(e){setForm(function(f){return Object.assign({},f,{type:e.target.value});});}} style={sel}>
+        <select value={form.type}       onChange={function(e){setForm(function(f){return Object.assign({},f,{type:e.target.value});});}}       style={Object.assign({},selSt,{flex:1,minWidth:100})}>
           <option value="once">One-Time</option><option value="daily">Daily</option><option value="recurring">Recurring</option>
         </select>
-        <select value={form.category} onChange={function(e){setForm(function(f){return Object.assign({},f,{category:e.target.value});});}} style={sel}>
+        <select value={form.category}   onChange={function(e){setForm(function(f){return Object.assign({},f,{category:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:100})}>
           {CATEGORIES.map(function(c){return <option key={c}>{c}</option>;})}
         </select>
-        <select value={form.priority} onChange={function(e){setForm(function(f){return Object.assign({},f,{priority:e.target.value});});}} style={Object.assign({},sel,{color:priColor[form.priority]||"#fff"})}>
+        <select value={form.priority}   onChange={function(e){setForm(function(f){return Object.assign({},f,{priority:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:80,color:PCOL[form.priority]||T.text})}>
           <option>Low</option><option>Medium</option><option>High</option>
         </select>
-        <select value={form.difficulty} onChange={function(e){setForm(function(f){return Object.assign({},f,{difficulty:e.target.value});});}} style={Object.assign({},sel,{color:diffColor[form.difficulty]||"#fff"})}>
+        <select value={form.difficulty} onChange={function(e){setForm(function(f){return Object.assign({},f,{difficulty:e.target.value});});}} style={Object.assign({},selSt,{flex:1,minWidth:80})}>
           <option>Easy</option><option>Medium</option><option>Hard</option>
         </select>
       </div>
       {form.type==="recurring"&&(
         <div style={{ display:"flex",gap:4,flexWrap:"wrap",alignItems:"center" }}>
-          <span style={{ fontSize:10,color:"rgba(255,255,255,0.4)" }}>Days:</span>
+          <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>DAYS:</span>
           {DAYS_OF_WEEK.map(function(d){
             var on=(form.daysOfWeek||[]).indexOf(d)>=0;
-            return <button key={d} onClick={function(){setForm(function(f){var dw=f.daysOfWeek||[];return Object.assign({},f,{daysOfWeek:on?dw.filter(function(x){return x!==d;}):dw.concat([d])});});}} style={{ padding:"3px 8px",borderRadius:6,border:"1px solid "+(on?accent:"rgba(255,255,255,0.15)"),background:on?accent+"22":"transparent",color:on?accent:"rgba(255,255,255,0.4)",fontSize:10,cursor:"pointer" }}>{d}</button>;
+            return <button key={d} className="px8" style={{ padding:"4px 8px",border:"1.5px solid "+(on?accent:T.border),background:on?accent+"22":"transparent",color:on?accent:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){setForm(function(f){var dw=f.daysOfWeek||[];return Object.assign({},f,{daysOfWeek:on?dw.filter(function(x){return x!==d;}):dw.concat([d])});});}}>{d}</button>;
           })}
         </div>
       )}
-      <textarea value={form.notes} onChange={function(e){setForm(function(f){return Object.assign({},f,{notes:e.target.value});});}} placeholder="Notes (optional)..." rows={2} style={{ background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,padding:"8px 12px",color:"#fff",fontSize:12,outline:"none",resize:"vertical",width:"100%" }}/>
+      <textarea value={form.notes} onChange={function(e){setForm(function(f){return Object.assign({},f,{notes:e.target.value});});}} placeholder="Notes (optional)..." rows={2} style={Object.assign({},inputSt,{resize:"vertical"})}/>
       <div style={{ display:"flex",gap:8 }}>
-        <button onClick={onSubmit} style={{ background:accent,border:"none",borderRadius:8,padding:"9px 20px",color:"#0d0f1a",fontWeight:800,cursor:"pointer",fontSize:13 }}>{label}</button>
-        <button onClick={onCancel} style={{ background:"rgba(255,255,255,0.07)",border:"none",borderRadius:8,padding:"9px 16px",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:12 }}>Cancel</button>
+        <button className="px8" style={{ padding:"9px 18px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontWeight:800,fontSize:"7px",boxShadow:"2px 2px 0 "+T.border }} onClick={onSubmit}>{label}</button>
+        <button className="px8" style={{ padding:"9px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"7px" }} onClick={onCancel}>CANCEL</button>
       </div>
     </div>
   );
