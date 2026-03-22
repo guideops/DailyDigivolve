@@ -264,3 +264,66 @@ Types:
 
 [ ] NZ company registration
     Priority: Before commercial revenue
+
+---
+
+## Session 2 — 2026-03-22 (continued)
+ 
+[UI] Major UI overhaul — dark pixel art + Nomi three-column layout
+     Decision: dark mode retained, pixel art borders added, Nomi layout adopted
+     Files changed: src/App.jsx, index.html
+ 
+     Layout changes:
+     - Three-column desktop grid: 300px pet panel | flex main | 260px right panel
+     - Mobile: left and right columns collapse, main content fills screen
+     - Tablet (< 1080px): right column hidden
+ 
+     Typography changes:
+     - Press Start 2P imported via index.html Google Fonts link
+     - Nunito imported alongside for body text
+     - All labels/headings use px8/px9/px10/px12 CSS classes (Press Start 2P)
+     - All body text uses Nunito 700/800
+ 
+     Left pet panel (new):
+     - Stage viewport with dot grid background, ground strip, bobbing animation
+     - Speech bubble above Digimon — updates on click and on task completion
+     - Pixel stat bars for HP, XP, Mood (with highlight shimmer)
+     - Feed / Play / Rest / Train action buttons (pixel style)
+     - Evolution near / ready banner (shimmer animation)
+     - Saved stats banner linking to Team page
+ 
+     Middle task panel (updated):
+     - Streak row: three pixel stat cards (streak, done count, XP today)
+     - Priority section labels separating task groups (⚡ HIGH / 🌿 MEDIUM / 💜 LOW)
+     - Star difficulty rating (1–4 stars) on each task card
+     - XP badge per task in gold pixel style
+     - Coloured left border strip per priority level
+     - Pixel tab filters for category and type
+ 
+     Right panel (new):
+     - Daily Quest card with progress bar (Complete 5 tasks = Rare Treat)
+     - Inventory grid (8 slots, pixel style)
+     - Activity log — updates live when tasks are completed or pet is interacted with
+     - Party quick-view with drag-and-drop reorder
+ 
+     Pixel art system:
+     - Hard pixel borders: border: 2px solid + box-shadow: 3px 3px 0 (matching border colour)
+     - All cards, buttons, tabs use this treatment
+     - Floating pixel particle background (6 coloured squares)
+     - Blink animation on nav logo dot
+ 
+[UI] index.html updated to load Press Start 2P and Nunito from Google Fonts
+ 
+[FEAT] Activity log now updates in real-time when:
+       - Tasks are completed (logs task name and XP gained)
+       - Pet actions are used (Feed/Play/Rest/Train)
+       - Evolution occurs
+ 
+[FEAT] Pet speech bubble updates on:
+       - Click on Digimon sprite (random messages)
+       - Task completion (shows XP gained)
+       - Pet action button press
+ 
+[DECISION] All conversations within this project tab share memory context
+           Changes and decisions from all threads are referenced here
+           Changelog maintained across all sessions in this tab
