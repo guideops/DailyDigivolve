@@ -3,7 +3,7 @@
 // The original digitask-full.jsx had everything in one file — this splits it out.
 
 import { supabase } from './lib/supabase.js';
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import DigiSprite from "./components/DigiSprite.jsx";
 import { Bar, Tag, Btn } from "./components/ui.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
