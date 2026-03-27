@@ -2,6 +2,7 @@
 // This is the slimmed-down App that imports from the correct files.
 // The original digitask-full.jsx had everything in one file — this splits it out.
 
+import { supabase } from './lib/supabase.js';
 import { useState, useRef } from "react";
 import DigiSprite from "./components/DigiSprite.jsx";
 import { Bar, Tag, Btn } from "./components/ui.jsx";
@@ -92,7 +93,7 @@ function makeParty() {
 }
 
 // ── Root App ─────────────────────────────────────────────────────────────────
-export default function App() {
+export default function App({ session }) {
   var [page,        setPage]        = useState("dashboard");
   var [party,       setParty]       = useState(makeParty);
   var [farm,        setFarm]        = useState([]);
