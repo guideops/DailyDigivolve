@@ -95,27 +95,100 @@ function makeParty() {
 // ── Root App ─────────────────────────────────────────────────────────────────
 export default function App({ session }) {
   var [page,        setPage]        = useState("dashboard");
-  var [party,       setParty]       = useState(makeParty);
-  var [farm,        setFarm]        = useState([]);
-  var [savedStats,  setSavedStats]  = useState(0);
-  var [bits,        setBits]        = useState(350);
-  var [allDisc,     setAllDisc]     = useState(["koromon","agumon","gabumon","guilmon","greymon"]);
+  const [party, setParty] = useState([])
+  const [farm, setFarm] = useState([])
+  const [savedStats, setSavedStats] = useState(0)
+  const [bits, setBits] = useState(0)
+  const [allDisc, setAllDisc] = useState([])
+  const [tasks, setTasks] = useState([])
   var [speech,      setSpeech]      = useState("finish your tasks!");
   var [actLog,      setActLog]      = useState([
     { icon:"⭐", text:"DailyDigivolve started! Welcome, Tamer.", time:"JUST NOW" },
-  ]);
-  var [tasks, setTasks] = useState([
-    { id:1, title:"Review sprint backlog",  category:"Work",   priority:"High",   difficulty:"Hard",   type:"once",      done:false, streak:0, notes:"" },
-    { id:2, title:"Morning workout",         category:"Health", priority:"Medium", difficulty:"Medium", type:"daily",     done:true,  streak:4, notes:"",            daysOfWeek:[] },
-    { id:3, title:"Read 20 pages",           category:"Study",  priority:"Low",    difficulty:"Easy",   type:"recurring", done:false, streak:1, notes:"",            daysOfWeek:["Mon","Wed","Fri"] },
-    { id:4, title:"Fix login bug",           category:"Work",   priority:"High",   difficulty:"Hard",   type:"once",      done:false, streak:0, notes:"Affects mobile" },
-    { id:5, title:"Meal prep",               category:"Health", priority:"Low",    difficulty:"Easy",   type:"daily",     done:false, streak:7, notes:"",            daysOfWeek:[] },
   ]);
   var [toast,       setToast]       = useState(null);
   var [evoAnim,     setEvoAnim]     = useState(null);
   var [battleState, setBattleState] = useState(null);
   var dragIdx = useRef(null);
 
+const userId = session.user.id
+
+// Load all data from Supabase on mount
+useEffect(() => {
+  async function loadData() {
+    const [{ data: profile }, { data: digimonData }, { data: tasksData }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', userId).single(),
+      supabase.from('digimon').select('*').eq('user_id', userId).order('sort_order'),
+      supabase.from('tasks').select('*').eq('user_id', userId).order('created_at'),
+    ])
+
+    if (profile) {
+      setBits(profile.bits || 350)
+      setSavedStats(profile.saved_stats || 0)
+    }
+
+    if (digimonData && digimonData.length > 0) {
+      const mapped = digimonData.map(d => ({
+        uid:         d.id,
+        speciesId:   d.species_id,
+        name:        d.name,
+        level:       d.level,
+        exp:         d.exp,
+        expNeeded:   d.exp_needed,
+        abi:         d.abi,
+        personality: d.personality,
+        bonusStats:  d.bonus_stats,
+        discovered:  d.discovered || [],
+        inFarm:      d.in_farm,
+        isXForm:     d.is_x_form,
+      }))
+      setParty(mapped.filter(d => !d.inFarm))
+      setFarm(mapped.filter(d => d.inFarm))
+      const allD = [...new Set(digimonData.flatMap(d => d.discovered || []))]
+      setAllDisc(allD)
+    } else {
+      // First login — create starter Digimon
+      const starter = newDigimon('agumon', {})
+      const { data: newDigi } = await supabase.from('digimon').insert({
+        user_id:     userId,
+        species_id:  starter.speciesId,
+        name:        starter.name,
+        level:       1,
+        exp:         0,
+        exp_needed:  100,
+        abi:         0,
+        personality: starter.personality,
+        bonus_stats: starter.bonusStats,
+        discovered:  ['agumon'],
+        in_farm:     false,
+        sort_order:  0,
+      }).select().single()
+      if (newDigi) setParty([Object.assign({}, starter, { uid: newDigi.id })])
+    }
+
+    if (tasksData) {
+      const today = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
+      const visible = tasksData.filter(t => {
+        if (t.type !== 'recurring') return true
+        if (!t.days_of_week || t.days_of_week.length === 0) return true
+        return t.days_of_week.includes(today)
+      })
+      setTasks(visible.map(t => ({
+        id:           t.id,
+        title:        t.title,
+        category:     t.category,
+        priority:     t.priority,
+        difficulty:   t.difficulty,
+        type:         t.type,
+        notes:        t.notes || '',
+        done:         t.done,
+        streak:       t.streak || 0,
+        daysOfWeek:   t.days_of_week || [],
+      })))
+    }
+  }
+  loadData()
+}, [userId])
+  
   // Derived
   var activeDigi = party[0];
   var activeInfo = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
@@ -141,18 +214,43 @@ export default function App({ session }) {
     if (logMsg) addLog("🐾", logMsg);
   }
 
-  function completeTask(id) {
-    var task = tasks.find(function(t){ return t.id===id; });
-    if (!task||task.done) return;
-    setTasks(function(ts){ return ts.map(function(t){ return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1}) : t; }); });
-    var xp = calcXpReward(task, streak);
-    var sp = calcStatReward(task);
-    setParty(function(p){ return p.map(function(d,i){ return Object.assign({},d,applyXpGain(d,i===0?xp:Math.floor(xp*0.5))); }); });
-    setSavedStats(function(s){ return s+sp; });
-    setSpeech("great job! +"+xp+" XP 🔥");
-    addLog("✅", "Completed \""+task.title+"\" +"+xp+" XP");
-    toast_("Task done!  +"+xp+" EXP  +"+sp+" stat pts");
+  async function completeTask(id) {
+  const task = tasks.find(t => t.id === id)
+  if (!task || task.done) return
+  const xp = calcXpReward(task, streak)
+  const sp = calcStatReward(task)
+
+  // Update task in DB
+  await supabase.from('tasks').update({
+    done: true,
+    streak: (task.streak || 0) + 1,
+    last_completed_date: new Date().toISOString().split('T')[0],
+  }).eq('id', id)
+
+  // Update local state
+  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, { done: true, streak: (t.streak||0)+1 }) : t))
+
+  // Give XP to active Digimon
+  const activeDigi = party[0]
+  if (activeDigi) {
+    const result = applyXpGain(activeDigi, xp)
+    await supabase.from('digimon').update({
+      exp:       result.exp,
+      level:     result.level,
+      exp_needed: result.expNeeded,
+    }).eq('id', activeDigi.uid)
+    setParty(p => p.map((d, i) => i === 0 ? Object.assign({}, d, result) : Object.assign({}, d, applyXpGain(d, Math.floor(xp * 0.5)))))
   }
+
+  // Update saved stats
+  const newSavedStats = (savedStats || 0) + sp
+  setSavedStats(newSavedStats)
+  await supabase.from('profiles').update({ saved_stats: newSavedStats }).eq('id', userId)
+
+  setSpeech('great job! +' + xp + ' XP 🔥')
+  addLog('✅', 'Completed "' + task.title + '" +' + xp + ' XP')
+  toast_('Task done!  +' + xp + ' EXP  +' + sp + ' stat pts')
+}
 
   function evolve(uid, targetId) {
     var info = DIGIMON_MAP[targetId];
@@ -187,9 +285,55 @@ export default function App({ session }) {
     toast_(d.name+" recalled!");
   }
 
-  function addTask(t)    { setTasks(function(ts){ return ts.concat([Object.assign({id:Date.now(),done:false,streak:0},t)]); }); toast_("Task added!"); }
-  function editTask(id,u){ setTasks(function(ts){ return ts.map(function(t){ return t.id===id?Object.assign({},t,u):t; }); }); }
-  function deleteTask(id){ setTasks(function(ts){ return ts.filter(function(t){ return t.id!==id; }); }); toast_("Task deleted.","#FF8080"); }
+  async function addTask(t) {
+  const { data } = await supabase.from('tasks').insert({
+    user_id:      userId,
+    title:        t.title,
+    category:     t.category,
+    priority:     t.priority,
+    difficulty:   t.difficulty,
+    type:         t.type,
+    notes:        t.notes || '',
+    days_of_week: t.daysOfWeek || [],
+    done:         false,
+    streak:       0,
+  }).select().single()
+
+  if (data) {
+    setTasks(ts => ts.concat([{
+      id:         data.id,
+      title:      data.title,
+      category:   data.category,
+      priority:   data.priority,
+      difficulty: data.difficulty,
+      type:       data.type,
+      notes:      data.notes,
+      done:       false,
+      streak:     0,
+      daysOfWeek: data.days_of_week || [],
+    }]))
+  }
+  toast_('Task added!')
+}
+  
+  async function editTask(id, updates) {
+  await supabase.from('tasks').update({
+    title:        updates.title,
+    category:     updates.category,
+    priority:     updates.priority,
+    difficulty:   updates.difficulty,
+    type:         updates.type,
+    notes:        updates.notes,
+    days_of_week: updates.daysOfWeek || [],
+  }).eq('id', id)
+  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, updates) : t))
+}
+  
+  async function deleteTask(id) {
+  await supabase.from('tasks').delete().eq('id', id)
+  setTasks(ts => ts.filter(t => t.id !== id))
+  toast_('Task deleted.', '#FF8080')
+}
 
   function buyItem(item) {
     if (bits<item.cost){ toast_("Not enough bits!","#FF8080"); return; }
@@ -502,6 +646,10 @@ export default function App({ session }) {
           </div>
           <span style={{ fontWeight:800,fontSize:13 }}>Tamer</span>
           <div className="px8" style={{ color:T.gold }}>🪙{bits}</div>
+          <button onClick={() => supabase.auth.signOut()}
+  style={{ fontFamily:"'Press Start 2P',monospace", fontSize:"6px", padding:"5px 9px", background:"transparent", border:"1px solid rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.35)", cursor:"pointer" }}>
+  SIGN OUT
+</button>
         </div>
       </nav>
 
