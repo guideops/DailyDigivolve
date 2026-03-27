@@ -327,3 +327,10 @@ Types:
 [DECISION] All conversations within this project tab share memory context
            Changes and decisions from all threads are referenced here
            Changelog maintained across all sessions in this tab
+
+[FEAT] Full Supabase integration — replacing all hardcoded useState with real persistent data
+[FEAT] User authentication — email/password + username, multi-user accounts
+[FEAT] Data Hunt recurring tasks — day-of-week scheduling, only appear on correct day
+[FEAT] Real Digimon progression — XP, evolution, ABI saved to database per user
+[RENAME] Recurring tasks renamed to "Data Hunts" throughout UI and codebase
+[SECURITY] All game state validation moved server-side via Cloudflare Worker
