@@ -1231,7 +1231,7 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
       <input value={form.title} onChange={function(e){setForm(function(f){return Object.assign({},f,{title:e.target.value});});}} onKeyDown={function(e){if(e.key==="Enter")onSubmit();}} placeholder="Task title..." autoFocus style={inputSt}/>
       <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
         <select value={form.type}       onChange={function(e){setForm(function(f){return Object.assign({},f,{type:e.target.value});});}}       style={Object.assign({},selSt,{flex:1,minWidth:100})}>
-          <option value="once">One-Time</option><option value="daily">Daily</option><option value="recurring">Recurring</option>
+          <option value="once">Data-Hunt</option><option value="daily">Daily-Protocol</option><option value="recurring">Loop-Protocols</option>
         </select>
         <select value={form.category}   onChange={function(e){setForm(function(f){return Object.assign({},f,{category:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:100})}>
           {CATEGORIES.map(function(c){return <option key={c}>{c}</option>;})}
