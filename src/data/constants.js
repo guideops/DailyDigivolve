@@ -48,8 +48,16 @@ export const DIFF_STATS  = { Easy: 1, Medium: 1, Hard: 2 };
 export const BASE_XP     = 100;
 export const STREAK_XP_CAP = 2.0;
 
-// Task options
-export const CATEGORIES   = ["Work","Personal","Health","Study","Creative","Social","Other"];
+// Task options — stat-based categories
+export const STAT_CATEGORIES = [
+  { id:"HP",  label:"HP",  desc:"Health, self-care, sleep, breaks, relaxation",     icon:"❤️",  color:"#5CB85C" },
+  { id:"SP",  label:"SP",  desc:"Learning, mindfulness, journaling, mental energy",  icon:"✨",  color:"#5BA4CF" },
+  { id:"ATK", label:"ATK", desc:"Physical activities, exercise, chores",              icon:"💪",  color:"#FF6B35" },
+  { id:"DEF", label:"DEF", desc:"Planning, organization, stress management",          icon:"🛡️", color:"#7EB8F7" },
+  { id:"INT", label:"INT", desc:"Study, work projects, reading, mental challenges",   icon:"🧠",  color:"#B8A0E8" },
+  { id:"SPD", label:"SPD", desc:"Quick tasks, errands, time management",              icon:"⚡",  color:"#FFD700" },
+];
+export const CATEGORIES   = STAT_CATEGORIES.map(function(c){ return c.id; });
 export const DAYS_OF_WEEK = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 export const PRIORITIES   = ["Low","Medium","High","Urgent"];
 export const DIFFICULTIES = ["Easy","Medium","Hard"];
@@ -62,7 +70,7 @@ export const PRIORITY_COLORS = {
 };
 
 // Party limits
-export const MAX_PARTY_SIZE = 9;
+export const MAX_PARTY_SIZE = 3;
 
 // Store bit rewards
 export const BATTLE_REWARDS = {

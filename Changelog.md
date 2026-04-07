@@ -334,3 +334,161 @@ Types:
 [FEAT] Real Digimon progression — XP, evolution, ABI saved to database per user
 [RENAME] Recurring tasks renamed to "Data Hunts" throughout UI and codebase
 [SECURITY] All game state validation moved server-side via Cloudflare Worker
+
+---
+
+## Session 3 — 2026-03-23 to 2026-04-08
+
+### Sprite System
+
+[FEAT] PNG sprite system built from scratch
+       File: src/data/sprites.js, src/components/DigiSprite.jsx
+       Three rendering modes:
+       - "grid"   — single PNG with frames in a CSS grid (default for 16×16 sprites)
+       - "sheet"  — horizontal filmstrip
+       - "frames" — individual numbered PNGs (0.png, 1.png, …)
+       Animation runs via setInterval cycling frame index
+       Crisp pixel upscaling via imageRendering: "pixelated"
+       Scale = display size / frame size (e.g. 64px / 16px = 4× upscale)
+
+[FEAT] 44 Digimon PNG sprites added to public/sprites/
+       All renamed to lowercase to match web server case-sensitivity
+       Format: 48×64 grid sheet (3 cols × 4 rows of 16×16 frames)
+
+[FEAT] DigiSprite probes for PNG existence before rendering
+       Shows SVG placeholder immediately while probing (no blank flash)
+       Switches to PNG if confirmed, stays on SVG if 404
+
+[FIX] Sprite filename casing — all renamed to lowercase via node script
+      Affected: Tailmon.png → tailmon.png, Cherubimon_Virtue.png → cherubimon.png,
+      XV-mon.png → exveemon.png, Lilimon.png → lillymon.png, etc.
+
+[FIX] Mode mismatch for pagumon, lopmon_it, metalgreymon, wargreymon
+      Were set to mode:"frames" but sprites are single grid PNGs
+      Fixed: all changed to mode:"grid"
+
+[FEAT] spriteId field for shared sprites (lopmon_it uses lopmon's PNG)
+
+### Digimon Database Overhaul
+
+[FEAT] Complete DIGIMON_DB rewrite — 10 full evolution lines
+       Baby → In-Training → Rookie → Champion → Ultimate → Mega
+       Lines: Agumon, Patamon, Salamon, Gabumon, Tentomon, Palmon,
+              Veemon, Guilmon, Lopmon, Renamon
+
+[FEAT] Evolution requirements added to every Digimon
+       evoRequires: { level, abi, stats:{} }
+       Calibrated to Digimon World / Cyber Sleuth thresholds:
+       - Baby → In-Training: Lv3, ABI 0
+       - In-Training → Rookie: Lv6, ABI 1
+       - Rookie → Champion: Lv10, ABI 5 + stat thresholds
+       - Champion → Ultimate: Lv20, ABI 5
+       - Ultimate → Mega: Lv30, ABI 15
+
+[FEAT] meetsEvoReq() pure function in engine.js
+       Checks level, ABI, and each stat threshold simultaneously
+       Returns boolean — used to gate evolution buttons and banner
+
+[RENAME] gatomon → tailmon (Japanese name, matches user's sprite file)
+[RENAME] saviorhuckmon → cherubimon (Lopmon Mega, matches user's sprite)
+[RENAME] tsumemon → tanemon (Palmon In-Training)
+[RENAME] vmon → chibimon (Veemon In-Training)
+
+[FEAT] botamon now branches to both koromon (Agumon line) and tsunomon (Gabumon line)
+
+### Task System — Stat Categories
+
+[FEAT] Task categories now map directly to Digimon stats (HP/SP/ATK/DEF/INT/SPD)
+       Completing an HP task gives +HP bonus stat, ATK task gives +ATK, etc.
+       Stat boost amount set by task difficulty (Easy=1, Medium=1, Hard=2)
+
+[FEAT] STAT_CATEGORIES added to constants.js with icon, colour, and description per stat
+       Task form and filter tabs updated to show icons and descriptions
+
+[FEAT] ABI accrual system
+       Easy=+0.1 ABI, Medium=+0.2, Hard=+0.3 per completed task
+       Fractional progress stored in bonus_stats.abi_progress (JSONB, no schema change)
+       Whole ABI points accumulate in the abi column
+
+### Party System
+
+[FEAT] Party max size changed to 3 (was 9)
+       All 3 party members displayed in Team page
+       Farm is unlimited
+
+[FEAT] All party members now receive equal XP, stat boost, and ABI on task completion
+       Previously only party[0] got full XP; others got 50% without DB persistence
+       Now: all 3 persisted to Supabase simultaneously via Promise.all
+
+[FEAT] "★ Set Leader" button on non-leader party members
+       Swaps selected Digimon to party[0] (leader role)
+       Leader is the active Digimon shown in left panel and used for AI chat
+       sort_order updated in DB for persistence across sessions
+
+[FIX] sendToFarm / recallFromFarm now persist in_farm to Supabase
+      Previously local-only — Digimon placement was lost on page refresh
+
+### Login Streak & Digitama System
+
+[FEAT] Daily login streak tracking
+       Profiles table: login_streak INTEGER, last_login_date DATE, digitama_credits INTEGER
+       On login: consecutive day increments streak, missed day resets to 1
+       Shown in nav bar (🔥N) and dashboard stat cards
+
+[FEAT] Digitama egg reward at every 30-day login milestone
+       8 egg types, each hatching a different Baby Digimon:
+       Flame→botamon, Holy→punimon, Wind→poyomon, Beast→pabumon,
+       Dragon→jyarimon, Nature→kuramon, Mystic→viximon, Shadow→pagumon
+       Egg selection modal opens automatically on login when milestone hit
+
+[FEAT] Digitama modal shows animated SVG eggs with type colours
+       "SAVE FOR LATER" available only when party has ≥1 member
+       If party is empty (fresh reset), modal cannot be dismissed — must choose partner
+
+[FEAT] "↺ RESET TEAM" button in Team page
+       Confirmation dialog required before executing (prevents accidental wipes)
+       On confirm: deletes all Digimon, awards 1 Digitama credit, opens egg selection
+       User picks their new starting partner via egg modal — no hardcoded defaults
+
+[FEAT] Digitama credits shown as 🥚×N badge in nav bar and Team page header
+
+### Digidex Update
+
+[FEAT] Digidex now shows ALL Digimon regardless of discovery status
+       PNG/SVG badge on each card shows which sprites are loaded vs falling back to SVG
+       Undiscovered Digimon shown at 45% opacity with "undiscovered" label
+       Stage label visible for all entries
+
+### Fixes
+
+[FIX] ABI bootstrap deadlock resolved
+      Starters had abi:0; Champion required abi:5 with no way to earn it
+      Fix: ABI earned from task completion (fractional, 0.1–0.3 per task)
+
+[FIX] First-login seed now creates 3 starters: chibimon + tsunomon in party, patamon in farm
+      (Triggered only on brand-new accounts with no existing Digimon)
+
+[FIX] evolve() now persists to Supabase (was local-state only)
+
+### Database Migration
+
+[DEPLOY] SQL migration: supabase/migrations/20260408_login_streak.sql
+         Adds login_streak, last_login_date, digitama_credits to profiles table
+
+---
+
+## Pipeline — Features in Development
+
+[ ] Voice-to-text task entry
+    User speaks a task, app transcribes and auto-fills the task form
+
+[ ] AI auto-task management
+    AI analyses tasks and suggests edits, completions, or new tasks
+    based on chat conversation and current goals
+
+[ ] Party max cap — review and possible increase
+    Currently 3. May expand to 5 or 6 as gameplay deepens
+
+[ ] Mobile app (React Native / Expo)
+[ ] Apple Watch / Wear OS companion
+[ ] DigiVice ESP32 prototype

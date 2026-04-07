@@ -5,17 +5,18 @@
 import { supabase } from './lib/supabase.js';
 import { useState, useRef, useEffect } from "react";
 import DigiSprite from "./components/DigiSprite.jsx";
+import { getSpriteConfig } from "./data/sprites.js";
 import { Bar, Tag, Btn } from "./components/ui.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
 import { DIGIMON_MAP } from "./data/digimon.js";
 import {
   PERSONALITIES, STAGE_COLOR, ATTR_COLOR,
-  PRIORITY_COLORS, CATEGORIES, DAYS_OF_WEEK,
+  PRIORITY_COLORS, CATEGORIES, STAT_CATEGORIES, DAYS_OF_WEEK,
   MAX_PARTY_SIZE, BATTLE_REWARDS,
 } from "./data/constants.js";
 import {
   calcStats, calcXpReward, calcStatReward,
-  applyXpGain, newDigimon, abiCap, totalBonusStats,
+  applyXpGain, newDigimon, abiCap, totalBonusStats, meetsEvoReq,
 } from "./data/engine.js";
 
 // ── Design tokens — dark pixel art system ─────────────────────────────────────
@@ -41,6 +42,18 @@ var T = {
 
 // Priority colour map
 var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
+
+// ── Digitama eggs — 30-day login streak reward ────────────────────────────────
+var DIGITAMA_EGGS = [
+  { id:"flame",  label:"Flame",  color:"#FF6B35", shimmer:"#FFD700", hatch:"botamon",  desc:"Fire Digimon" },
+  { id:"holy",   label:"Holy",   color:"#FFE066", shimmer:"#FFFFFF", hatch:"punimon",  desc:"Holy Digimon" },
+  { id:"wind",   label:"Wind",   color:"#A8E6CF", shimmer:"#7EB8F7", hatch:"poyomon",  desc:"Maiden Digimon" },
+  { id:"beast",  label:"Beast",  color:"#7EB8F7", shimmer:"#C3B1E1", hatch:"pabumon",  desc:"Beast Digimon" },
+  { id:"dragon", label:"Dragon", color:"#C3B1E1", shimmer:"#FF9EB5", hatch:"jyarimon", desc:"Dragon Digimon" },
+  { id:"nature", label:"Nature", color:"#5CB85C", shimmer:"#A8E6CF", hatch:"kuramon",  desc:"Plant Digimon" },
+  { id:"mystic", label:"Mystic", color:"#FF9EB5", shimmer:"#B8A0E8", hatch:"viximon",  desc:"Mystic Digimon" },
+  { id:"shadow", label:"Shadow", color:"#9B59B6", shimmer:"#E0C0FF", hatch:"pagumon",  desc:"Shadow Digimon" },
+];
 
 // Pixel box style — the Nomi signature
 function px(accentColor) {
@@ -108,6 +121,12 @@ export default function App({ session }) {
   var [toast,       setToast]       = useState(null);
   var [evoAnim,     setEvoAnim]     = useState(null);
   var [battleState, setBattleState] = useState(null);
+  var [showTaskModal, setShowTaskModal] = useState(false);
+  var [modalForm, setModalForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[] });
+  var [loginStreak,       setLoginStreak]       = useState(0);
+  var [digitamaCredits,   setDigitamaCredits]   = useState(0);
+  var [showDigitamaModal, setShowDigitamaModal] = useState(false);
+  var [confirmReset,      setConfirmReset]      = useState(false);
   var dragIdx = useRef(null);
 
 const userId = session.user.id
@@ -124,6 +143,27 @@ useEffect(() => {
     if (profile) {
       setBits(profile.bits || 350)
       setSavedStats(profile.saved_stats || 0)
+
+      // ── Login streak ─────────────────────────────────────────────────────
+      const todayStr  = new Date().toISOString().split('T')[0]
+      const yesterStr = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+      const lastLogin = profile.last_login_date
+      let curStreak = profile.login_streak    || 0
+      let curCreds  = profile.digitama_credits || 0
+
+      if (lastLogin !== todayStr) {
+        const prevMilestone = Math.floor(curStreak / 30)
+        curStreak = (lastLogin === yesterStr) ? curStreak + 1 : 1
+        const earned = Math.floor(curStreak / 30) - prevMilestone
+        if (earned > 0) { curCreds += earned; setShowDigitamaModal(true); }
+        await supabase.from('profiles').update({
+          login_streak:     curStreak,
+          last_login_date:  todayStr,
+          digitama_credits: curCreds,
+        }).eq('id', userId)
+      }
+      setLoginStreak(curStreak)
+      setDigitamaCredits(curCreds)
     }
 
     if (digimonData && digimonData.length > 0) {
@@ -146,43 +186,70 @@ useEffect(() => {
       const allD = [...new Set(digimonData.flatMap(d => d.discovered || []))]
       setAllDisc(allD)
     } else {
-      // First login — create starter Digimon
-      const starter = newDigimon('agumon', {})
-      const { data: newDigi } = await supabase.from('digimon').insert({
-        user_id:     userId,
-        species_id:  starter.speciesId,
-        name:        starter.name,
-        level:       1,
-        exp:         0,
-        exp_needed:  100,
-        abi:         0,
-        personality: starter.personality,
-        bonus_stats: starter.bonusStats,
-        discovered:  ['agumon'],
-        in_farm:     false,
-        sort_order:  0,
-      }).select().single()
-      if (newDigi) setParty([Object.assign({}, starter, { uid: newDigi.id })])
+      // First login — create starter party: Chibimon + Tsunomon in party, Patamon in farm
+      async function insertDigi(speciesId, sortOrder, inFarm) {
+        const s = newDigimon(speciesId, {});
+        const { data } = await supabase.from('digimon').insert({
+          user_id: userId, species_id: speciesId, name: s.name,
+          level: 1, exp: 0, exp_needed: 100, abi: 0,
+          personality: s.personality, bonus_stats: s.bonusStats,
+          discovered: [speciesId], in_farm: inFarm, sort_order: sortOrder,
+        }).select().single();
+        return data ? Object.assign({}, s, { uid: data.id, inFarm }) : null;
+      }
+      const [d1, d2, d3] = await Promise.all([
+        insertDigi('chibimon', 0, false),
+        insertDigi('tsunomon', 1, false),
+        insertDigi('patamon',  2, true),
+      ]);
+      setParty([d1, d2].filter(Boolean));
+      setFarm(d3 ? [d3] : []);
+      setAllDisc(['chibimon', 'tsunomon', 'patamon']);
     }
 
     if (tasksData) {
-      const today = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
+      const todayStr  = new Date().toISOString().split('T')[0]
+      const todayDay  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
+      const sevenAgo  = new Date(); sevenAgo.setDate(sevenAgo.getDate() - 7);
+      const sevenStr  = sevenAgo.toISOString().split('T')[0]
+
+      // Purge one-time tasks completed more than 7 days ago
+      const toDelete = tasksData.filter(t =>
+        t.type === 'once' && t.done && t.last_completed_date && t.last_completed_date < sevenStr
+      )
+      if (toDelete.length > 0) {
+        await supabase.from('tasks').delete().in('id', toDelete.map(t => t.id))
+      }
+
+      // Reset done for daily/recurring tasks not completed today
+      const toReset = tasksData.filter(t =>
+        (t.type === 'daily' || t.type === 'recurring') && t.done && t.last_completed_date !== todayStr
+      )
+      if (toReset.length > 0) {
+        await supabase.from('tasks').update({ done: false }).in('id', toReset.map(t => t.id))
+      }
+
+      const deletedIds = new Set(toDelete.map(t => t.id))
+      const resetIds   = new Set(toReset.map(t => t.id))
+
       const visible = tasksData.filter(t => {
+        if (deletedIds.has(t.id)) return false
         if (t.type !== 'recurring') return true
         if (!t.days_of_week || t.days_of_week.length === 0) return true
-        return t.days_of_week.includes(today)
+        return t.days_of_week.includes(todayDay)
       })
       setTasks(visible.map(t => ({
-        id:           t.id,
-        title:        t.title,
-        category:     t.category,
-        priority:     t.priority,
-        difficulty:   t.difficulty,
-        type:         t.type,
-        notes:        t.notes || '',
-        done:         t.done,
-        streak:       t.streak || 0,
-        daysOfWeek:   t.days_of_week || [],
+        id:          t.id,
+        title:       t.title,
+        category:    t.category,
+        priority:    t.priority,
+        difficulty:  t.difficulty,
+        type:        t.type,
+        notes:       t.notes || '',
+        done:        resetIds.has(t.id) ? false : t.done,
+        streak:      t.streak || 0,
+        daysOfWeek:  t.days_of_week || [],
+        completedAt: t.last_completed_date || null,
       })))
     }
   }
@@ -227,62 +294,154 @@ useEffect(() => {
     last_completed_date: new Date().toISOString().split('T')[0],
   }).eq('id', id)
 
-  // Update local state
-  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, { done: true, streak: (t.streak||0)+1 }) : t))
+  const todayStr = new Date().toISOString().split('T')[0]
 
-  // Give XP to active Digimon
-  const activeDigi = party[0]
-  if (activeDigi) {
-    const result = applyXpGain(activeDigi, xp)
-    await supabase.from('digimon').update({
-      exp:       result.exp,
-      level:     result.level,
-      exp_needed: result.expNeeded,
-    }).eq('id', activeDigi.uid)
-    setParty(p => p.map((d, i) => i === 0 ? Object.assign({}, d, result) : Object.assign({}, d, applyXpGain(d, Math.floor(xp * 0.5)))))
+  // Update local state
+  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, { done: true, streak: (t.streak||0)+1, completedAt: todayStr }) : t))
+
+  // Give equal XP + stat boost + ABI to ALL party members
+  const validStats = ['HP','SP','ATK','DEF','INT','SPD']
+  const statKey    = validStats.includes(task.category) ? task.category : null
+  const abiRate    = { Easy:0.1, Medium:0.2, Hard:0.3 }[task.difficulty] || 0.1
+
+  if (party.length > 0) {
+    const partyUpdates = party.map(d => {
+      const result   = applyXpGain(d, xp)
+      const newBonus = Object.assign({}, d.bonusStats || {})
+      if (statKey) newBonus[statKey] = (newBonus[statKey] || 0) + sp
+      const abiProgress = (newBonus.abi_progress || 0) + abiRate
+      const abiGained   = Math.floor(abiProgress)
+      newBonus.abi_progress = parseFloat((abiProgress - abiGained).toFixed(4))
+      const newAbi = (d.abi || 0) + abiGained
+      return { uid: d.uid, result, newBonus, newAbi }
+    })
+
+    await Promise.all(partyUpdates.map(u =>
+      supabase.from('digimon').update({
+        exp:        u.result.exp,
+        level:      u.result.level,
+        exp_needed: u.result.expNeeded,
+        bonus_stats: u.newBonus,
+        abi:        u.newAbi,
+      }).eq('id', u.uid)
+    ))
+
+    setParty(p => p.map((d, i) => {
+      const u = partyUpdates[i];
+      return Object.assign({}, d, u.result, { bonusStats: u.newBonus, abi: u.newAbi });
+    }))
   }
 
-  // Update saved stats
-  const newSavedStats = (savedStats || 0) + sp
-  setSavedStats(newSavedStats)
-  await supabase.from('profiles').update({ saved_stats: newSavedStats }).eq('id', userId)
-
+  const statLabel = statKey ? ' +' + sp + ' ' + statKey : ''
   setSpeech('great job! +' + xp + ' XP 🔥')
-  addLog('✅', 'Completed "' + task.title + '" +' + xp + ' XP')
-  toast_('Task done!  +' + xp + ' EXP  +' + sp + ' stat pts')
+  addLog('✅', 'Completed "' + task.title + '" +' + xp + ' XP' + statLabel)
+  toast_('Task done!  +' + xp + ' XP' + statLabel)
 }
 
-  function evolve(uid, targetId) {
+  async function evolve(uid, targetId) {
     var info = DIGIMON_MAP[targetId];
     if (!info) return;
+    var newAbi, newDisc;
     setParty(function(p){ return p.map(function(d){
       if (d.uid!==uid) return d;
-      var nd = d.discovered.indexOf(targetId)<0 ? d.discovered.concat([targetId]) : d.discovered;
-      return Object.assign({},d,{speciesId:targetId,name:info.name,level:1,exp:0,expNeeded:100,abi:(d.abi||0)+Math.max(1,Math.floor(d.level/10)),discovered:nd});
+      newAbi  = (d.abi||0) + Math.max(1, Math.floor(d.level/10));
+      newDisc = d.discovered.indexOf(targetId)<0 ? d.discovered.concat([targetId]) : d.discovered;
+      return Object.assign({},d,{speciesId:targetId,name:info.name,level:1,exp:0,expNeeded:100,abi:newAbi,discovered:newDisc});
     }); });
     setAllDisc(function(p){ return p.indexOf(targetId)<0?p.concat([targetId]):p; });
+    // Persist to Supabase
+    await supabase.from('digimon').update({
+      species_id:  targetId,
+      name:        info.name,
+      level:       1,
+      exp:         0,
+      exp_needed:  100,
+      abi:         newAbi || 1,
+      discovered:  newDisc || [targetId],
+    }).eq('id', uid);
     setEvoAnim(targetId);
     setTimeout(function(){ setEvoAnim(null); }, 3200);
     addLog("✨", info.name+" digivolved!");
     toast_(info.name+" digivolved!","#FFD700");
   }
 
-  function sendToFarm(uid) {
-    if (party.length<=1) return;
+  async function sendToFarm(uid) {
+    if (party.length<=1){ toast_("Can't send your last Digimon to the farm!","#FF8080"); return; }
     var d = party.find(function(x){ return x.uid===uid; });
     if (!d) return;
+    await supabase.from('digimon').update({ in_farm:true }).eq('id', uid);
     setParty(function(p){ return p.filter(function(x){ return x.uid!==uid; }); });
     setFarm(function(f){ return f.concat([Object.assign({},d,{inFarm:true})]); });
     toast_(d.name+" sent to DigiFarm.");
   }
 
-  function recallFromFarm(uid) {
-    if (party.length>=MAX_PARTY_SIZE){ toast_("Party full! Max 9.","#FF8080"); return; }
+  async function recallFromFarm(uid) {
+    if (party.length>=MAX_PARTY_SIZE){ toast_("Party full! Max "+MAX_PARTY_SIZE+".","#FF8080"); return; }
     var d = farm.find(function(x){ return x.uid===uid; });
     if (!d) return;
+    await supabase.from('digimon').update({ in_farm:false, sort_order:party.length }).eq('id', uid);
     setFarm(function(f){ return f.filter(function(x){ return x.uid!==uid; }); });
     setParty(function(p){ return p.concat([Object.assign({},d,{inFarm:false})]); });
     toast_(d.name+" recalled!");
+  }
+
+  async function setLeader(uid) {
+    var idx = party.findIndex(function(d){ return d.uid===uid; });
+    if (idx<=0) return;
+    var leader = party[0];
+    await Promise.all([
+      supabase.from('digimon').update({ sort_order:idx }).eq('id', leader.uid),
+      supabase.from('digimon').update({ sort_order:0 }).eq('id', uid),
+    ]);
+    setParty(function(p){
+      var copy = p.slice();
+      var tmp = copy[0]; copy[0] = copy[idx]; copy[idx] = tmp;
+      return copy;
+    });
+    toast_(party[idx].name+" is now leader!","#FFD700");
+  }
+
+  async function hatchDigitama(eggId) {
+    var egg = DIGITAMA_EGGS.find(function(e){ return e.id===eggId; });
+    if (!egg || digitamaCredits<=0) return;
+    var intoFarm = party.length>=MAX_PARTY_SIZE;
+    var baby = newDigimon(egg.hatch, {});
+    var { data: newDigi } = await supabase.from('digimon').insert({
+      user_id: userId, species_id: egg.hatch, name: baby.name,
+      level:1, exp:0, exp_needed:100, abi:0,
+      personality: baby.personality, bonus_stats: baby.bonusStats,
+      discovered: [egg.hatch], in_farm: intoFarm,
+      sort_order: intoFarm ? farm.length : party.length,
+    }).select().single();
+    if (newDigi) {
+      var entry = Object.assign({}, baby, { uid:newDigi.id, inFarm:intoFarm });
+      if (intoFarm) setFarm(function(f){ return f.concat([entry]); });
+      else          setParty(function(p){ return p.concat([entry]); });
+      setAllDisc(function(d){ return d.indexOf(egg.hatch)<0?d.concat([egg.hatch]):d; });
+      var newCreds = digitamaCredits-1;
+      setDigitamaCredits(newCreds);
+      await supabase.from('profiles').update({ digitama_credits:newCreds }).eq('id', userId);
+      setShowDigitamaModal(false);
+      toast_(baby.name+" hatched! 🥚✨","#FFD700");
+      addLog("🥚", baby.name+" hatched from a Digitama!");
+    }
+  }
+
+  async function resetToStarters() {
+    // Wipe all Digimon, then award 1 Digitama so user picks their new starter
+    var { data:existing } = await supabase.from('digimon').select('id').eq('user_id', userId);
+    if (existing && existing.length>0) {
+      await supabase.from('digimon').delete().in('id', existing.map(function(x){ return x.id; }));
+    }
+    setParty([]);
+    setFarm([]);
+    setAllDisc([]);
+    var newCreds = digitamaCredits + 1;
+    setDigitamaCredits(newCreds);
+    await supabase.from('profiles').update({ digitama_credits:newCreds }).eq('id', userId);
+    setConfirmReset(false);
+    setShowDigitamaModal(true);
+    toast_("Choose your new partner! 🥚","#FFD700");
   }
 
   async function addTask(t) {
@@ -601,6 +760,61 @@ useEffect(() => {
         })}
       </div>
 
+      {/* ── CONFIRM RESET ─────────────────────────────────────────────────── */}
+      {confirmReset&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:495,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.coral,boxShadow:"4px 4px 0 "+T.coral,padding:28,maxWidth:360,textAlign:"center",display:"flex",flexDirection:"column",gap:16 }}>
+            <div style={{ fontSize:36 }}>⚠️</div>
+            <div className="px10" style={{ color:T.coral }}>RESET TEAM?</div>
+            <div style={{ fontSize:12,fontWeight:700,color:T.textMid,lineHeight:1.6 }}>
+              All current Digimon will be deleted. You will receive a Digitama to choose a new starting partner. This cannot be undone.
+            </div>
+            <div style={{ display:"flex",gap:10,justifyContent:"center" }}>
+              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"7px" }}
+                onClick={resetToStarters}>CONFIRM RESET</button>
+              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+                onClick={function(){ setConfirmReset(false); }}>CANCEL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DIGITAMA MODAL ────────────────────────────────────────────────── */}
+      {showDigitamaModal&&digitamaCredits>0&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:490,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,overflowY:"auto" }}>
+          <div style={{ fontSize:48,marginBottom:8 }}>🥚</div>
+          <div className="px10" style={{ color:T.gold,letterSpacing:3,marginBottom:4 }}>DIGITAMA REWARD</div>
+          <div className="px8" style={{ color:T.textMid,marginBottom:4 }}>30-DAY LOGIN MILESTONE!</div>
+          <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:24,textAlign:"center" }}>
+            Choose an egg to add a new partner to your team:
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20,maxWidth:520 }}>
+            {DIGITAMA_EGGS.map(function(egg){
+              return (
+                <button key={egg.id} onClick={function(){ hatchDigitama(egg.id); }}
+                  style={{ background:"transparent",border:"2px solid "+egg.color,boxShadow:"3px 3px 0 "+egg.color,padding:14,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontFamily:"'Press Start 2P',monospace" }}>
+                  <svg width={48} height={58} viewBox="0 0 48 58">
+                    <ellipse cx="24" cy="32" rx="18" ry="23" fill={egg.color} opacity="0.9"/>
+                    <ellipse cx="17" cy="22" rx="5" ry="8"  fill="rgba(255,255,255,0.3)"/>
+                    <ellipse cx="24" cy="32" rx="18" ry="23" fill="none" stroke={egg.shimmer} strokeWidth="1.5" opacity="0.7"/>
+                  </svg>
+                  <div style={{ fontSize:"6px",color:egg.color,fontWeight:900 }}>{egg.label}</div>
+                  <div style={{ fontSize:"5px",color:T.textMid,textAlign:"center" }}>{egg.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+          {party.length>0&&(
+            <button className="px8" style={{ padding:"8px 20px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+              onClick={function(){ setShowDigitamaModal(false); }}>SAVE FOR LATER</button>
+          )}
+          {party.length===0&&(
+            <div className="px8" style={{ color:T.coral,marginTop:4,fontSize:"6px" }}>You must choose a partner to continue</div>
+          )}
+          {digitamaCredits>1&&<div className="px8" style={{ color:T.gold,marginTop:8,fontSize:"6px" }}>×{digitamaCredits} eggs available — each pick uses 1</div>}
+        </div>
+      )}
+
       {/* ── EVOLUTION OVERLAY ─────────────────────────────────────────────── */}
       {evoAnim && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:500,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"evoIn 3.2s ease" }}>
@@ -609,6 +823,28 @@ useEffect(() => {
           <div className="px10" style={{ marginTop:24,color:accent,letterSpacing:4 }}>DIGIVOLUTION</div>
           <div style={{ marginTop:10,fontSize:24,fontWeight:900 }}>{DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].name}</div>
           <div className="px8" style={{ marginTop:6,color:T.textMid }}>{DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].stage}</div>
+        </div>
+      )}
+
+      {/* ── ADD TASK MODAL ────────────────────────────────────────────────── */}
+      {showTaskModal&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}
+          onClick={function(e){ if(e.target===e.currentTarget) setShowTaskModal(false); }}>
+          <div style={{ width:"100%",maxWidth:520,background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,padding:24,display:"flex",flexDirection:"column",gap:14,animation:"slideUp 0.2s ease" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <div className="px10" style={{ color:T.text }}>ADD NEW TASK</div>
+              <button onClick={function(){ setShowTaskModal(false); }} style={{ background:"none",border:"none",color:T.textMid,cursor:"pointer",fontSize:22,lineHeight:1 }}>×</button>
+            </div>
+            <TaskForm form={modalForm} setForm={setModalForm}
+              onSubmit={function(){
+                if(!modalForm.title.trim()) return;
+                addTask(modalForm);
+                setModalForm({title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[]});
+                setShowTaskModal(false);
+              }}
+              onCancel={function(){ setShowTaskModal(false); }}
+              label="ADD TASK" accent={accent} T={T}/>
+          </div>
         </div>
       )}
 
@@ -640,6 +876,11 @@ useEffect(() => {
 
         {/* User */}
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+          <div className="px8" style={{ color:T.textMid }}>🔥{loginStreak}</div>
+          {digitamaCredits>0&&(
+            <button className="px8" style={{ padding:"3px 7px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px" }}
+              onClick={function(){ setShowDigitamaModal(true); }}>🥚×{digitamaCredits}</button>
+          )}
           <div className="px8" style={{ color:T.textMid }}>LV.{activeDigi&&activeDigi.level}</div>
           <div style={{ width:34,height:34,border:"2px solid "+T.border,background:T.bgCard,display:"grid",placeItems:"center" }}>
             {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={26} animate={false}/>}
@@ -685,11 +926,15 @@ useEffect(() => {
 
           {/* Stat bars */}
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            {[
-              { label:"❤️ HP",   val:activeDigi?Math.min(100,calcStats(activeDigi).HP):75, max:100,  color:T.green  },
-              { label:"⭐ XP",   val:activeDigi?activeDigi.exp:0,                           max:activeDigi?activeDigi.expNeeded:100, color:T.gold  },
-              { label:"😊 MOOD", val:Math.max(30,100-pendTasks.length*12),                  max:100,  color:T.pink   },
-            ].map(function(s){
+            {(function(){
+              var abiProgress = activeDigi ? ((activeDigi.bonusStats||{}).abi_progress||0) : 0;
+              return [
+                { label:"❤️ HP",   val:activeDigi?Math.min(100,calcStats(activeDigi).HP):75, max:100,  color:T.green  },
+                { label:"⭐ XP",   val:activeDigi?activeDigi.exp:0,                           max:activeDigi?activeDigi.expNeeded:100, color:T.gold  },
+                { label:"😊 MOOD", val:Math.max(30,100-pendTasks.length*12),                  max:100,  color:T.pink   },
+                { label:"🔷 ABI",  val:activeDigi?(activeDigi.abi||0)+abiProgress:0,           max:Math.max((activeDigi&&activeDigi.abi||0)+1,5), color:T.lavender, hint:"ABI "+(activeDigi?activeDigi.abi||0:0) },
+              ];
+            })().map(function(s){
               return (
                 <div key={s.label} style={{ display:"flex",flexDirection:"column",gap:5 }}>
                   <div style={{ display:"flex",justifyContent:"space-between" }}>
@@ -724,16 +969,37 @@ useEffect(() => {
 
           {/* Evolution banner */}
           {activeInfo && (function(){
-            var evoT = (activeInfo.evolvesTo||[]).filter(function(id){ var t=DIGIMON_MAP[id]; return t&&!t.fusionOf&&activeDigi.level>=10; });
+            var evoT = (activeInfo.evolvesTo||[]).filter(function(id){ var t=DIGIMON_MAP[id]; return t&&!t.fusionOf&&meetsEvoReq(activeDigi,t); });
             var xpLeft = (activeDigi.expNeeded - activeDigi.exp);
-            return evoT.length>0 ? (
+            // Find next possible evolutions and their missing requirements
+            var nextEvoInfo = (activeInfo.evolvesTo||[]).map(function(id){
+              var t=DIGIMON_MAP[id]; if(!t||t.fusionOf) return null;
+              var req=t.evoRequires||{}; var cs=calcStats(activeDigi);
+              var missing=[];
+              if((activeDigi.level||1)<(req.level||1)) missing.push("Lv."+(req.level||1));
+              if((activeDigi.abi||0)<(req.abi||0)) missing.push("ABI "+(req.abi||0));
+              var statReqs=req.stats||{};
+              for(var s in statReqs){ if((cs[s]||0)<statReqs[s]) missing.push(s+" "+(statReqs[s])); }
+              return { id:id, name:t.name, missing:missing, ready:missing.length===0 };
+            }).filter(Boolean);
+            var anyReady=nextEvoInfo.some(function(e){return e.ready;});
+            return nextEvoInfo.length>0 ? (
               <div className="evo-banner" onClick={function(){ setPage("team"); }}>
                 <span style={{ fontSize:18 }}>✨</span>
                 <div style={{ flex:1 }}>
-                  <div className="px8" style={{ color:T.lavender }}>EVOLUTION READY</div>
-                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>Go to Team to evolve!</div>
+                  {anyReady
+                    ? <div className="px8" style={{ color:T.lavender }}>EVOLUTION READY</div>
+                    : <div className="px8" style={{ color:T.lavender }}>NEXT EVOLUTION</div>
+                  }
+                  {nextEvoInfo.map(function(e){
+                    return (
+                      <div key={e.id} style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:3 }}>
+                        {e.name}: {e.ready?"Ready! →":e.missing.join(", ")}
+                      </div>
+                    );
+                  })}
                 </div>
-                <span style={{ color:T.lavender,fontWeight:900 }}>→</span>
+                <span style={{ color:T.lavender }}>→</span>
               </div>
             ) : (
               <div className="evo-banner">
@@ -767,7 +1033,7 @@ useEffect(() => {
                 {/* Streak row */}
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
                   {[
-                    { icon:"🔥", val:streak,               label:"day streak" },
+                    { icon:"🔥", val:loginStreak,           label:"login streak" },
                     { icon:"✅", val:doneTasks.length+"/"+tasks.length, label:"done today" },
                     { icon:"⭐", val:"+"+xpToday,           label:"XP today" },
                   ].map(function(s){
@@ -789,7 +1055,7 @@ useEffect(() => {
                     <div className="px12">TODAY'S QUESTS</div>
                     <div style={{ fontSize:13,fontWeight:700,color:T.textMid,marginTop:4 }}>{pendTasks.length} tasks remaining</div>
                   </div>
-                  <button className="px8" onClick={function(){setPage("tasks");}} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>
+                  <button className="px8" onClick={function(){ setShowTaskModal(true); }} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>
                     + NEW TASK
                   </button>
                 </div>
@@ -813,7 +1079,7 @@ useEffect(() => {
                             <div style={{ flex:1 }}>
                               <div style={{ fontSize:14,fontWeight:800,color:T.text }}>{t.title}</div>
                               <div style={{ display:"flex",gap:6,marginTop:5,flexWrap:"wrap",alignItems:"center" }}>
-                                <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category.toUpperCase()}</span>
+                                {(function(){ var sc=STAT_CATEGORIES.find(function(s){return s.id===t.category;}); return sc ? <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(sc.color||T.border),color:sc.color||T.textMid,background:T.bgPanel,fontSize:"6px" }}>{sc.icon} {sc.id}</span> : <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category}</span>; })()}
                                 <span className="px8" style={{ padding:"2px 6px",background:"#2a2000",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
                                 <span style={{ fontSize:11,fontWeight:700,color:t.type==="daily"?T.teal:T.textDim }}>{t.type}</span>
                               </div>
@@ -828,23 +1094,60 @@ useEffect(() => {
                   );
                 })}
 
-                {/* Done tasks */}
-                {doneTasks.length>0&&(
-                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                    <div className="sec-label">✓ COMPLETED</div>
-                    {doneTasks.map(function(t){
-                      return (
-                        <div key={t.id} className="task-card done tc-low">
-                          <div className="task-check checked"><span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span></div>
-                          <div style={{ flex:1 }}>
-                            <div style={{ fontSize:14,fontWeight:800,color:T.textMid,textDecoration:"line-through" }}>{t.title}</div>
-                          </div>
-                          <span className="px8" style={{ fontSize:"6px",color:T.green }}>DONE</span>
+                {/* 7-day completion chart */}
+                {(function(){
+                  var today2 = new Date();
+                  var days = [];
+                  for (var di=6; di>=0; di--) {
+                    var d2 = new Date(today2); d2.setDate(today2.getDate()-di);
+                    var dateStr = d2.toISOString().split('T')[0];
+                    var dayLabel = ['Su','Mo','Tu','We','Th','Fr','Sa'][d2.getDay()];
+                    var count = tasks.filter(function(t){ return t.done && t.completedAt===dateStr; }).length;
+                    days.push({ dateStr:dateStr, dayLabel:dayLabel, count:count, isToday:di===0 });
+                  }
+                  var maxCount = Math.max(1, days.reduce(function(m,d){ return Math.max(m,d.count); },0));
+                  var todayCount = days[days.length-1].count;
+                  return (
+                    <div className="pcard" style={{ padding:"14px 16px" }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                        <div className="px8" style={{ color:T.textMid,fontSize:"7px" }}>7-DAY COMPLETION</div>
+                        <div className="px8" style={{ color:accent,fontSize:"7px" }}>{todayCount} done today</div>
+                      </div>
+                      <div style={{ display:"flex",gap:6,alignItems:"flex-end",height:68 }}>
+                        {days.map(function(dd){
+                          var pct = dd.count/maxCount;
+                          var barH = dd.count>0 ? Math.max(pct*48,6) : 2;
+                          var col  = dd.isToday ? accent : T.teal;
+                          return (
+                            <div key={dd.dateStr} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                              {dd.count>0&&<div style={{ fontSize:9,fontWeight:800,color:col }}>{dd.count}</div>}
+                              {dd.count===0&&<div style={{ fontSize:9 }}> </div>}
+                              <div style={{ width:"100%",height:48,display:"flex",alignItems:"flex-end" }}>
+                                <div style={{ width:"100%",height:barH,background:col,opacity:dd.count>0?1:0.18,border:dd.isToday?"1.5px solid "+col:"none",transition:"height 0.3s ease" }}/>
+                              </div>
+                              <div className="px8" style={{ fontSize:"5px",color:dd.isToday?accent:T.textDim }}>{dd.dayLabel}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {doneTasks.length>0&&(
+                        <div style={{ marginTop:12,borderTop:"1px solid "+T.border,paddingTop:10,display:"flex",flexDirection:"column",gap:6 }}>
+                          {doneTasks.map(function(t){
+                            return (
+                              <div key={t.id} style={{ display:"flex",alignItems:"center",gap:8,opacity:0.6 }}>
+                                <div className="task-check checked" style={{ width:18,height:18,border:"2px solid "+T.border,background:T.teal,display:"grid",placeItems:"center",flexShrink:0 }}>
+                                  <span style={{ fontSize:10,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>
+                                </div>
+                                <div style={{ fontSize:12,fontWeight:700,color:T.textMid,textDecoration:"line-through",flex:1 }}>{t.title}</div>
+                                <span style={{ fontSize:10,color:T.textDim }}>{t.category}</span>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -858,7 +1161,18 @@ useEffect(() => {
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div className="px12">TEAM MANAGER</div>
-                  <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
+                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                    <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
+                    {digitamaCredits>0&&(
+                      <button className="px8" style={{ padding:"5px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"6px" }}
+                        onClick={function(){ setShowDigitamaModal(true); }}>🥚 ×{digitamaCredits}</button>
+                    )}
+                  </div>
+                </div>
+                <div style={{ background:T.bgCard,border:"1px solid "+T.border,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}>🔥 Login streak: <span style={{ color:T.coral }}>{loginStreak} days</span></div>
+                  <button className="px8" style={{ padding:"4px 8px",background:"transparent",border:"1px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"5px" }}
+                    onClick={function(){ setConfirmReset(true); }}>↺ RESET TEAM</button>
                 </div>
                 {savedStats>0&&(
                   <div style={{ background:T.gold+"15",border:"2px solid "+T.gold,boxShadow:"3px 3px 0 "+T.gold,padding:14 }}>
@@ -878,7 +1192,7 @@ useEffect(() => {
                 )}
                 {party.map(function(digi,i){
                   var inf2=DIGIMON_MAP[digi.speciesId]; var st2=calcStats(digi);
-                  var evoT=(inf2&&inf2.evolvesTo||[]).filter(function(id){var t=DIGIMON_MAP[id];return t&&!t.fusionOf&&digi.level>=10;});
+                  var evoT=(inf2&&inf2.evolvesTo||[]).filter(function(id){var t=DIGIMON_MAP[id];return t&&!t.fusionOf&&meetsEvoReq(digi,t);});
                   return (
                     <div key={digi.uid} className="pcard" style={{ padding:16,borderColor:i===0?accent:T.border,boxShadow:"3px 3px 0 "+(i===0?accent:T.border) }}>
                       <div style={{ display:"flex",gap:14,flexWrap:"wrap" }}>
@@ -902,6 +1216,7 @@ useEffect(() => {
                           </div>
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                             {evoT.map(function(tid){return <button key={tid} className="px8" style={{ padding:"6px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"6px" }} onClick={function(){evolve(digi.uid,tid);}}>→ {DIGIMON_MAP[tid]&&DIGIMON_MAP[tid].name}</button>;})}
+                            {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){setLeader(digi.uid);}}>★ Set Leader</button>}
                             {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){sendToFarm(digi.uid);}}>→ Farm</button>}
                           </div>
                         </div>
@@ -1043,14 +1358,16 @@ useEffect(() => {
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10 }}>
                   {Object.values(DIGIMON_MAP).map(function(d){
                     var known=allDisc.indexOf(d.id)>=0;
+                    var hasPng=!!getSpriteConfig(d.id);
                     return (
-                      <div key={d.id} className="pcard" style={{ padding:14,textAlign:"center",opacity:known?1:0.3 }}>
-                        {known
-                          ? <DigiSprite digimonId={d.id} size={48} animate={false}/>
-                          : <div style={{ width:48,height:48,margin:"0 auto",background:T.bgPanel,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:18,color:T.textDim }}>?</div>
-                        }
-                        <div style={{ fontSize:11,fontWeight:800,marginTop:8 }}>{known?d.name:"???"}</div>
-                        {known&&<div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:5,fontSize:"6px" }}>{d.stage}</div>}
+                      <div key={d.id} className="pcard" style={{ padding:14,textAlign:"center",opacity:known?1:0.45,position:"relative" }}>
+                        <div style={{ position:"absolute",top:6,right:6,fontSize:8,padding:"1px 4px",background:hasPng?"#2a4a2a":"#3a2a1a",border:"1px solid "+(hasPng?"#5CB85C":"#FF6B35"),color:hasPng?"#5CB85C":"#FF6B35",lineHeight:1.4 }}>{hasPng?"PNG":"SVG"}</div>
+                        <div style={{ margin:"0 auto",width:48,height:48 }}>
+                          <DigiSprite digimonId={d.id} size={48} animate={false}/>
+                        </div>
+                        <div style={{ fontSize:11,fontWeight:800,marginTop:8 }}>{d.name}</div>
+                        <div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:5,fontSize:"6px" }}>{d.stage}</div>
+                        {!known&&<div className="px8" style={{ color:T.textDim,marginTop:3,fontSize:"5px" }}>undiscovered</div>}
                       </div>
                     );
                   })}
@@ -1147,9 +1464,9 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak,
   var [filterType, setFilterType] = useState("All");
   var [showAdd,    setShowAdd]    = useState(false);
   var [editId,     setEditId]     = useState(null);
-  var [form, setForm] = useState({ title:"",category:"Work",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[] });
+  var [form, setForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[] });
 
-  function reset(){ setForm({title:"",category:"Work",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[]}); }
+  function reset(){ setForm({title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[]}); }
   function submitAdd(){ if(!form.title.trim())return; onAdd(form); reset(); setShowAdd(false); }
   function submitEdit(){ if(!editId||!form.title.trim())return; onEdit(editId,form); setEditId(null); reset(); }
   function startEdit(t){ setEditId(t.id); setForm({title:t.title,category:t.category,priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[]}); }
@@ -1164,9 +1481,9 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak,
     <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
       {/* Category filters */}
       <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,width:"fit-content",flexWrap:"wrap" }}>
-        {["All"].concat(CATEGORIES).map(function(c){
-          var a=filterCat===c;
-          return <button key={c} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid,borderRight:"2px solid "+T.border }} onClick={function(){setFilterCat(c);}}>{c.toUpperCase()}</button>;
+        {[{id:"All",icon:"◈"}].concat(STAT_CATEGORIES).map(function(c){
+          var id=c.id; var a=filterCat===id;
+          return <button key={id} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?(c.color||accent):T.textMid,borderRight:"2px solid "+T.border }} onClick={function(){setFilterCat(id);}}>{c.icon||""} {id}</button>;
         })}
       </div>
       <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,width:"fit-content" }}>
@@ -1199,7 +1516,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak,
                     <div style={{ fontSize:14,fontWeight:800,textDecoration:t.done?"line-through":"none" }}>{t.title}</div>
                     {t.notes&&<div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.notes}</div>}
                     <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center" }}>
-                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category.toUpperCase()}</span>
+                      {(function(){ var sc=STAT_CATEGORIES.find(function(s){return s.id===t.category;}); return sc ? <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(sc.color||T.border),color:sc.color||T.textMid,background:T.bgPanel,fontSize:"6px" }}>{sc.icon} {sc.id}</span> : <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category}</span>; })()}
                       <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"6px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
                       <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
                       <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"6px" }}>{t.priority.toUpperCase()}</span>
@@ -1233,8 +1550,8 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
         <select value={form.type}       onChange={function(e){setForm(function(f){return Object.assign({},f,{type:e.target.value});});}}       style={Object.assign({},selSt,{flex:1,minWidth:100})}>
           <option value="once">Data-Hunt</option><option value="daily">Daily-Protocol</option><option value="recurring">Loop-Protocols</option>
         </select>
-        <select value={form.category}   onChange={function(e){setForm(function(f){return Object.assign({},f,{category:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:100})}>
-          {CATEGORIES.map(function(c){return <option key={c}>{c}</option>;})}
+        <select value={form.category}   onChange={function(e){setForm(function(f){return Object.assign({},f,{category:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:130})}>
+          {STAT_CATEGORIES.map(function(c){return <option key={c.id} value={c.id}>{c.icon} {c.id} — {c.desc}</option>;})}
         </select>
         <select value={form.priority}   onChange={function(e){setForm(function(f){return Object.assign({},f,{priority:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:80,color:PCOL[form.priority]||T.text})}>
           <option>Low</option><option>Medium</option><option>High</option>

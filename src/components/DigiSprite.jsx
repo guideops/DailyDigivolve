@@ -1,74 +1,172 @@
-// ─── DigiSprite — pixel art Digimon renderer ──────────────────────────────────
-// Pure SVG, no image files required.
+// ─── DigiSprite — animated PNG sprite with SVG fallback ───────────────────────
 // Props:
-//   digimonId  — species id string e.g. "agumon"
-//   mood       — "happy" | "sad" | "angry" | "stoic" | "sleepy"
+//   digimonId  — species id, e.g. "agumon"
+//   mood       — "happy" | "sad" | "angry" | "stoic" | "sleepy"  (affects SVG fallback only)
 //   size       — number (px), default 64
-//   animate    — boolean, default true (gentle float animation)
+//   animate    — boolean, default true
 
-const SPRITE_COLORS = {
-  agumon:    { body:"#F7C27E", acc:"#E8A030", cheek:"#FFB3C6" },
-  gabumon:   { body:"#8ecfff", acc:"#5ba4cf", cheek:"#b3d9ff" },
-  guilmon:   { body:"#E85040", acc:"#C03020", cheek:"#FF8070" },
-  palmon:    { body:"#5cb85c", acc:"#3d8b3d", cheek:"#90ee90" },
-  coronamon: { body:"#FFA040", acc:"#FF6600", cheek:"#FFD080" },
-  default:   { body:"#B8A0E8", acc:"#8060C0", cheek:"#D0B8F8" },
-};
+import { useState, useEffect, useRef } from "react";
+import { getSpriteConfig } from "../data/sprites.js";
+import { DIGIMON_MAP } from "../data/digimon.js";
 
-function getColors(id) {
-  if (!id) return SPRITE_COLORS.default;
-  var base = id.replace(/_x$/, "").replace(/_alts$/, "");
-  for (var key in SPRITE_COLORS) {
-    if (base.startsWith(key)) return SPRITE_COLORS[key];
+// ── PNG sprite component ───────────────────────────────────────────────────────
+function PngFrames({ id, config, size, animate }) {
+  const [frame, setFrame] = useState(0);
+  const timer = useRef(null);
+
+  useEffect(function() {
+    setFrame(0);
+    if (!animate || config.frameCount <= 1) return;
+    clearInterval(timer.current);
+    timer.current = setInterval(function() {
+      setFrame(function(f) { return (f + 1) % config.frameCount; });
+    }, Math.round(1000 / (config.fps || 6)));
+    return function() { clearInterval(timer.current); };
+  }, [id, animate, config.frameCount, config.fps]);
+
+  var spritePath = config.spriteId || id;
+
+  if (config.mode === "grid") {
+    // Grid sprite sheet — frames run left-to-right, top-to-bottom
+    var cols   = config.cols   || 1;
+    var frameW = config.frameW || 16;
+    var frameH = config.frameH || 16;
+    var scale  = size / frameW;          // e.g. 64/16 = 4× upscale
+    var col    = frame % cols;
+    var row    = Math.floor(frame / cols);
+    return (
+      <div style={{
+        width:              size,
+        height:             size,
+        backgroundImage:    "url(/sprites/" + spritePath + ".png)",
+        backgroundRepeat:   "no-repeat",
+        backgroundSize:     (config.cols * frameW * scale) + "px " + (config.rows * frameH * scale) + "px",
+        backgroundPosition: (-col * frameW * scale) + "px " + (-row * frameH * scale) + "px",
+        imageRendering:     "pixelated",
+        flexShrink:         0,
+      }} />
+    );
   }
-  return SPRITE_COLORS.default;
+
+  if (config.mode === "sheet") {
+    // Horizontal strip only
+    var pct = config.frameCount > 1 ? (frame / (config.frameCount - 1)) * 100 : 0;
+    return (
+      <div style={{
+        width:    size,
+        height:   size,
+        backgroundImage:    "url(/sprites/" + spritePath + ".png)",
+        backgroundRepeat:   "no-repeat",
+        backgroundSize:     (config.frameCount * 100) + "% 100%",
+        backgroundPosition: pct + "% 0",
+        imageRendering:     "pixelated",
+        flexShrink:         0,
+      }} />
+    );
+  }
+
+  // "frames" mode — individual PNGs
+  return (
+    <img
+      src={"/sprites/" + spritePath + "/" + frame + ".png"}
+      width={size}
+      height={size}
+      draggable={false}
+      style={{ imageRendering:"pixelated", display:"block", objectFit:"contain", flexShrink:0 }}
+      alt={id}
+    />
+  );
 }
 
-export default function DigiSprite({ digimonId, mood, size, animate, stageOverride }) {
-  mood    = mood    || "happy";
-  size    = size    || 64;
-  animate = animate !== false;
+// ── SVG fallback — pixel art placeholder (keeps working before PNGs arrive) ───
+var FALLBACK_COLORS = {
+  // Agumon/Fire lines
+  agumon:"#F7C27E",      greymon:"#E8A030",    metalgreymon:"#C0C0C0",  wargreymon:"#C03020",
+  // Patamon/Holy
+  patamon:"#FFA0A0",     angemon:"#FFE066",     magnaangemon:"#B8D8FF",  seraphimon:"#E0D0FF",
+  // Salamon/Holy Maiden
+  salamon:"#FFE0C0",     gatomon:"#E0E0E0",     angewomon:"#FFD0E8",     magnadramon:"#FF80C0", ophanimon:"#80C0FF",
+  // Gabumon/Wolf
+  gabumon:"#8ECFFF",     garurumon:"#7EB8F7",   weregarurumon:"#5090D0", metalgarurumon:"#90B0D0",
+  // Tentomon/Insect
+  tentomon:"#FF8040",    kabuterimon:"#E07000",  megakabuterimon:"#C05000", herculeskabuterimon:"#A04000",
+  // Palmon/Plant
+  palmon:"#5CB85C",      togemon:"#3D8B3D",      lillymon:"#90D080",      rosemon:"#FF6688",
+  // Veemon/Dragon Man
+  veemon:"#4080FF",      exveemon:"#2060E0",     aeroveedramon:"#1040C0", ulforceveedramon:"#C0E0FF",
+  // Guilmon/Dragon
+  guilmon:"#E85040",     growlmon:"#C03020",     megagargomon:"#608040",  gallantmon:"#C0A000",
+  // Lopmon/Earth
+  lopmon_it:"#D09060",   lopmon:"#B07040",       antylamon:"#906030",     saviorhuckmon:"#FF6030",
+  // Renamon/Fox
+  renamon:"#FFD080",     kyubimon:"#FFA040",     taomon:"#FF8020",        sakuyamon:"#FF6088",
+  // Babies/In-Training
+  default:"#B8A0E8",
+};
 
-  // Determine visual complexity from stage
-  var stage   = stageOverride || "Rookie";
-  var isMega  = stage === "Mega" || stage === "Ultra";
-  var isUlt   = stage === "Ultimate";
-  var isX     = digimonId && digimonId.endsWith("_x");
+function getFallbackColor(id) {
+  if (!id) return FALLBACK_COLORS.default;
+  return FALLBACK_COLORS[id] || FALLBACK_COLORS.default;
+}
 
-  var c          = getColors(digimonId);
+function SvgFallback({ digimonId, mood, size, animate }) {
+  var info  = DIGIMON_MAP[digimonId];
+  var stage = info ? info.stage : "Rookie";
+  var body  = getFallbackColor(digimonId);
+  var acc   = body; // slightly different accent
+  var isMega = stage === "Mega" || stage === "Ultra";
+  var isUlt  = stage === "Ultimate";
+  var isBaby = stage === "Baby" || stage === "In-Training";
   var eyeColor   = mood === "angry" ? "#cc2222" : "#1a1a2e";
-  var cheekColor = mood === "sad"   ? "#9090b0" : mood === "angry" ? "#ff5555" : c.cheek;
+  var cheekColor = mood === "sad"   ? "#9090b0" : mood === "angry" ? "#ff5555" : body + "cc";
+
+  // Babies are just a small round blob
+  if (isBaby) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 64 64"
+        style={{ imageRendering:"pixelated", display:"block" }}>
+        <ellipse cx="32" cy="62" rx="10" ry="2" fill="rgba(0,0,0,0.15)" />
+        <circle cx="32" cy="34" r="20" fill={body} />
+        {mood !== "sleepy"
+          ? <g>
+              <circle cx="24" cy="31" r="4" fill={eyeColor} />
+              <circle cx="40" cy="31" r="4" fill={eyeColor} />
+              <circle cx="23" cy="30" r="1.5" fill="white" />
+              <circle cx="39" cy="30" r="1.5" fill="white" />
+            </g>
+          : <g>
+              <rect x="20" y="30" width="8" height="2" rx="1" fill={eyeColor} />
+              <rect x="36" y="30" width="8" height="2" rx="1" fill={eyeColor} />
+            </g>
+        }
+        {mood === "happy" && <path d="M26 37 Q32 43 38 37" stroke={eyeColor} strokeWidth="2" fill="none" strokeLinecap="round" />}
+        {mood === "sad"   && <path d="M26 40 Q32 34 38 40" stroke={eyeColor} strokeWidth="2" fill="none" strokeLinecap="round" />}
+        {(mood === "stoic" || mood === "angry") && <rect x="26" y="38" width="12" height="2" rx="1" fill={eyeColor} />}
+        {animate && (
+          <animateTransform attributeName="transform" type="translate"
+            values="0,0;0,-4;0,0" dur="2.2s" repeatCount="indefinite" additive="sum" />
+        )}
+      </svg>
+    );
+  }
 
   return (
-    <svg
-      width={size} height={size} viewBox="0 0 64 64"
-      style={{ imageRendering:"pixelated", filter:"drop-shadow(0 3px 8px "+c.body+"55)", display:"block" }}
-    >
-      {/* Ground shadow */}
+    <svg width={size} height={size} viewBox="0 0 64 64"
+      style={{ imageRendering:"pixelated", filter:"drop-shadow(0 3px 8px " + body + "55)", display:"block" }}>
       <ellipse cx="32" cy="62" rx="13" ry="3" fill="rgba(0,0,0,0.15)" />
-
-      {/* Armour overlay for Mega+ */}
-      {isMega && <rect x="18" y="26" width="28" height="22" rx="4" fill={c.acc} opacity="0.45" />}
-
-      {/* Body */}
-      <rect x="20" y="28" width="24" height="22" rx="5" fill={c.body} />
-
-      {/* Head */}
-      <rect x="15" y="11" width="34" height="24" rx="8" fill={c.body} />
-
-      {/* Ears vs horns */}
+      {isMega && <rect x="18" y="26" width="28" height="22" rx="4" fill={acc} opacity="0.45" />}
+      <rect x="20" y="28" width="24" height="22" rx="5" fill={body} />
+      <rect x="15" y="11" width="34" height="24" rx="8" fill={body} />
       {(isMega || isUlt)
         ? <g>
-            <rect x="19" y="4"  width="6" height="12" rx="3" fill={c.acc} transform="rotate(-12 22 10)" />
-            <rect x="39" y="4"  width="6" height="12" rx="3" fill={c.acc} transform="rotate(12 42 10)" />
+            <rect x="19" y="4" width="6" height="12" rx="3" fill={acc} transform="rotate(-12 22 10)" />
+            <rect x="39" y="4" width="6" height="12" rx="3" fill={acc} transform="rotate(12 42 10)" />
           </g>
         : <g>
-            <rect x="9"  y="13" width="8" height="10" rx="4" fill={c.body} />
-            <rect x="47" y="13" width="8" height="10" rx="4" fill={c.body} />
+            <rect x="9"  y="13" width="8" height="10" rx="4" fill={body} />
+            <rect x="47" y="13" width="8" height="10" rx="4" fill={body} />
           </g>
       }
-
-      {/* Eyes */}
       {mood === "sleepy"
         ? <g>
             <rect x="19" y="21" width="8" height="2" rx="1" fill={eyeColor} />
@@ -85,46 +183,61 @@ export default function DigiSprite({ digimonId, mood, size, animate, stageOverri
             </g>}
           </g>
       }
-
-      {/* Cheeks */}
       <rect x="15" y="27" width="7" height="4" rx="2" fill={cheekColor} opacity="0.5" />
       <rect x="42" y="27" width="7" height="4" rx="2" fill={cheekColor} opacity="0.5" />
-
-      {/* Mouth */}
       {mood === "happy"  && <path d="M25 31 Q32 38 39 31" stroke={eyeColor} strokeWidth="2.5" fill="none" strokeLinecap="round" />}
       {mood === "sad"    && <path d="M25 35 Q32 28 39 35" stroke={eyeColor} strokeWidth="2.5" fill="none" strokeLinecap="round" />}
       {mood === "angry"  && <path d="M25 35 Q32 29 39 35" stroke={eyeColor} strokeWidth="2.5" fill="none" strokeLinecap="round" />}
       {(mood === "stoic" || mood === "sleepy") && <rect x="25" y="32" width="14" height="2.5" rx="1.25" fill={eyeColor} />}
-
-      {/* Arms */}
-      <rect x="7"  y="30" width="14" height="7" rx="3" fill={c.body} />
-      <rect x="43" y="30" width="14" height="7" rx="3" fill={c.body} />
-      {isMega && <g>
-        <rect x="6"  y="36" width="6" height="3" rx="1" fill={c.acc} />
-        <rect x="52" y="36" width="6" height="3" rx="1" fill={c.acc} />
-      </g>}
-
-      {/* Legs */}
-      <rect x="21" y="48" width="9"  height="11" rx="3" fill={c.body} />
-      <rect x="34" y="48" width="9"  height="11" rx="3" fill={c.body} />
-
-      {/* Tail */}
-      <path d="M33 51 Q46 60 50 55" stroke={c.body} strokeWidth="4" fill="none" strokeLinecap="round" />
-
-      {/* X badge */}
-      {isX && <g>
-        <circle cx="50" cy="14" r="6" fill={c.acc} opacity="0.9" />
-        <text x="50" y="18" textAnchor="middle" fontSize="7" fill="white" fontWeight="bold">X</text>
-      </g>}
-
-      {/* Float animation */}
+      <rect x="7"  y="30" width="14" height="7" rx="3" fill={body} />
+      <rect x="43" y="30" width="14" height="7" rx="3" fill={body} />
+      <rect x="21" y="48" width="9"  height="11" rx="3" fill={body} />
+      <rect x="34" y="48" width="9"  height="11" rx="3" fill={body} />
+      <path d="M33 51 Q46 60 50 55" stroke={body} strokeWidth="4" fill="none" strokeLinecap="round" />
       {animate && (
-        <animateTransform
-          attributeName="transform" type="translate"
-          values="0,0;0,-3;0,0" dur="2s"
-          repeatCount="indefinite" additive="sum"
-        />
+        <animateTransform attributeName="transform" type="translate"
+          values="0,0;0,-3;0,0" dur="2s" repeatCount="indefinite" additive="sum" />
       )}
     </svg>
+  );
+}
+
+// ── Main export ────────────────────────────────────────────────────────────────
+export default function DigiSprite({ digimonId, mood, size, animate }) {
+  mood    = mood    || "happy";
+  size    = size    || 64;
+  animate = animate !== false;
+
+  var config = getSpriteConfig(digimonId);
+
+  // State: null = still probing, true = PNG confirmed, false = use SVG
+  var [pngReady, setPngReady] = useState(null);
+
+  useEffect(function() {
+    if (!config) { setPngReady(false); return; }
+    setPngReady(null);
+    var spritePath = config.spriteId || digimonId;
+    // grid and sheet modes: single PNG file; frames mode: numbered files
+    var src = (config.mode === "sheet" || config.mode === "grid")
+      ? "/sprites/" + spritePath + ".png"
+      : "/sprites/" + spritePath + "/0.png";
+    var img = new window.Image();
+    img.onload  = function() { setPngReady(true); };
+    img.onerror = function() { setPngReady(false); };
+    img.src = src;
+  }, [digimonId]);
+
+  // While probing, show SVG immediately so there's no blank flash
+  if (pngReady !== true || !config) {
+    return <SvgFallback digimonId={digimonId} mood={mood} size={size} animate={animate} />;
+  }
+
+  return (
+    <PngFrames
+      id={digimonId}
+      config={config}
+      size={size}
+      animate={animate}
+    />
   );
 }

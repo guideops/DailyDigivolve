@@ -85,6 +85,25 @@ export function newDigimon(speciesId, overrides) {
   }, overrides || {});
 }
 
+// ── Evolution eligibility ─────────────────────────────────────────────────────
+// Check if `digi` (current form) meets the requirements to become `targetInfo`.
+// targetInfo.evoRequires = { level, abi, stats:{HP, ATK, ...} }
+export function meetsEvoReq(digi, targetInfo) {
+  if (!targetInfo) return false;
+  var req = targetInfo.evoRequires;
+  if (!req) return false;
+  if ((digi.level || 1) < (req.level || 1)) return false;
+  if ((digi.abi   || 0) < (req.abi   || 0)) return false;
+  if (req.stats && Object.keys(req.stats).length > 0) {
+    var cs = calcStats(digi);
+    var statReqs = req.stats;
+    for (var s in statReqs) {
+      if ((cs[s] || 0) < statReqs[s]) return false;
+    }
+  }
+  return true;
+}
+
 // ── Battle damage formula ────────────────────────────────────────────────────
 export function calcDamage(attackerStats, defenderStats) {
   return Math.max(1, Math.floor(
