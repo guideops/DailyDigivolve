@@ -47,6 +47,7 @@ export const SPRITE_CONFIG = {
   lopmon_it:           { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6, spriteId:"lopmon" },
   chibimon:            { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   tanemon:             { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  sunmon:              { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
   // ── Line 1 — Agumon / Fire Dragon ─────────────────────────────────────────
   agumon:              { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
@@ -57,14 +58,14 @@ export const SPRITE_CONFIG = {
   // ── Line 2 — Patamon / Holy Wind ──────────────────────────────────────────
   patamon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   angemon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
-  magnaangemon:        { mode:"frames", frameCount:4, fps:6 },
+  magnaangemon:        { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   seraphimon:          { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
   // ── Line 3 — Salamon / Holy Maiden ────────────────────────────────────────
-  salamon:             { mode:"frames", frameCount:4, fps:6 },
+  salamon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   tailmon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   angewomon:           { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
-  magnadramon:         { mode:"frames", frameCount:4, fps:8 },
+  magnadramon:         { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   ophanimon:           { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
   // ── Line 4 — Gabumon / Ice Wolf ───────────────────────────────────────────
@@ -88,13 +89,13 @@ export const SPRITE_CONFIG = {
   // ── Line 7 — Veemon / Dragon Man ──────────────────────────────────────────
   veemon:              { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   exveemon:            { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
-  aeroveedramon:       { mode:"frames", frameCount:4, fps:6 },
+  aeroveedramon:       { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   ulforceveedramon:    { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
   // ── Line 8 — Guilmon / Dragon Virus ───────────────────────────────────────
   guilmon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   growlmon:            { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
-  megagargomon:        { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  wargrowlmon:         { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   gallantmon:          { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
   // ── Line 9 — Lopmon / Earth Guardian ──────────────────────────────────────
@@ -105,15 +106,14 @@ export const SPRITE_CONFIG = {
   // ── Line 10 — Renamon / Fox Mystic ────────────────────────────────────────
   renamon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   kyubimon:            { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
-  taomon:              { mode:"frames", frameCount:4, fps:6 },
+  taomon:              { mode:"sheet", frameCount:8, frameW:16, frameH:16, fps:6 },
   sakuyamon:           { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
-  // ── Legacy ────────────────────────────────────────────────────────────────
-  wargrowlmon:         { mode:"frames", frameCount:4, fps:6 },
-  omnimon:             { mode:"frames", frameCount:4, fps:8 },
-  coronamon:           { mode:"frames", frameCount:4, fps:6 },
-  firamon:             { mode:"frames", frameCount:4, fps:6 },
-  flaremon:            { mode:"frames", frameCount:4, fps:6 },
+  // ── Legacy / Fusion ───────────────────────────────────────────────────────
+  omnimon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  coronamon:           { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  firamon:             { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  flaremon:            { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 };
 
 // Returns config or null (component falls back to SVG when null)

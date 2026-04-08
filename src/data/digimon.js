@@ -370,7 +370,7 @@ export const DIGIMON_DB = [
   {
     id:"growlmon", name:"Growlmon", stage:"Champion", type:"Virus", attr:"Fire",
     hp:174, sp:64, atk:108, def:68, int:50, spd:84,
-    evolvesTo:["megagargomon"],
+    evolvesTo:["wargrowlmon"],
     evoRequires: { level:10, abi:5, stats:{ ATK:100 } },
   },
   {
