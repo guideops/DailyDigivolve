@@ -35,14 +35,14 @@ export const DIGIMON_DB = [
     id:"koromon", name:"Koromon", stage:"In-Training", type:"Free", attr:"None",
     hp:80, sp:32, atk:28, def:32, int:24, spd:30,
     evolvesTo:["agumon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
   // ── Gabumon In-Training (Botamon can also go here) ───────────────────────
   {
     id:"tsunomon", name:"Tsunomon", stage:"In-Training", type:"Free", attr:"None",
     hp:78, sp:30, atk:26, def:36, int:22, spd:30,
     evolvesTo:["gabumon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Patamon shared origin ─────────────────────────────────────────────────
@@ -56,7 +56,7 @@ export const DIGIMON_DB = [
     id:"tokomon", name:"Tokomon", stage:"In-Training", type:"Free", attr:"None",
     hp:75, sp:33, atk:24, def:36, int:30, spd:28,
     evolvesTo:["patamon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Salamon & Renamon shared origin ──────────────────────────────────────
@@ -70,7 +70,7 @@ export const DIGIMON_DB = [
     id:"nyaromon", name:"Nyaromon", stage:"In-Training", type:"Free", attr:"None",
     hp:72, sp:36, atk:22, def:30, int:34, spd:34,
     evolvesTo:["salamon","renamon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Tentomon shared origin ────────────────────────────────────────────────
@@ -84,7 +84,7 @@ export const DIGIMON_DB = [
     id:"bukamon", name:"Bukamon", stage:"In-Training", type:"Free", attr:"None",
     hp:78, sp:34, atk:26, def:32, int:36, spd:28,
     evolvesTo:["tentomon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Palmon shared origin ──────────────────────────────────────────────────
@@ -98,7 +98,7 @@ export const DIGIMON_DB = [
     id:"tanemon", name:"Tanemon", stage:"In-Training", type:"Free", attr:"Plant",
     hp:72, sp:38, atk:20, def:28, int:36, spd:24,
     evolvesTo:["palmon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Veemon shared origin ──────────────────────────────────────────────────
@@ -112,7 +112,7 @@ export const DIGIMON_DB = [
     id:"chibimon", name:"Chibimon", stage:"In-Training", type:"Free", attr:"None",
     hp:78, sp:30, atk:30, def:26, int:26, spd:34,
     evolvesTo:["veemon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Guilmon shared origin ─────────────────────────────────────────────────
@@ -126,7 +126,7 @@ export const DIGIMON_DB = [
     id:"gigimon", name:"Gigimon", stage:"In-Training", type:"Free", attr:"None",
     hp:85, sp:30, atk:36, def:28, int:22, spd:32,
     evolvesTo:["guilmon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
   },
 
   // ── Lopmon shared origin ──────────────────────────────────────────────────
@@ -141,7 +141,7 @@ export const DIGIMON_DB = [
     id:"lopmon_it", name:"Lopmon", stage:"In-Training", type:"Free", attr:"None",
     hp:78, sp:30, atk:26, def:38, int:28, spd:26,
     evolvesTo:["lopmon"],
-    evoRequires: { level:3, abi:0, stats:{} },
+    evoRequires: { level:3, abi:1, stats:{} },
     spriteId:"lopmon", // share sprites with Champion Lopmon
   },
 

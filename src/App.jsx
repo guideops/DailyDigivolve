@@ -68,6 +68,7 @@ function px(accentColor) {
 var NAV = [
   { id:"dashboard", label:"HOME",    icon:"⌂" },
   { id:"tasks",     label:"TASKS",   icon:"☑" },
+  { id:"weekly",    label:"WEEK",    icon:"📅" },
   { id:"team",      label:"TEAM",    icon:"◈" },
   { id:"digifarm",  label:"FARM",    icon:"🌿" },
   { id:"battle",    label:"BATTLE",  icon:"⚔" },
@@ -121,8 +122,9 @@ export default function App({ session }) {
   var [toast,       setToast]       = useState(null);
   var [evoAnim,     setEvoAnim]     = useState(null);
   var [battleState, setBattleState] = useState(null);
+  var [weeklyDigimon, setWeeklyDigimon] = useState({});
   var [showTaskModal, setShowTaskModal] = useState(false);
-  var [modalForm, setModalForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[] });
+  var [modalForm, setModalForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
   var [loginStreak,       setLoginStreak]       = useState(0);
   var [digitamaCredits,   setDigitamaCredits]   = useState(0);
   var [showDigitamaModal, setShowDigitamaModal] = useState(false);
@@ -143,6 +145,7 @@ useEffect(() => {
     if (profile) {
       setBits(profile.bits || 350)
       setSavedStats(profile.saved_stats || 0)
+      setWeeklyDigimon(profile.weekly_digimon || {})
 
       // ── Login streak ─────────────────────────────────────────────────────
       const todayStr  = new Date().toISOString().split('T')[0]
@@ -250,6 +253,7 @@ useEffect(() => {
         streak:      t.streak || 0,
         daysOfWeek:  t.days_of_week || [],
         completedAt: t.last_completed_date || null,
+        dueDate:     t.due_date || null,
       })))
     }
   }
@@ -284,7 +288,11 @@ useEffect(() => {
   async function completeTask(id) {
   const task = tasks.find(t => t.id === id)
   if (!task || task.done) return
-  const xp = calcXpReward(task, streak)
+  const todayKey = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
+  const dayDigiUid = weeklyDigimon[todayKey]
+  const hasBoost = dayDigiUid && party[0] && dayDigiUid === party[0].uid
+  const baseXp = calcXpReward(task, streak)
+  const xp = hasBoost ? Math.floor(baseXp * 1.5) : baseXp
   const sp = calcStatReward(task)
 
   // Update task in DB
@@ -333,9 +341,10 @@ useEffect(() => {
   }
 
   const statLabel = statKey ? ' +' + sp + ' ' + statKey : ''
+  const boostLabel = hasBoost ? ' ⚡1.5x' : ''
   setSpeech('great job! +' + xp + ' XP 🔥')
-  addLog('✅', 'Completed "' + task.title + '" +' + xp + ' XP' + statLabel)
-  toast_('Task done!  +' + xp + ' XP' + statLabel)
+  addLog('✅', 'Completed "' + task.title + '" +' + xp + ' XP' + statLabel + (hasBoost?' (boost!)':''))
+  toast_('Task done!  +' + xp + ' XP' + boostLabel + statLabel)
 }
 
   async function evolve(uid, targetId) {
@@ -454,6 +463,7 @@ useEffect(() => {
     type:         t.type,
     notes:        t.notes || '',
     days_of_week: t.daysOfWeek || [],
+    due_date:     t.dueDate || null,
     done:         false,
     streak:       0,
   }).select().single()
@@ -470,11 +480,12 @@ useEffect(() => {
       done:       false,
       streak:     0,
       daysOfWeek: data.days_of_week || [],
+      dueDate:    data.due_date || null,
     }]))
   }
   toast_('Task added!')
 }
-  
+
   async function editTask(id, updates) {
   await supabase.from('tasks').update({
     title:        updates.title,
@@ -484,8 +495,20 @@ useEffect(() => {
     type:         updates.type,
     notes:        updates.notes,
     days_of_week: updates.daysOfWeek || [],
+    due_date:     updates.dueDate || null,
   }).eq('id', id)
   setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, updates) : t))
+}
+
+  async function rescheduleTask(id, newDate) {
+  await supabase.from('tasks').update({ due_date: newDate || null }).eq('id', id)
+  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, { dueDate: newDate || null }) : t))
+}
+
+  async function assignWeeklyDigimon(day, uid) {
+  var updated = Object.assign({}, weeklyDigimon, { [day]: uid || null })
+  setWeeklyDigimon(updated)
+  await supabase.from('profiles').update({ weekly_digimon: updated }).eq('id', userId)
 }
   
   async function deleteTask(id) {
@@ -1153,7 +1176,12 @@ useEffect(() => {
 
             {/* ── TASKS FULL ───────────────────────────────────────────── */}
             {page==="tasks"&&(
-              <TasksPage tasks={tasks} onComplete={completeTask} onAdd={addTask} onEdit={editTask} onDelete={deleteTask} accent={accent} streak={streak} T={T}/>
+              <TasksPage tasks={tasks} onComplete={completeTask} onAdd={addTask} onEdit={editTask} onDelete={deleteTask} onReschedule={rescheduleTask} accent={accent} streak={streak} T={T}/>
+            )}
+
+            {/* ── WEEKLY PLANNER ───────────────────────────────────────── */}
+            {page==="weekly"&&(
+              <WeeklyPlannerPage tasks={tasks} party={party} farm={farm} weeklyDigimon={weeklyDigimon} onAssignDigimon={assignWeeklyDigimon} onReschedule={rescheduleTask} onComplete={completeTask} accent={accent} T={T}/>
             )}
 
             {/* ── TEAM ─────────────────────────────────────────────────── */}
@@ -1459,20 +1487,22 @@ useEffect(() => {
 }
 
 // ── TasksPage ─────────────────────────────────────────────────────────────────
-function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak, T }) {
+function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, accent, streak, T }) {
   var [filterCat,  setFilterCat]  = useState("All");
   var [filterType, setFilterType] = useState("All");
   var [showAdd,    setShowAdd]    = useState(false);
   var [editId,     setEditId]     = useState(null);
-  var [form, setForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[] });
+  var [form, setForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
 
-  function reset(){ setForm({title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[]}); }
+  function reset(){ setForm({title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }
   function submitAdd(){ if(!form.title.trim())return; onAdd(form); reset(); setShowAdd(false); }
   function submitEdit(){ if(!editId||!form.title.trim())return; onEdit(editId,form); setEditId(null); reset(); }
-  function startEdit(t){ setEditId(t.id); setForm({title:t.title,category:t.category,priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[]}); }
+  function startEdit(t){ setEditId(t.id); setForm({title:t.title,category:t.category,priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
 
   var typeColor = {once:T.lavender,daily:T.teal,recurring:T.mint};
-  var visible   = tasks.filter(function(t){ return (filterCat==="All"||t.category===filterCat)&&(filterType==="All"||t.type===filterType); });
+  var visible   = tasks
+    .filter(function(t){ return (filterCat==="All"||t.category===filterCat)&&(filterType==="All"||t.type===filterType); })
+    .sort(function(a,b){ return (a.done===b.done)?0:a.done?1:-1; });
 
   var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif" };
   var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
@@ -1521,6 +1551,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak,
                       <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
                       <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"6px" }}>{t.priority.toUpperCase()}</span>
                       {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"6px" }}>🔥 {t.streak}D</span>}
+                      {t.dueDate&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"6px" }}>📅 {t.dueDate}</span>}
                     </div>
                   </div>
                   <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
@@ -1536,6 +1567,161 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, accent, streak,
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── WeeklyPlannerPage ─────────────────────────────────────────────────────────
+function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon, onReschedule, onComplete, accent, T }) {
+  var today = new Date();
+  var dayOfWeek = today.getDay(); // 0=Sun
+  var mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  var monday = new Date(today);
+  monday.setDate(today.getDate() + mondayOffset);
+
+  var DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var weekDates = DAYS.map(function(_,i){
+    var d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+
+  var todayStr = today.toISOString().split('T')[0];
+  var allDigimon = party.concat(farm);
+  var BUSY_COLOR = ['#7EF797','#FFD700','#FF9940','#FF4444'];
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+        <div className="px12">WEEKLY PLANNER</div>
+        <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>
+          {monday.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {weekDates[6].toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+        </div>
+      </div>
+
+      {/* Summary banner */}
+      {(function(){
+        var pending = tasks.filter(function(t){ return !t.done && t.dueDate; });
+        var unscheduled = tasks.filter(function(t){ return !t.done && !t.dueDate; });
+        return (
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+            <div style={{ background:T.coral+"18",border:"2px solid "+T.coral,padding:"10px 14px" }}>
+              <div className="px8" style={{ color:T.coral,marginBottom:3,fontSize:"7px" }}>📋 REMAINING THIS WEEK</div>
+              <div style={{ fontSize:22,fontWeight:900,color:T.text }}>{pending.length}</div>
+            </div>
+            <div style={{ background:T.textDim+"18",border:"2px solid "+T.border,padding:"10px 14px" }}>
+              <div className="px8" style={{ color:T.textMid,marginBottom:3,fontSize:"7px" }}>📭 UNSCHEDULED</div>
+              <div style={{ fontSize:22,fontWeight:900,color:T.text }}>{unscheduled.length}</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Day columns */}
+      <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,overflowX:"auto" }}>
+        {weekDates.map(function(date, i){
+          var dateStr = date.toISOString().split('T')[0];
+          var dayLabel = DAYS[i];
+          var isToday = dateStr === todayStr;
+          var dayTasks = tasks.filter(function(t){ return t.dueDate === dateStr; });
+          var pendCount = dayTasks.filter(function(t){ return !t.done; }).length;
+          var busyColor = BUSY_COLOR[pendCount === 0 ? 0 : pendCount <= 2 ? 1 : pendCount <= 4 ? 2 : 3];
+          var assignedUid = weeklyDigimon[dayLabel];
+          var assignedDigi = allDigimon.find(function(d){ return d.uid === assignedUid; });
+
+          return (
+            <div key={dayLabel} style={{ minWidth:130,background:T.bgCard,border:"2px solid "+(isToday?accent:T.border),boxShadow:"3px 3px 0 "+(isToday?accent:T.border),display:"flex",flexDirection:"column",overflow:"hidden" }}>
+              {/* Day header */}
+              <div style={{ background:isToday?accent+"22":T.bgPanel,padding:"8px 10px",borderBottom:"2px solid "+T.border }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div className="px8" style={{ color:isToday?accent:T.text,fontSize:"7px" }}>{dayLabel}</div>
+                  <div style={{ width:8,height:8,background:busyColor,border:"1px solid "+T.border }} title={pendCount+" tasks"}/>
+                </div>
+                <div style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:2 }}>
+                  {date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+                </div>
+              </div>
+
+              {/* Digimon assignment */}
+              <div style={{ padding:"8px 10px",borderBottom:"2px solid "+T.border,background:T.bgPanel }}>
+                {assignedDigi
+                  ? (
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <DigiSprite digimonId={assignedDigi.speciesId} size={28} animate={false}/>
+                      <div style={{ flex:1,minWidth:0 }}>
+                        <div style={{ fontSize:10,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{assignedDigi.name}</div>
+                        <div className="px8" style={{ color:"#FFD700",fontSize:"5px" }}>⚡1.5x XP</div>
+                      </div>
+                      <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:0,lineHeight:1,flexShrink:0 }} onClick={function(){onAssignDigimon(dayLabel,null);}}>×</button>
+                    </div>
+                  )
+                  : (
+                    <select defaultValue="" onChange={function(e){ if(e.target.value) onAssignDigimon(dayLabel, e.target.value); }}
+                      style={{ width:"100%",background:T.bgPanel,border:"1.5px solid "+T.border,padding:"4px 6px",color:T.textMid,fontSize:11,cursor:"pointer",fontFamily:"'Nunito',sans-serif",outline:"none" }}>
+                      <option value="" disabled>+ Assign Digi</option>
+                      {party.length>0&&<optgroup label="Party">{party.map(function(d){return <option key={d.uid} value={d.uid}>{d.name}</option>;})}</optgroup>}
+                      {farm.length>0&&<optgroup label="Farm">{farm.map(function(d){return <option key={d.uid} value={d.uid}>{d.name}</option>;})}</optgroup>}
+                    </select>
+                  )
+                }
+              </div>
+
+              {/* Tasks */}
+              <div style={{ padding:"8px 10px",display:"flex",flexDirection:"column",gap:6,flex:1 }}>
+                {dayTasks.length === 0
+                  ? <div style={{ fontSize:10,color:T.textDim,fontStyle:"italic" }}>No tasks</div>
+                  : dayTasks.map(function(t){
+                    return (
+                      <div key={t.id} style={{ background:t.done?T.bgPanel:T.bgCard,border:"1.5px solid "+(t.done?T.border:T.teal),padding:"5px 7px",opacity:t.done?0.5:1 }}>
+                        <div style={{ display:"flex",alignItems:"flex-start",gap:5 }}>
+                          <div style={{ width:14,height:14,border:"1.5px solid "+(t.done?T.teal:T.border),background:t.done?T.teal:"transparent",display:"grid",placeItems:"center",flexShrink:0,cursor:"pointer",marginTop:1 }}
+                            onClick={function(){ if(!t.done) onComplete(t.id); }}>
+                            {t.done&&<span style={{ fontSize:9,color:"white",lineHeight:1,fontWeight:900 }}>✓</span>}
+                          </div>
+                          <div style={{ flex:1,minWidth:0 }}>
+                            <div style={{ fontSize:11,fontWeight:700,color:t.done?T.textMid:T.text,textDecoration:t.done?"line-through":"none",lineHeight:1.3,wordBreak:"break-word" }}>{t.title}</div>
+                            <div style={{ fontSize:9,color:T.textDim,marginTop:2 }}>{t.priority}</div>
+                          </div>
+                        </div>
+                        {!t.done&&(
+                          <input type="date" defaultValue={t.dueDate||""} onBlur={function(e){ if(e.target.value && e.target.value!==t.dueDate) onReschedule(t.id, e.target.value); }}
+                            style={{ width:"100%",marginTop:5,background:T.bgPanel,border:"1px solid "+T.border,padding:"3px 5px",color:T.textMid,fontSize:10,outline:"none",fontFamily:"'Nunito',sans-serif",colorScheme:"dark" }}/>
+                        )}
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Unscheduled tasks */}
+      {(function(){
+        var unscheduled = tasks.filter(function(t){ return !t.done && !t.dueDate; });
+        if(unscheduled.length === 0) return null;
+        return (
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            <div className="sec-label">📭 UNSCHEDULED — set a due date to add to the week</div>
+            {unscheduled.map(function(t){
+              return (
+                <div key={t.id} style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 14px",display:"flex",alignItems:"center",gap:12 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13,fontWeight:700 }}>{t.title}</div>
+                    <div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.priority} · {t.category}</div>
+                  </div>
+                  <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                    <span className="px8" style={{ color:T.textDim,fontSize:"6px" }}>DUE:</span>
+                    <input type="date" defaultValue="" onBlur={function(e){ if(e.target.value) onReschedule(t.id, e.target.value); }}
+                      style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"5px 8px",color:T.text,fontSize:12,outline:"none",fontFamily:"'Nunito',sans-serif",colorScheme:"dark" }}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1569,6 +1755,11 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
           })}
         </div>
       )}
+      <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+        <span className="px8" style={{ color:T.textMid,fontSize:"7px",whiteSpace:"nowrap" }}>DUE DATE:</span>
+        <input type="date" value={form.dueDate||""} onChange={function(e){setForm(function(f){return Object.assign({},f,{dueDate:e.target.value||null});});}} style={Object.assign({},inputSt,{flex:1,colorScheme:"dark"})}/>
+        {form.dueDate&&<button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:16,padding:"0 4px",flexShrink:0 }} onClick={function(){setForm(function(f){return Object.assign({},f,{dueDate:null});});}}>×</button>}
+      </div>
       <textarea value={form.notes} onChange={function(e){setForm(function(f){return Object.assign({},f,{notes:e.target.value});});}} placeholder="Notes (optional)..." rows={2} style={Object.assign({},inputSt,{resize:"vertical"})}/>
       <div style={{ display:"flex",gap:8 }}>
         <button className="px8" style={{ padding:"9px 18px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontWeight:800,fontSize:"7px",boxShadow:"2px 2px 0 "+T.border }} onClick={onSubmit}>{label}</button>
