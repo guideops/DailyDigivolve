@@ -374,12 +374,6 @@ export const DIGIMON_DB = [
     evoRequires: { level:10, abi:5, stats:{ ATK:100 } },
   },
   {
-    id:"megagargomon", name:"MegaGargomon", stage:"Ultimate", type:"Virus", attr:"Earth",
-    hp:248, sp:94, atk:160, def:108, int:80, spd:118,
-    evolvesTo:["gallantmon"],
-    evoRequires: { level:20, abi:5, stats:{ ATK:168, HP:255 } },
-  },
-  {
     id:"gallantmon", name:"Gallantmon", stage:"Mega", type:"Virus", attr:"Light",
     hp:328, sp:128, atk:225, def:158, int:125, spd:145,
     evolvesTo:[],
@@ -440,6 +434,47 @@ export const DIGIMON_DB = [
   },
 
   // ══════════════════════════════════════════════════════════════════════════
+  // LINE 11 — Terriermon / Brave Heart
+  // SP + SPD focused. Terriermon → Gargomon → Rapidmon → MegaGargomon
+  // ══════════════════════════════════════════════════════════════════════════
+  {
+    id:"zerimon", name:"Zerimon", stage:"Baby", type:"Free", attr:"None",
+    hp:52, sp:22, atk:16, def:18, int:20, spd:22,
+    evolvesTo:["gummymon"],
+    evoRequires: null,
+  },
+  {
+    id:"gummymon", name:"Gummymon", stage:"In-Training", type:"Free", attr:"None",
+    hp:74, sp:36, atk:22, def:28, int:32, spd:36,
+    evolvesTo:["terriermon"],
+    evoRequires: { level:3, abi:1, stats:{} },
+  },
+  {
+    id:"terriermon", name:"Terriermon", stage:"Rookie", type:"Vaccine", attr:"Wind",
+    hp:95, sp:58, atk:48, def:44, int:50, spd:62,
+    evolvesTo:["gargomon"],
+    evoRequires: { level:6, abi:1, stats:{} },
+  },
+  {
+    id:"gargomon", name:"Gargomon", stage:"Champion", type:"Vaccine", attr:"Wind",
+    hp:148, sp:84, atk:82, def:72, int:76, spd:94,
+    evolvesTo:["rapidmon"],
+    evoRequires: { level:10, abi:5, stats:{ SP:80, SPD:88 } },
+  },
+  {
+    id:"rapidmon", name:"Rapidmon", stage:"Ultimate", type:"Vaccine", attr:"Wind",
+    hp:212, sp:118, atk:125, def:106, int:112, spd:140,
+    evolvesTo:["megagargomon"],
+    evoRequires: { level:20, abi:10, stats:{ SP:120, SPD:140 } },
+  },
+  {
+    id:"megagargomon", name:"MegaGargomon", stage:"Mega", type:"Vaccine", attr:"Wind",
+    hp:302, sp:148, atk:182, def:158, int:165, spd:178,
+    evolvesTo:[],
+    evoRequires: { level:30, abi:20, stats:{ SP:150, SPD:170 } },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
   // LEGACY / FUSION — kept for backward compatibility
   // ══════════════════════════════════════════════════════════════════════════
   {
@@ -454,7 +489,21 @@ export const DIGIMON_DB = [
     evolvesTo:[], fusionOf:["wargreymon","metalgarurumon"],
     evoRequires: { level:30, abi:30, stats:{ ATK:240, DEF:210 } },
   },
-  // Coronamon line (kept, not one of the 10 starter lines)
+  // ══════════════════════════════════════════════════════════════════════════
+  // CORONAMON LINE — Solar / Fire
+  // ══════════════════════════════════════════════════════════════════════════
+  {
+    id:"nyokimon", name:"Nyokimon", stage:"Baby", type:"Free", attr:"None",
+    hp:50, sp:22, atk:14, def:16, int:22, spd:20,
+    evolvesTo:["sunmon"],
+    evoRequires: null,
+  },
+  {
+    id:"sunmon", name:"Sunmon", stage:"In-Training", type:"Free", attr:"Fire",
+    hp:76, sp:40, atk:24, def:26, int:32, spd:30,
+    evolvesTo:["coronamon"],
+    evoRequires: { level:3, abi:1, stats:{} },
+  },
   {
     id:"coronamon", name:"Coronamon", stage:"Rookie", type:"Vaccine", attr:"Fire",
     hp:96, sp:56, atk:52, def:42, int:48, spd:58,

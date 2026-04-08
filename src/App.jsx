@@ -129,6 +129,7 @@ export default function App({ session }) {
   var [digitamaCredits,   setDigitamaCredits]   = useState(0);
   var [showDigitamaModal, setShowDigitamaModal] = useState(false);
   var [confirmReset,      setConfirmReset]      = useState(false);
+  var [dexSelected,       setDexSelected]       = useState(null);
   var dragIdx = useRef(null);
 
 const userId = session.user.id
@@ -1383,23 +1384,24 @@ useEffect(() => {
                   <span className="px8" style={{ color:accent }}>{allDisc.length}/{Object.keys(DIGIMON_MAP).length}</span>
                 </div>
                 <Bar value={allDisc.length} max={Object.keys(DIGIMON_MAP).length} color={accent} h={8}/>
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10 }}>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:10 }}>
                   {Object.values(DIGIMON_MAP).map(function(d){
                     var known=allDisc.indexOf(d.id)>=0;
-                    var hasPng=!!getSpriteConfig(d.id);
                     return (
-                      <div key={d.id} className="pcard" style={{ padding:14,textAlign:"center",opacity:known?1:0.45,position:"relative" }}>
-                        <div style={{ position:"absolute",top:6,right:6,fontSize:8,padding:"1px 4px",background:hasPng?"#2a4a2a":"#3a2a1a",border:"1px solid "+(hasPng?"#5CB85C":"#FF6B35"),color:hasPng?"#5CB85C":"#FF6B35",lineHeight:1.4 }}>{hasPng?"PNG":"SVG"}</div>
+                      <div key={d.id} className="pcard" style={{ padding:12,textAlign:"center",opacity:known?1:0.45,cursor:"pointer",transition:"all 0.1s" }}
+                        onClick={function(){ setDexSelected(d.id); }}
+                        onMouseEnter={function(e){ e.currentTarget.style.borderColor=accent; e.currentTarget.style.boxShadow="3px 3px 0 "+accent; }}
+                        onMouseLeave={function(e){ e.currentTarget.style.borderColor=""; e.currentTarget.style.boxShadow=""; }}>
                         <div style={{ margin:"0 auto",width:48,height:48 }}>
                           <DigiSprite digimonId={d.id} size={48} animate={false}/>
                         </div>
-                        <div style={{ fontSize:11,fontWeight:800,marginTop:8 }}>{d.name}</div>
-                        <div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:5,fontSize:"6px" }}>{d.stage}</div>
-                        {!known&&<div className="px8" style={{ color:T.textDim,marginTop:3,fontSize:"5px" }}>undiscovered</div>}
+                        <div style={{ fontSize:11,fontWeight:800,marginTop:6 }}>{known?d.name:"???"}</div>
+                        <div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:4,fontSize:"6px" }}>{d.stage}</div>
                       </div>
                     );
                   })}
                 </div>
+                {dexSelected&&<DigiDexModal id={dexSelected} allDisc={allDisc} onClose={function(){setDexSelected(null);}} accent={accent} T={T}/>}
               </div>
             )}
 
@@ -1567,6 +1569,220 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── DigiDexModal — full evolution tree shown on click ─────────────────────────
+function DigiDexModal({ id, allDisc, onClose, accent, T }) {
+  var info = DIGIMON_MAP[id];
+  if (!info) return null;
+
+  var STAGE_ORDER = ["Baby","In-Training","Rookie","Champion","Ultimate","Mega","Ultra"];
+
+  // Walk up parent chain to find the root of this evolution line
+  function getRoot(startId) {
+    var cur = startId;
+    var visited = new Set();
+    while (true) {
+      if (visited.has(cur)) break;
+      visited.add(cur);
+      var parent = Object.values(DIGIMON_MAP).find(function(d){ return !d.fusionOf && (d.evolvesTo||[]).indexOf(cur)>=0; });
+      if (!parent) break;
+      cur = parent.id;
+    }
+    return cur;
+  }
+
+  // BFS to collect all digimon reachable from rootId
+  function getDescendants(rootId) {
+    var result = [];
+    var queue = [rootId];
+    var seen = new Set();
+    while (queue.length) {
+      var cur = queue.shift();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      var d = DIGIMON_MAP[cur];
+      if (!d) continue;
+      result.push(cur);
+      (d.evolvesTo||[]).forEach(function(tid){ if(!DIGIMON_MAP[tid]||!DIGIMON_MAP[tid].fusionOf) queue.push(tid); });
+    }
+    return result;
+  }
+
+  // Find direct path from one id to another (for highlighting dedigivolution route)
+  function findPath(fromId, toId, visited) {
+    visited = visited || new Set();
+    if (fromId === toId) return [fromId];
+    if (visited.has(fromId)) return null;
+    visited.add(fromId);
+    var d = DIGIMON_MAP[fromId];
+    if (!d) return null;
+    for (var i=0; i<(d.evolvesTo||[]).length; i++) {
+      var sub = findPath(d.evolvesTo[i], toId, visited);
+      if (sub) return [fromId].concat(sub);
+    }
+    return null;
+  }
+
+  var rootId   = getRoot(id);
+  var chainIds = getDescendants(rootId);
+
+  // Group by stage
+  var byStage = {};
+  chainIds.forEach(function(did){
+    var d = DIGIMON_MAP[did];
+    if (!d) return;
+    if (!byStage[d.stage]) byStage[d.stage] = [];
+    byStage[d.stage].push(did);
+  });
+  var stages = STAGE_ORDER.filter(function(s){ return byStage[s] && byStage[s].length > 0; });
+
+  var pathToSelected = findPath(rootId, id) || [id];
+
+  // Format evoRequires for display
+  function fmtReq(req) {
+    if (!req) return null;
+    var parts = [];
+    if (req.level) parts.push({ label:"Lv."+req.level, color:T.teal });
+    if (req.abi)   parts.push({ label:"ABI."+req.abi,  color:T.lavender });
+    Object.entries(req.stats||{}).forEach(function(e){ parts.push({ label:e[0]+" "+e[1], color:T.gold }); });
+    return parts;
+  }
+
+  // Find what evolves INTO a given digimon (its pre-evolutions)
+  function getParents(targetId) {
+    return Object.values(DIGIMON_MAP).filter(function(d){ return !d.fusionOf && (d.evolvesTo||[]).indexOf(targetId)>=0; });
+  }
+
+  var known = allDisc.indexOf(id) >= 0;
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }} onClick={onClose}>
+      <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,width:"100%",maxWidth:680,maxHeight:"88vh",overflowY:"auto",padding:20,display:"flex",flexDirection:"column",gap:16 }} onClick={function(e){e.stopPropagation();}}>
+
+        {/* ── Header ── */}
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+          <div style={{ display:"flex",gap:14,alignItems:"center" }}>
+            <DigiSprite digimonId={id} size={72} mood="happy" animate={true}/>
+            <div>
+              <div className="px12" style={{ color:known?T.text:T.textDim }}>{known?info.name:"???"}</div>
+              <div style={{ display:"flex",gap:6,marginTop:7,flexWrap:"wrap" }}>
+                <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+(STAGE_COLOR[info.stage]||"#aaa"),color:STAGE_COLOR[info.stage]||"#aaa",fontSize:"6px" }}>{info.stage}</span>
+                <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+(ATTR_COLOR[info.attr]||"#aaa"),color:ATTR_COLOR[info.attr]||"#aaa",fontSize:"6px" }}>{info.attr}</span>
+                <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.border,color:T.textMid,fontSize:"6px" }}>{info.type}</span>
+                {!known&&<span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.textDim,color:T.textDim,fontSize:"6px" }}>UNDISCOVERED</span>}
+              </div>
+            </div>
+          </div>
+          <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:24,padding:"0 4px",lineHeight:1 }} onClick={onClose}>×</button>
+        </div>
+
+        {/* ── Base stats ── */}
+        {known&&(
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6,background:T.bgPanel,padding:10,border:"1px solid "+T.border }}>
+            {[["HP",info.hp,T.green],["SP",info.sp,T.lavender],["ATK",info.atk,T.coral],["DEF",info.def,T.teal],["INT",info.int,T.mint],["SPD",info.spd,T.gold]].map(function(s){
+              return <div key={s[0]} style={{ textAlign:"center" }}>
+                <div style={{ fontSize:13,fontWeight:900,color:s[2] }}>{s[1]}</div>
+                <div className="px8" style={{ fontSize:"5px",color:T.textMid,marginTop:2 }}>{s[0]}</div>
+              </div>;
+            })}
+          </div>
+        )}
+
+        {/* ── Evolution chain ── */}
+        <div>
+          <div className="sec-label" style={{ marginBottom:10 }}>EVOLUTION CHAIN</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:0 }}>
+            {stages.map(function(stage, si){
+              var stageDigis = byStage[stage];
+              var isLastStage = si === stages.length - 1;
+              return (
+                <div key={stage}>
+                  {/* Stage row */}
+                  <div style={{ display:"flex",gap:6,alignItems:"flex-start" }}>
+                    {/* Stage label */}
+                    <div style={{ minWidth:76,paddingTop:8 }}>
+                      <div className="px8" style={{ color:STAGE_COLOR[stage]||"#aaa",fontSize:"6px",lineHeight:1.4 }}>{stage.toUpperCase()}</div>
+                    </div>
+                    {/* Digimon cards */}
+                    <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                      {stageDigis.map(function(did){
+                        var dd = DIGIMON_MAP[did];
+                        var isSelected = did === id;
+                        var isOnPath   = pathToSelected.indexOf(did) >= 0;
+                        var isKnown    = allDisc.indexOf(did) >= 0;
+                        return (
+                          <div key={did} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 10px",border:"2px solid "+(isSelected?accent:isOnPath?T.teal:T.border),background:isSelected?accent+"18":isOnPath?T.teal+"0d":T.bgPanel,opacity:isKnown?1:0.4,minWidth:70,textAlign:"center" }}>
+                            <DigiSprite digimonId={did} size={40} animate={isSelected}/>
+                            <div style={{ fontSize:10,fontWeight:800,color:isSelected?accent:isKnown?T.text:T.textDim,lineHeight:1.2 }}>{isKnown?dd.name:"???"}</div>
+                            {isSelected&&<div className="px8" style={{ fontSize:"5px",color:accent }}>◄ HERE</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Requirements arrow to next stage */}
+                  {!isLastStage&&(function(){
+                    var nextStage = stages[si+1];
+                    var nextDigis = byStage[nextStage];
+                    return (
+                      <div style={{ marginLeft:82,paddingLeft:10,borderLeft:"2px dashed "+T.border,paddingTop:4,paddingBottom:4 }}>
+                        {nextDigis.map(function(nid){
+                          var nd = DIGIMON_MAP[nid];
+                          var parents = getParents(nid).filter(function(p){ return chainIds.indexOf(p.id)>=0; });
+                          var req = nd.evoRequires;
+                          if (!req) return null;
+                          var parts = fmtReq(req);
+                          var isEvolvePath = pathToSelected.indexOf(nid) >= 0;
+                          return (
+                            <div key={nid} style={{ display:"flex",flexWrap:"wrap",gap:4,alignItems:"center",marginBottom:3 }}>
+                              <span style={{ fontSize:11,color:isEvolvePath?T.teal:T.textDim }}>↳ {allDisc.indexOf(nid)>=0?nd.name:"???"}</span>
+                              {parts&&parts.map(function(p,i){
+                                return <span key={i} className="px8" style={{ padding:"1px 5px",background:T.bgCard,border:"1px solid "+p.color,color:p.color,fontSize:"6px" }}>{p.label}</span>;
+                              })}
+                            </div>
+                          );
+                        }).filter(Boolean)}
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Dedigivolution route ── */}
+        {(function(){
+          var parents = getParents(id);
+          if (parents.length === 0) return null;
+          return (
+            <div>
+              <div className="sec-label" style={{ marginBottom:8 }}>DEDIGIVOLUTION</div>
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                {parents.map(function(p){
+                  var pKnown = allDisc.indexOf(p.id)>=0;
+                  return (
+                    <div key={p.id} style={{ display:"flex",alignItems:"center",gap:8,background:T.bgPanel,border:"1.5px solid "+T.border,padding:"6px 10px",opacity:pKnown?1:0.4 }}>
+                      <DigiSprite digimonId={p.id} size={30} animate={false}/>
+                      <div>
+                        <div style={{ fontSize:11,fontWeight:800,color:pKnown?T.text:T.textDim }}>{pKnown?p.name:"???"}</div>
+                        <div className="px8" style={{ color:STAGE_COLOR[p.stage]||"#aaa",fontSize:"5px",marginTop:2 }}>{p.stage}</div>
+                      </div>
+                      <span style={{ fontSize:16,color:T.textDim }}>→</span>
+                      <span style={{ fontSize:11,fontWeight:800,color:accent }}>{known?info.name:"???"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+      </div>
     </div>
   );
 }

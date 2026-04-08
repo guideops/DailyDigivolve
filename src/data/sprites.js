@@ -48,6 +48,14 @@ export const SPRITE_CONFIG = {
   chibimon:            { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   tanemon:             { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
   sunmon:              { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  // nyokimon has no PNG yet — will use SVG fallback
+
+  // ── Line 11 — Terriermon / Brave Heart ────────────────────────────────────
+  // zerimon, gummymon have no PNG yet — SVG fallback
+  terriermon:          { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  gargomon:            { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  rapidmon:            { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
+  megagargomon:        { mode:"grid",   cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
 
   // ── Line 1 — Agumon / Fire Dragon ─────────────────────────────────────────
   agumon:              { mode:"grid", cols:3, rows:4, frameCount:12, frameW:16, frameH:16, fps:6 },
