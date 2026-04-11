@@ -337,158 +337,188 @@ Types:
 
 ---
 
-## Session 3 — 2026-03-23 to 2026-04-08
+## Session 3 — 2026-04-11
 
-### Sprite System
+### Crest System
 
-[FEAT] PNG sprite system built from scratch
-       File: src/data/sprites.js, src/components/DigiSprite.jsx
-       Three rendering modes:
-       - "grid"   — single PNG with frames in a CSS grid (default for 16×16 sprites)
-       - "sheet"  — horizontal filmstrip
-       - "frames" — individual numbered PNGs (0.png, 1.png, …)
-       Animation runs via setInterval cycling frame index
-       Crisp pixel upscaling via imageRendering: "pixelated"
-       Scale = display size / frame size (e.g. 64px / 16px = 4× upscale)
+[FEAT] Crest system implemented — 8 crests mapped to task templates
+       Crests: Courage, Knowledge, Reliability, Care, Friendship, Sincerity, Hope, Light
+       Each task template yields primary + secondary crest points on completion:
+         Workout       → Courage (primary) + Care (secondary)
+         Deep Work     → Knowledge + Reliability
+         Recovery      → Care + Light
+         Maintenance   → Reliability + Light
+         Social        → Friendship + Care
+         Reflection    → Sincerity + Knowledge
+         Challenge     → Courage + Hope
+         Neutral       → no crest points
 
-[FEAT] 44 Digimon PNG sprites added to public/sprites/
-       All renamed to lowercase to match web server case-sensitivity
-       Format: 48×64 grid sheet (3 cols × 4 rows of 16×16 frames)
+[FEAT] Rolling 14-day crest alignment profile
+       calcCrestProfile() computes weighted totals over a 60-day history (14-day active window)
+       Returns: primary crest, secondary crest, percentages per crest (0–100%)
+       Displayed as horizontal bars on Dashboard, left panel mini-widget, and Crests page
 
-[FEAT] DigiSprite probes for PNG existence before rendering
-       Shows SVG placeholder immediately while probing (no blank flash)
-       Switches to PNG if confirmed, stays on SVG if 404
+[FEAT] CRESTS navigation tab added (💎)
+       Full-page alignment view: primary/secondary callout cards, all 8 bars, today's activity,
+       evolution path hints with live match % for each eligible evolution target
 
-[FIX] Sprite filename casing — all renamed to lowercase via node script
-      Affected: Tailmon.png → tailmon.png, Cherubimon_Virtue.png → cherubimon.png,
-      XV-mon.png → exveemon.png, Lilimon.png → lillymon.png, etc.
+[REFACTOR] Task categories replaced with task templates
+           Old CATEGORIES array removed; TASK_TEMPLATES is the new source of truth
+           DB column "category" retained for backward compat — templates written into it going forward
+           Old task records continue to display; they contribute no crest points until re-edited
 
-[FIX] Mode mismatch for pagumon, lopmon_it, metalgreymon, wargreymon
-      Were set to mode:"frames" but sprites are single grid PNGs
-      Fixed: all changed to mode:"grid"
+### Digivolution System Overhaul
 
-[FEAT] spriteId field for shared sprites (lopmon_it uses lopmon's PNG)
+[FEAT] Bond system replaces ABI as the partner metric
+       Bond: float 0–100, earned from:
+         - Daily login: +2
+         - Task completion: +0.5 (max 5 task bonds/day)
+         - Play interaction: +1 (max 3/day)
+         - Feeding food: +food.bond
+       Bond bar displayed in left panel. Persisted to profiles.bond in Supabase.
 
-### Digimon Database Overhaul
+[FEAT] Evolution gating updated — bond + crest alignment replaces ABI
+       EVO_REQUIREMENTS per stage:
+         Champion: Lv.10, Bond 20, 50% crest match
+         Ultimate: Lv.25, Bond 40, 60% crest match
+         Mega:     Lv.50, Bond 60, 70% crest match
+         Ultra:    Lv.70, Bond 80, 75% crest match
+       Partner Vow fallback: if crest match ≥ partnerVow threshold, vow evolution is offered
 
-[FEAT] Complete DIGIMON_DB rewrite — 10 full evolution lines
-       Baby → In-Training → Rookie → Champion → Ultimate → Mega
-       Lines: Agumon, Patamon, Salamon, Gabumon, Tentomon, Palmon,
-              Veemon, Guilmon, Lopmon, Renamon
+[FEAT] crestReq added to every Champion+ Digimon entry
+       e.g. Greymon: { primary:"Courage", secondary:"Care" }
+       Drives evolution eligibility and is shown in Team page and Crests page
 
-[FEAT] Evolution requirements added to every Digimon
-       evoRequires: { level, abi, stats:{} }
-       Calibrated to Digimon World / Cyber Sleuth thresholds:
-       - Baby → In-Training: Lv3, ABI 0
-       - In-Training → Rookie: Lv6, ABI 1
-       - Rookie → Champion: Lv10, ABI 5 + stat thresholds
-       - Champion → Ultimate: Lv20, ABI 5
-       - Ultimate → Mega: Lv30, ABI 15
+[FEAT] checkEvoEligible() returns { eligible, vow, reason, matchPct }
+       Evolution buttons coloured gold (eligible), lavender (vow), grey (locked)
 
-[FEAT] meetsEvoReq() pure function in engine.js
-       Checks level, ABI, and each stat threshold simultaneously
-       Returns boolean — used to gate evolution buttons and banner
+### Battle System Update
 
-[RENAME] gatomon → tailmon (Japanese name, matches user's sprite file)
-[RENAME] saviorhuckmon → cherubimon (Lopmon Mega, matches user's sprite)
-[RENAME] tsumemon → tanemon (Palmon In-Training)
-[RENAME] vmon → chibimon (Veemon In-Training)
+[FEAT] New 4-stat battle system: Power / Guard / Focus / Momentum
+       Replaces raw HP/ATK/DEF/INT/SP/SPD display in UI (HP kept internal)
+       calcBattleStats() derives stats from base values + personality battleBonus
+       calcBattleDamage() uses Power vs Guard with Focus-based crit chance (up to 30%)
 
-[FEAT] botamon now branches to both koromon (Agumon line) and tsunomon (Gabumon line)
+[FEAT] Personality system updated — each personality now has battleBonus
+       e.g. Fighter: Power +7%, Defender: Guard +5% + Focus +2%, Nimble: Momentum +5% + Power +2%
 
-### Task System — Stat Categories
+[FEAT] Roles defined per Digimon: Striker / Guardian / Tactician / Support / Vanguard / Scholar / Balanced
+       Role badge shown in Team page and DigiDex
 
-[FEAT] Task categories now map directly to Digimon stats (HP/SP/ATK/DEF/INT/SPD)
-       Completing an HP task gives +HP bonus stat, ATK task gives +ATK, etc.
-       Stat boost amount set by task difficulty (Easy=1, Medium=1, Hard=2)
+[FEAT] Passive and Signature per Digimon
+       Passive: always-on trait (e.g. Greymon "Aggression — Power +15% on opening attack")
+       Signature: memorable special move (e.g. "Nova Blast — AoE for 70% Power")
+       Displayed in Team page and on active attacker tile in Battle
 
-[FEAT] STAT_CATEGORIES added to constants.js with icon, colour, and description per stat
-       Task form and filter tabs updated to show icons and descriptions
+### Stamina & Food System
 
-[FEAT] ABI accrual system
-       Easy=+0.1 ABI, Medium=+0.2, Hard=+0.3 per completed task
-       Fractional progress stored in bonus_stats.abi_progress (JSONB, no schema change)
-       Whole ABI points accumulate in the abi column
+[FEAT] Stamina bar (⚡, max 100) added to left panel and top nav
+       Passive regen: 10 stamina/hour, calculated at load from last_stamina_update timestamp
+       Battle costs: Easy 10 / Medium 15 / Hard 20 stamina
+       Cannot start battle without sufficient stamina
 
-### Party System
+[FEAT] FEED button opens food overlay — immediate buy-and-eat (no inventory state)
+       FOOD_ITEMS: Apple (20⚡ +0.5💗), Onigiri (25⚡ +0.5💗), DigiCake (40⚡ +1💗), Ramen (50⚡ +1💗)
+       Daily food stamina cap: 100 per day (resets at midnight)
+       Food also sold directly from Store page
 
-[FEAT] Party max size changed to 3 (was 9)
-       All 3 party members displayed in Team page
-       Farm is unlimited
+[FEAT] PLAY button unlocks after 3 tasks completed
+       Gives +1 Bond, max 3 uses/day
+       Button shows remaining plays (e.g. "PLAY (2)")
 
-[FEAT] All party members now receive equal XP, stat boost, and ABI on task completion
-       Previously only party[0] got full XP; others got 50% without DB persistence
-       Now: all 3 persisted to Supabase simultaneously via Promise.all
+### Jijimon Help System
 
-[FEAT] "★ Set Leader" button on non-leader party members
-       Swaps selected Digimon to party[0] (leader role)
-       Leader is the active Digimon shown in left panel and used for AI chat
-       sort_order updated in DB for persistence across sessions
+[FEAT] Jijimon modal — bottom-anchored dialogue overlay
+       Triggered by specific in-game events:
+         crest_intro  — first crest earned from a task
+         evo_ready    — evolution becomes available
+         partner_vow  — Partner Vow evolution offered
+         first_feed   — first time food is purchased
+         shop_tips    — first visit to Store
+         stamina_low  — battle attempted with insufficient stamina
+         neglect_warn — reserved for neglect mechanic (future)
+       GOT IT: dismisses for this occurrence
+       HIDE TIPS: permanently dismisses this event type (stored in localStorage)
+       Sprite placeholder: div marked for <DigiSprite digimonId="jijimon" size={36}/>
 
-[FIX] sendToFarm / recallFromFarm now persist in_farm to Supabase
-      Previously local-only — Digimon placement was lost on page refresh
+### DB Migration
 
-### Login Streak & Digitama System
+[DEPLOY] supabase/migrations/20260409_weekly_planner.sql
+         Renamed from 20260408 to resolve version key collision with login_streak migration
+         Adds: due_date (tasks), weekly_digimon (profiles)
 
-[FEAT] Daily login streak tracking
-       Profiles table: login_streak INTEGER, last_login_date DATE, digitama_credits INTEGER
-       On login: consecutive day increments streak, missed day resets to 1
-       Shown in nav bar (🔥N) and dashboard stat cards
+[DEPLOY] supabase/migrations/20260410_crest_stamina_bond.sql
+         Adds to profiles table:
+           bond INTEGER DEFAULT 0
+           stamina INTEGER DEFAULT 100
+           last_stamina_update TIMESTAMPTZ
+           crest_history JSONB DEFAULT '[]'
+           food_stamina_today INTEGER DEFAULT 0
+           bond_actions_today JSONB DEFAULT '{}'
+           last_day_reset DATE
+           login_streak INTEGER DEFAULT 0
+           last_login_date DATE
 
-[FEAT] Digitama egg reward at every 30-day login milestone
-       8 egg types, each hatching a different Baby Digimon:
-       Flame→botamon, Holy→punimon, Wind→poyomon, Beast→pabumon,
-       Dragon→jyarimon, Nature→kuramon, Mystic→viximon, Shadow→pagumon
-       Egg selection modal opens automatically on login when milestone hit
+### Pomodoro Focus Timer
 
-[FEAT] Digitama modal shows animated SVG eggs with type colours
-       "SAVE FOR LATER" available only when party has ≥1 member
-       If party is empty (fresh reset), modal cannot be dismissed — must choose partner
+[FEAT] TRAIN button now opens Pomodoro focus session modal
+       Setup: pick training type (maps to a crest template) + duration (15 / 25 / 50 min)
+       Live circular SVG countdown timer with partner sprite shown during session
+       On completion → CLAIM REWARDS:
+         XP: duration × 3 (e.g. 25 min = 75 XP)
+         Bond: +1
+         Bits: +75
+         Crest points: equivalent to completing a Medium-difficulty task with that template
+       Session can be abandoned early (no reward)
+       Designed to be meaningful but not game-breaking (no daily cap — reward is time-proportional)
 
-[FEAT] "↺ RESET TEAM" button in Team page
-       Confirmation dialog required before executing (prevents accidental wipes)
-       On confirm: deletes all Digimon, awards 1 Digitama credit, opens egg selection
-       User picks their new starting partner via egg modal — no hardcoded defaults
+### Tamer Profile Modal
 
-[FEAT] Digitama credits shown as 🥚×N badge in nav bar and Team page header
+[FEAT] Clicking "Tamer" in the top nav opens the Tamer Profile popup
+       Lore-accurate content:
+         DigiDestined Since — Supabase account creation date (session.user.created_at)
+         Tamer Title — derived from primary crest (e.g. "Scholar Tamer" for Knowledge)
+         Current Partner + Level
+         Bond Strength, Login Streak, Tasks Today, Digimon Known count
+         Primary + Supporting crest callout with flavour description
+         Digivolution Journey — sprite grid of all discovered Digimon
+         Tamer's Oath — flavour text
+       SVG radar chart (no external deps) — octagonal web showing all 8 crest alignments
+         8 axes at 45° intervals, grid rings at 25/50/75/100%, crest-coloured dots
 
-### Digidex Update
+### Infrastructure Fix
 
-[FEAT] Digidex now shows ALL Digimon regardless of discovery status
-       PNG/SVG badge on each card shows which sprites are loaded vs falling back to SVG
-       Undiscovered Digimon shown at 45% opacity with "undiscovered" label
-       Stage label visible for all entries
-
-### Fixes
-
-[FIX] ABI bootstrap deadlock resolved
-      Starters had abi:0; Champion required abi:5 with no way to earn it
-      Fix: ABI earned from task completion (fractional, 0.1–0.3 per task)
-
-[FIX] First-login seed now creates 3 starters: chibimon + tsunomon in party, patamon in farm
-      (Triggered only on brand-new accounts with no existing Digimon)
-
-[FIX] evolve() now persists to Supabase (was local-state only)
-
-### Database Migration
-
-[DEPLOY] SQL migration: supabase/migrations/20260408_login_streak.sql
-         Adds login_streak, last_login_date, digitama_credits to profiles table
+[FIX] Identified that all session changes were written to DailyDigivolve/ subdirectory
+      instead of root src/ — the actual project served by Vite and Cloudflare
+      Root cause: Claude created a nested DailyDigivolve/ subfolder in a prior session
+      and subsequent file edits targeted that folder by mistake
+      Fix: All four updated files copied from DailyDigivolve/src/ to root src/
+      Affected: App.jsx, data/constants.js, data/digimon.js, data/engine.js
 
 ---
 
-## Pipeline — Features in Development
+## Features Pipeline
 
-[ ] Voice-to-text task entry
-    User speaks a task, app transcribes and auto-fills the task form
+### Near-term (next sessions)
 
-[ ] AI auto-task management
-    AI analyses tasks and suggests edits, completions, or new tasks
-    based on chat conversation and current goals
+[ ] Jijimon sprite — provide image file, replace 💭 placeholder in modal
+[ ] Rest mechanic — sleep tracking / next-day stamina bonus
+[ ] Neglect system — if no tasks for N days, bond decay + Sukamon warning
+[ ] De-digivolution — slide evolution back when crest alignment diverges significantly
+[ ] DNA Digivolution — fusion evolution requiring two Digimon in party
 
-[ ] Party max cap — review and possible increase
-    Currently 3. May expand to 5 or 6 as gameplay deepens
+### Medium-term
 
-[ ] Mobile app (React Native / Expo)
+[ ] PvP sparring — async challenge between two tamers
+[ ] Raid mode — coordinated multi-tamer boss battles
+[ ] Campaign mode — story stages with escalating difficulty
+[ ] Pomodoro sessions tracked over time — weekly focus stats on Tamer Profile
+[ ] Crest Catalyst shop item — +3 to lowest active crest (1 per week)
+[ ] Partner Vow shop item — enables vow evolution path
+
+### Long-term
+
+[ ] Mobile app (React Native / Expo) — required before watch companion
 [ ] Apple Watch / Wear OS companion
-[ ] DigiVice ESP32 prototype
+[ ] DigiVice hardware prototype (ESP32-S3 + LVGL)
+[ ] dailydigivolve.com domain + NZ company registration

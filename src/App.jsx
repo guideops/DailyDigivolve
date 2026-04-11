@@ -1,74 +1,37 @@
-// ─── App.jsx — main entry, routes between pages ───────────────────────────────
-// This is the slimmed-down App that imports from the correct files.
-// The original digitask-full.jsx had everything in one file — this splits it out.
-
+// ─── App.jsx ──────────────────────────────────────────────────────────────────
 import { supabase } from './lib/supabase.js';
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import DigiSprite from "./components/DigiSprite.jsx";
-import { getSpriteConfig } from "./data/sprites.js";
-import { Bar, Tag, Btn } from "./components/ui.jsx";
+import { Bar } from "./components/ui.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
 import { DIGIMON_MAP } from "./data/digimon.js";
 import {
-  PERSONALITIES, STAGE_COLOR, ATTR_COLOR,
-  PRIORITY_COLORS, CATEGORIES, STAT_CATEGORIES, DAYS_OF_WEEK,
-  MAX_PARTY_SIZE, BATTLE_REWARDS,
+  STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
+  CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
+  STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP,
 } from "./data/constants.js";
 import {
-  calcStats, calcXpReward, calcStatReward,
-  applyXpGain, newDigimon, abiCap, totalBonusStats, meetsEvoReq,
+  calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
+  calcCrestGain, calcCrestProfile, checkEvoEligible, calcCurrentStamina, clampBond,
 } from "./data/engine.js";
 
-// ── Design tokens — dark pixel art system ─────────────────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────────────────
 var T = {
-  bg:         "#0d0f14",
-  bgPanel:    "#111318",
-  bgCard:     "#161a22",
-  border:     "#2a2d3a",
-  pixelBorder:"#7EB8F7",      // replaces Nomi's #3D2C1E — blue tint for dark
-  pixelShadow:"rgba(126,184,247,0.25)",
-  text:       "#e8eaf0",
-  textMid:    "#8a90a8",
-  textDim:    "#4a5070",
-  coral:      "#FF6B6B",
-  teal:       "#4ECDC4",
-  lavender:   "#C3B1E1",
-  mint:       "#A8E6CF",
-  gold:       "#FFD700",
-  red:        "#FF4444",
-  green:      "#5CB85C",
-  pink:       "#FF9EB5",
+  bg:"#0d0f14", bgPanel:"#111318", bgCard:"#161a22", border:"#2a2d3a",
+  pixelBorder:"#7EB8F7", text:"#e8eaf0", textMid:"#8a90a8", textDim:"#4a5070",
+  coral:"#FF6B6B", teal:"#4ECDC4", lavender:"#C3B1E1", mint:"#A8E6CF",
+  gold:"#FFD700", red:"#FF4444", green:"#5CB85C", pink:"#FF9EB5",
 };
-
-// Priority colour map
 var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
 
-// ── Digitama eggs — 30-day login streak reward ────────────────────────────────
-var DIGITAMA_EGGS = [
-  { id:"flame",  label:"Flame",  color:"#FF6B35", shimmer:"#FFD700", hatch:"botamon",  desc:"Fire Digimon" },
-  { id:"holy",   label:"Holy",   color:"#FFE066", shimmer:"#FFFFFF", hatch:"punimon",  desc:"Holy Digimon" },
-  { id:"wind",   label:"Wind",   color:"#A8E6CF", shimmer:"#7EB8F7", hatch:"poyomon",  desc:"Maiden Digimon" },
-  { id:"beast",  label:"Beast",  color:"#7EB8F7", shimmer:"#C3B1E1", hatch:"pabumon",  desc:"Beast Digimon" },
-  { id:"dragon", label:"Dragon", color:"#C3B1E1", shimmer:"#FF9EB5", hatch:"jyarimon", desc:"Dragon Digimon" },
-  { id:"nature", label:"Nature", color:"#5CB85C", shimmer:"#A8E6CF", hatch:"kuramon",  desc:"Plant Digimon" },
-  { id:"mystic", label:"Mystic", color:"#FF9EB5", shimmer:"#B8A0E8", hatch:"viximon",  desc:"Mystic Digimon" },
-  { id:"shadow", label:"Shadow", color:"#9B59B6", shimmer:"#E0C0FF", hatch:"pagumon",  desc:"Shadow Digimon" },
-];
+function px(c){ return { border:"2px solid "+(c||T.pixelBorder), boxShadow:"3px 3px 0 "+(c||T.pixelBorder) }; }
 
-// Pixel box style — the Nomi signature
-function px(accentColor) {
-  accentColor = accentColor || T.pixelBorder;
-  return {
-    border:    "2px solid " + accentColor,
-    boxShadow: "3px 3px 0 " + accentColor,
-  };
-}
-
-// Nav pages
+// ── Nav ───────────────────────────────────────────────────────────────────────
 var NAV = [
   { id:"dashboard", label:"HOME",    icon:"⌂" },
   { id:"tasks",     label:"TASKS",   icon:"☑" },
   { id:"weekly",    label:"WEEK",    icon:"📅" },
+  { id:"crests",    label:"CRESTS",  icon:"💎" },
   { id:"team",      label:"TEAM",    icon:"◈" },
   { id:"digifarm",  label:"FARM",    icon:"🌿" },
   { id:"battle",    label:"BATTLE",  icon:"⚔" },
@@ -77,488 +40,533 @@ var NAV = [
   { id:"digidex",   label:"DIGIDEX", icon:"📖" },
 ];
 
-var STORE_ITEMS = [
-  { id:"stat_hp",  name:"+4 HP Stat",          cost:1000, icon:"❤️" },
-  { id:"stat_atk", name:"+4 ATK Stat",          cost:1000, icon:"⚔️" },
-  { id:"stat_def", name:"+4 DEF Stat",           cost:1000, icon:"🛡️" },
-  { id:"stat_spd", name:"+4 SPD Stat",           cost:1000, icon:"💨" },
-  { id:"exp",      name:"EXP Booster +500",      cost:1000, icon:"⭐" },
-  { id:"random",   name:"Random Digimon",        cost:2000, icon:"🎲" },
-  { id:"xab",      name:"X-Antibody",            cost:3000, icon:"✖️" },
-  { id:"pers",     name:"Personality Changer",   cost:2000, icon:"🎭" },
-];
+// ── Crest-based tamer titles ──────────────────────────────────────────────────
+var CREST_TITLES = {
+  Courage:"Brave Tamer", Knowledge:"Scholar Tamer", Reliability:"Steadfast Tamer",
+  Care:"Healer Tamer", Friendship:"Bonded Tamer", Sincerity:"Sincere Tamer",
+  Hope:"Dreamer Tamer", Light:"Radiant Tamer",
+};
 
-var INV_ITEMS = [
-  { icon:"🍎", count:3 }, { icon:"🍰", count:1 }, { icon:"⚡", count:5 },
-  { icon:"💎", count:2 }, { icon:"🧪", count:1 }, { icon:"🎀", count:4 },
-  { icon:"·",  count:0 }, { icon:"·",  count:0 },
-];
+// ── Jijimon dialogue ──────────────────────────────────────────────────────────
+var JIJIMON_LINES = {
+  crest_intro:   "Crests reveal your natural path, but the bond between tamer and partner can still shape destiny.",
+  evo_ready:     "Your partner grows stronger with every completed task. A new form is within reach — the path is clear.",
+  partner_vow:   "Your natural alignment suggests one path, but you can still guide your partner toward another. That is the power of the tamer bond.",
+  first_feed:    "Feed your partner. Fuel your battles. A well-rested companion fights with heart.",
+  shop_tips:     "Earned every crest through tasks? Wonderful. Missing one due to life? The shop helps you catch up without compromising your identity.",
+  stamina_low:   "Your partner needs fuel before heading into battle. Time for a meal, tamer!",
+  neglect_warn:  "Your partner has grown quiet. But it is never too late to rebuild what was lost.",
+};
 
-var PET_SPEECHES = [
-  "you can do it! 💪", "finish your tasks!", "i believe in you ✨",
-  "feed me please 🍎", "great job! +10 XP", "keep going!! 🔥", "i'm so proud! ⭐",
-];
-
-function makeParty() {
-  var a = newDigimon("agumon",  { level:6, exp:340, abi:8,  bonusStats:{HP:4,SP:2,ATK:5,DEF:3,INT:1,SPD:3} });
-  var b = newDigimon("gabumon", { level:4, exp:120, abi:5,  bonusStats:{HP:2,SP:1,ATK:3,DEF:4,INT:2,SPD:2} });
-  var c = newDigimon("guilmon", { level:3, exp:60,  abi:3,  bonusStats:{HP:1,SP:0,ATK:2,DEF:1,INT:0,SPD:1} });
-  return [a, b, c];
-}
-
-// ── Root App ─────────────────────────────────────────────────────────────────
+// ── Root App ──────────────────────────────────────────────────────────────────
 export default function App({ session }) {
-  var [page,        setPage]        = useState("dashboard");
-  const [party, setParty] = useState([])
-  const [farm, setFarm] = useState([])
-  const [savedStats, setSavedStats] = useState(0)
-  const [bits, setBits] = useState(0)
-  const [allDisc, setAllDisc] = useState([])
-  const [tasks, setTasks] = useState([])
-  var [speech,      setSpeech]      = useState("finish your tasks!");
-  var [actLog,      setActLog]      = useState([
-    { icon:"⭐", text:"DailyDigivolve started! Welcome, Tamer.", time:"JUST NOW" },
-  ]);
-  var [toast,       setToast]       = useState(null);
-  var [evoAnim,     setEvoAnim]     = useState(null);
-  var [battleState, setBattleState] = useState(null);
-  var [weeklyDigimon, setWeeklyDigimon] = useState({});
-  var [showTaskModal, setShowTaskModal] = useState(false);
-  var [modalForm, setModalForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
-  var [loginStreak,       setLoginStreak]       = useState(0);
-  var [digitamaCredits,   setDigitamaCredits]   = useState(0);
-  var [showDigitamaModal, setShowDigitamaModal] = useState(false);
-  var [confirmReset,      setConfirmReset]      = useState(false);
-  var [dexSelected,       setDexSelected]       = useState(null);
+  var [page,             setPage]             = useState("dashboard");
+  var [party,            setParty]            = useState([]);
+  var [farm,             setFarm]             = useState([]);
+  var [bits,             setBits]             = useState(350);
+  var [allDisc,          setAllDisc]          = useState([]);
+  var [tasks,            setTasks]            = useState([]);
+  var [weeklyDigimon,    setWeeklyDigimon]    = useState({});
+  var [speech,           setSpeech]           = useState("finish your tasks!");
+  var [actLog,           setActLog]           = useState([{ icon:"⭐", text:"DailyDigivolve started! Welcome, Tamer.", time:"JUST NOW" }]);
+  var [toast,            setToast]            = useState(null);
+  var [evoAnim,          setEvoAnim]          = useState(null);
+  var [battleState,      setBattleState]      = useState(null);
+  // New systems
+  var [bond,             setBond]             = useState(0);
+  var [stamina,          setStamina]          = useState(STAMINA_MAX);
+  var [lastStaminaUpdate,setLastStaminaUpdate]= useState(null);
+  var [crestHistory,     setCrestHistory]     = useState([]);
+  var [foodStaminaToday, setFoodStaminaToday] = useState(0);
+  var [bondActionsToday, setBondActionsToday] = useState({ date:null, tasks:0, play:0 });
+  var [jijimonModal,     setJijimonModal]     = useState(null);
+  var [showFeedPanel,    setShowFeedPanel]    = useState(false);
+  var [jijimonSeen,      setJijimonSeen]      = useState(function(){
+    try { return JSON.parse(localStorage.getItem('jijimon_seen')||'{}'); } catch { return {}; }
+  });
+  var [pomodoroState,    setPomodoroState]    = useState(null);
+  // pomodoroState: null | { phase:'setup'|'running'|'done', timeLeft, totalSeconds, template, duration }
+  var [showTamerProfile, setShowTamerProfile] = useState(false);
+
   var dragIdx = useRef(null);
+  var userId  = session.user.id;
 
-const userId = session.user.id
-
-// Load all data from Supabase on mount
-useEffect(() => {
-  async function loadData() {
-    const [{ data: profile }, { data: digimonData }, { data: tasksData }] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('digimon').select('*').eq('user_id', userId).order('sort_order'),
-      supabase.from('tasks').select('*').eq('user_id', userId).order('created_at'),
-    ])
-
-    if (profile) {
-      setBits(profile.bits || 350)
-      setSavedStats(profile.saved_stats || 0)
-      setWeeklyDigimon(profile.weekly_digimon || {})
-
-      // ── Login streak ─────────────────────────────────────────────────────
-      const todayStr  = new Date().toISOString().split('T')[0]
-      const yesterStr = new Date(Date.now() - 86400000).toISOString().split('T')[0]
-      const lastLogin = profile.last_login_date
-      let curStreak = profile.login_streak    || 0
-      let curCreds  = profile.digitama_credits || 0
-
-      if (lastLogin !== todayStr) {
-        const prevMilestone = Math.floor(curStreak / 30)
-        curStreak = (lastLogin === yesterStr) ? curStreak + 1 : 1
-        const earned = Math.floor(curStreak / 30) - prevMilestone
-        if (earned > 0) { curCreds += earned; setShowDigitamaModal(true); }
-        await supabase.from('profiles').update({
-          login_streak:     curStreak,
-          last_login_date:  todayStr,
-          digitama_credits: curCreds,
-        }).eq('id', userId)
-      }
-      setLoginStreak(curStreak)
-      setDigitamaCredits(curCreds)
-    }
-
-    if (digimonData && digimonData.length > 0) {
-      const mapped = digimonData.map(d => ({
-        uid:         d.id,
-        speciesId:   d.species_id,
-        name:        d.name,
-        level:       d.level,
-        exp:         d.exp,
-        expNeeded:   d.exp_needed,
-        abi:         d.abi,
-        personality: d.personality,
-        bonusStats:  d.bonus_stats,
-        discovered:  d.discovered || [],
-        inFarm:      d.in_farm,
-        isXForm:     d.is_x_form,
-      }))
-      setParty(mapped.filter(d => !d.inFarm))
-      setFarm(mapped.filter(d => d.inFarm))
-      const allD = [...new Set(digimonData.flatMap(d => d.discovered || []))]
-      setAllDisc(allD)
-    } else {
-      // First login — create starter party: Chibimon + Tsunomon in party, Patamon in farm
-      async function insertDigi(speciesId, sortOrder, inFarm) {
-        const s = newDigimon(speciesId, {});
-        const { data } = await supabase.from('digimon').insert({
-          user_id: userId, species_id: speciesId, name: s.name,
-          level: 1, exp: 0, exp_needed: 100, abi: 0,
-          personality: s.personality, bonus_stats: s.bonusStats,
-          discovered: [speciesId], in_farm: inFarm, sort_order: sortOrder,
-        }).select().single();
-        return data ? Object.assign({}, s, { uid: data.id, inFarm }) : null;
-      }
-      const [d1, d2, d3] = await Promise.all([
-        insertDigi('chibimon', 0, false),
-        insertDigi('tsunomon', 1, false),
-        insertDigi('patamon',  2, true),
+  // ── Load data ───────────────────────────────────────────────────────────────
+  useEffect(function() {
+    async function load() {
+      var today = new Date().toISOString().split('T')[0];
+      var [{ data:profile }, { data:digimonData }, { data:tasksData }] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', userId).single(),
+        supabase.from('digimon').select('*').eq('user_id', userId).order('sort_order'),
+        supabase.from('tasks').select('*').eq('user_id', userId).order('created_at'),
       ]);
-      setParty([d1, d2].filter(Boolean));
-      setFarm(d3 ? [d3] : []);
-      setAllDisc(['chibimon', 'tsunomon', 'patamon']);
-    }
 
-    if (tasksData) {
-      const todayStr  = new Date().toISOString().split('T')[0]
-      const todayDay  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
-      const sevenAgo  = new Date(); sevenAgo.setDate(sevenAgo.getDate() - 7);
-      const sevenStr  = sevenAgo.toISOString().split('T')[0]
+      if (profile) {
+        setBits(profile.bits || 350);
+        setWeeklyDigimon(profile.weekly_digimon || {});
+        setBond(profile.bond || 0);
 
-      // Purge one-time tasks completed more than 7 days ago
-      const toDelete = tasksData.filter(t =>
-        t.type === 'once' && t.done && t.last_completed_date && t.last_completed_date < sevenStr
-      )
-      if (toDelete.length > 0) {
-        await supabase.from('tasks').delete().in('id', toDelete.map(t => t.id))
+        // Stamina with regen
+        var lastUpd = profile.last_stamina_update || new Date().toISOString();
+        var curStam = calcCurrentStamina(profile.stamina ?? STAMINA_MAX, lastUpd);
+        setStamina(curStam);
+        setLastStaminaUpdate(lastUpd);
+        setCrestHistory(profile.crest_history || []);
+
+        // Daily reset
+        var lastReset = profile.last_day_reset || today;
+        if (lastReset !== today) {
+          setFoodStaminaToday(0);
+          setBondActionsToday({ date:today, tasks:0, play:0 });
+          // Save reset to DB
+          await supabase.from('profiles').update({
+            food_stamina_today: 0,
+            bond_actions_today: { date:today, tasks:0, play:0 },
+            last_day_reset: today,
+            stamina: curStam,
+            last_stamina_update: new Date().toISOString(),
+          }).eq('id', userId);
+        } else {
+          setFoodStaminaToday(profile.food_stamina_today || 0);
+          var bad = profile.bond_actions_today || {};
+          setBondActionsToday(bad.date === today ? bad : { date:today, tasks:0, play:0 });
+          // Save regen'd stamina back
+          if (curStam !== (profile.stamina ?? STAMINA_MAX)) {
+            await supabase.from('profiles').update({
+              stamina: curStam, last_stamina_update: new Date().toISOString(),
+            }).eq('id', userId);
+          }
+        }
+
+        // Login streak + bond
+        var lastLogin = profile.last_login_date || today;
+        var loginStreak = profile.login_streak || 0;
+        if (lastLogin !== today) {
+          var newStreak = (new Date(today) - new Date(lastLogin)) <= 86400000*2 ? loginStreak + 1 : 1;
+          var loginBond = clampBond((profile.bond || 0) + 2);
+          setBond(loginBond);
+          await supabase.from('profiles').update({
+            last_login_date: today, login_streak: newStreak, bond: loginBond,
+          }).eq('id', userId);
+        }
       }
 
-      // Reset done for daily/recurring tasks not completed today
-      const toReset = tasksData.filter(t =>
-        (t.type === 'daily' || t.type === 'recurring') && t.done && t.last_completed_date !== todayStr
-      )
-      if (toReset.length > 0) {
-        await supabase.from('tasks').update({ done: false }).in('id', toReset.map(t => t.id))
+      if (digimonData && digimonData.length > 0) {
+        var mapped = digimonData.map(function(d) { return {
+          uid: d.id, speciesId: d.species_id, name: d.name, level: d.level,
+          exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
+          personality: d.personality, bonusStats: d.bonus_stats || {},
+          discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
+        }; });
+        setParty(mapped.filter(function(d){ return !d.inFarm; }));
+        setFarm(mapped.filter(function(d){ return d.inFarm; }));
+        var allD = [...new Set(digimonData.flatMap(function(d){ return d.discovered || []; }))];
+        setAllDisc(allD);
+      } else {
+        var starter = newDigimon('agumon', {});
+        var { data:newDigi } = await supabase.from('digimon').insert({
+          user_id: userId, species_id: starter.speciesId, name: starter.name,
+          level: 1, exp: 0, exp_needed: 100, abi: 0, personality: starter.personality,
+          bonus_stats: {}, discovered: ['agumon'], in_farm: false, sort_order: 0,
+        }).select().single();
+        if (newDigi) setParty([Object.assign({}, starter, { uid:newDigi.id })]);
       }
 
-      const deletedIds = new Set(toDelete.map(t => t.id))
-      const resetIds   = new Set(toReset.map(t => t.id))
-
-      const visible = tasksData.filter(t => {
-        if (deletedIds.has(t.id)) return false
-        if (t.type !== 'recurring') return true
-        if (!t.days_of_week || t.days_of_week.length === 0) return true
-        return t.days_of_week.includes(todayDay)
-      })
-      setTasks(visible.map(t => ({
-        id:          t.id,
-        title:       t.title,
-        category:    t.category,
-        priority:    t.priority,
-        difficulty:  t.difficulty,
-        type:        t.type,
-        notes:       t.notes || '',
-        done:        resetIds.has(t.id) ? false : t.done,
-        streak:      t.streak || 0,
-        daysOfWeek:  t.days_of_week || [],
-        completedAt: t.last_completed_date || null,
-        dueDate:     t.due_date || null,
-      })))
+      if (tasksData) {
+        var todayDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+        setTasks(tasksData.filter(function(t) {
+          if (t.type !== 'recurring') return true;
+          if (!t.days_of_week || !t.days_of_week.length) return true;
+          return t.days_of_week.includes(todayDay);
+        }).map(function(t) { return {
+          id: t.id, title: t.title,
+          template: t.category || 'Neutral', // category column stores template values
+          priority: t.priority, difficulty: t.difficulty, type: t.type,
+          notes: t.notes || '', done: t.done, streak: t.streak || 0,
+          daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
+        }; }));
+      }
     }
-  }
-  loadData()
-}, [userId])
-  
-  // Derived
-  var activeDigi = party[0];
-  var activeInfo = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
-  var streak     = tasks.reduce(function(m,t){ return Math.max(m,t.streak||0); }, 0);
-  var accent     = activeInfo ? (ATTR_COLOR[activeInfo.attr]||T.teal) : T.teal;
-  var pendTasks  = tasks.filter(function(t){ return !t.done; });
-  var doneTasks  = tasks.filter(function(t){ return  t.done; });
-  var xpToday    = doneTasks.reduce(function(s,t){ return s + calcXpReward(t, streak); }, 0);
-  var questDone  = doneTasks.length;
-  var questTotal = 5;
+    load();
+  }, [userId]);
 
+  // ── Pomodoro countdown ───────────────────────────────────────────────────────
+  useEffect(function() {
+    if (!pomodoroState || pomodoroState.phase !== 'running') return;
+    var id = setTimeout(function() {
+      setPomodoroState(function(ps) {
+        if (!ps || ps.phase !== 'running') return ps;
+        var next = ps.timeLeft - 1;
+        if (next <= 0) return Object.assign({}, ps, { phase:'done', timeLeft:0 });
+        return Object.assign({}, ps, { timeLeft: next });
+      });
+    }, 1000);
+    return function() { clearTimeout(id); };
+  }, [pomodoroState]);
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  var activeDigi  = party[0];
+  var activeInfo  = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
+  var streak      = tasks.reduce(function(m,t){ return Math.max(m, t.streak||0); }, 0);
+  var accent      = activeInfo ? (ATTR_COLOR[activeInfo.attr]||T.teal) : T.teal;
+  var pendTasks   = tasks.filter(function(t){ return !t.done; });
+  var doneTasks   = tasks.filter(function(t){ return  t.done; });
+  var xpToday     = doneTasks.reduce(function(s,t){ return s + calcXpReward(t, streak); }, 0);
+  var todayKey    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+
+  var crestProfile = useMemo(function() {
+    return calcCrestProfile(crestHistory, 14);
+  }, [crestHistory]);
+
+  var playUsedToday   = bondActionsToday.play  || 0;
+  var taskBondToday   = bondActionsToday.tasks || 0;
+  var playAvailable   = doneTasks.length >= 3 && playUsedToday < 3;
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   function addLog(icon, text) {
-    setActLog(function(l){ return [{ icon:icon, text:text, time:"JUST NOW" }].concat(l.slice(0,7)); });
+    setActLog(function(l){ return [{ icon, text, time:"JUST NOW" }].concat(l.slice(0,7)); });
   }
-
   function toast_(msg, color) {
-    setToast({ msg:msg, color:color||T.green });
-    setTimeout(function(){ setToast(null); }, 2500);
+    setToast({ msg, color:color||T.green });
+    setTimeout(function(){ setToast(null); }, 2800);
+  }
+  function triggerJijimon(key) {
+    if (jijimonSeen[key]) return;
+    setJijimonModal({ key, msg: JIJIMON_LINES[key] || "" });
+  }
+  function dismissJijimon(forever) {
+    if (!jijimonModal) return;
+    if (forever) {
+      var updated = Object.assign({}, jijimonSeen, { [jijimonModal.key]: true });
+      setJijimonSeen(updated);
+      localStorage.setItem('jijimon_seen', JSON.stringify(updated));
+    }
+    setJijimonModal(null);
   }
 
-  function petAction(msg, logMsg) {
-    setSpeech(msg);
-    if (logMsg) addLog("🐾", logMsg);
-  }
-
+  // ── Complete task ────────────────────────────────────────────────────────────
   async function completeTask(id) {
-  const task = tasks.find(t => t.id === id)
-  if (!task || task.done) return
-  const todayKey = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
-  const dayDigiUid = weeklyDigimon[todayKey]
-  const hasBoost = dayDigiUid && party[0] && dayDigiUid === party[0].uid
-  const baseXp = calcXpReward(task, streak)
-  const xp = hasBoost ? Math.floor(baseXp * 1.5) : baseXp
-  const sp = calcStatReward(task)
+    var task = tasks.find(function(t){ return t.id === id; });
+    if (!task || task.done) return;
 
-  // Update task in DB
-  await supabase.from('tasks').update({
-    done: true,
-    streak: (task.streak || 0) + 1,
-    last_completed_date: new Date().toISOString().split('T')[0],
-  }).eq('id', id)
+    var dayDigiUid = weeklyDigimon[todayKey];
+    var hasBoost   = dayDigiUid && activeDigi && dayDigiUid === activeDigi.uid;
+    var baseXp     = calcXpReward(task, streak);
+    var xp         = hasBoost ? Math.floor(baseXp * 1.5) : baseXp;
 
-  const todayStr = new Date().toISOString().split('T')[0]
+    // Crest gain
+    var cg = calcCrestGain(task.template, task.difficulty);
+    var today = new Date().toISOString().split('T')[0];
+    var newHistory = crestHistory;
+    if (cg) {
+      newHistory = crestHistory.concat([{
+        date: today,
+        primaryCrest:   cg.primaryCrest,
+        secondaryCrest: cg.secondaryCrest,
+        primary:        cg.primary,
+        secondary:      cg.secondary,
+      }]);
+      // Trim to 60 days
+      var cutoff = Date.now() - 60 * 86400000;
+      newHistory = newHistory.filter(function(e){ return new Date(e.date).getTime() >= cutoff; });
+      setCrestHistory(newHistory);
+    }
 
-  // Update local state
-  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, { done: true, streak: (t.streak||0)+1, completedAt: todayStr }) : t))
+    // Bond gain (max 5 task bonds/day)
+    var newBond = bond;
+    var newTaskBond = taskBondToday;
+    if (taskBondToday < 5) {
+      newBond = clampBond(bond + 0.5);
+      newTaskBond = taskBondToday + 1;
+      setBond(newBond);
+    }
 
-  // Give equal XP + stat boost + ABI to ALL party members
-  const validStats = ['HP','SP','ATK','DEF','INT','SPD']
-  const statKey    = validStats.includes(task.category) ? task.category : null
-  const abiRate    = { Easy:0.1, Medium:0.2, Hard:0.3 }[task.difficulty] || 0.1
+    var newBAT = Object.assign({}, bondActionsToday, { tasks: newTaskBond, date: today });
+    setBondActionsToday(newBAT);
 
-  if (party.length > 0) {
-    const partyUpdates = party.map(d => {
-      const result   = applyXpGain(d, xp)
-      const newBonus = Object.assign({}, d.bonusStats || {})
-      if (statKey) newBonus[statKey] = (newBonus[statKey] || 0) + sp
-      const abiProgress = (newBonus.abi_progress || 0) + abiRate
-      const abiGained   = Math.floor(abiProgress)
-      newBonus.abi_progress = parseFloat((abiProgress - abiGained).toFixed(4))
-      const newAbi = (d.abi || 0) + abiGained
-      return { uid: d.uid, result, newBonus, newAbi }
-    })
+    // Update task
+    await supabase.from('tasks').update({
+      done: true, streak: (task.streak||0)+1,
+      last_completed_date: today,
+    }).eq('id', id);
+    setTasks(function(ts){ return ts.map(function(t){
+      return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1}) : t;
+    }); });
 
-    await Promise.all(partyUpdates.map(u =>
-      supabase.from('digimon').update({
-        exp:        u.result.exp,
-        level:      u.result.level,
-        exp_needed: u.result.expNeeded,
-        bonus_stats: u.newBonus,
-        abi:        u.newAbi,
-      }).eq('id', u.uid)
-    ))
+    // XP to active Digimon
+    if (activeDigi) {
+      var result = applyXpGain(activeDigi, xp);
+      await supabase.from('digimon').update({
+        exp: result.exp, level: result.level, exp_needed: result.expNeeded,
+      }).eq('id', activeDigi.uid);
+      setParty(function(p){ return p.map(function(d,i){
+        return i===0 ? Object.assign({},d,result) : Object.assign({},d,applyXpGain(d,Math.floor(xp*0.3)));
+      }); });
+    }
 
-    setParty(p => p.map((d, i) => {
-      const u = partyUpdates[i];
-      return Object.assign({}, d, u.result, { bonusStats: u.newBonus, abi: u.newAbi });
-    }))
+    // Save profile updates
+    await supabase.from('profiles').update({
+      bond: newBond,
+      bond_actions_today: newBAT,
+      crest_history: newHistory,
+    }).eq('id', userId);
+
+    setSpeech("great job! +" + xp + " XP 🔥");
+    addLog("✅", '"' + task.title + '" +' + xp + " XP" + (hasBoost?" ⚡1.5x":"") + (cg?" ["+cg.primaryCrest+"]":""));
+    toast_("Task done!  +" + xp + " EXP" + (hasBoost?" ⚡1.5x":"") + (cg?"  "+CREST_INFO[cg.primaryCrest].icon+" "+cg.primaryCrest:""));
+
+    // Jijimon triggers
+    if (crestHistory.length === 0 && cg) triggerJijimon('crest_intro');
   }
 
-  const statLabel = statKey ? ' +' + sp + ' ' + statKey : ''
-  const boostLabel = hasBoost ? ' ⚡1.5x' : ''
-  setSpeech('great job! +' + xp + ' XP 🔥')
-  addLog('✅', 'Completed "' + task.title + '" +' + xp + ' XP' + statLabel + (hasBoost?' (boost!)':''))
-  toast_('Task done!  +' + xp + ' XP' + boostLabel + statLabel)
-}
-
+  // ── Evolution ─────────────────────────────────────────────────────────────────
   async function evolve(uid, targetId) {
     var info = DIGIMON_MAP[targetId];
     if (!info) return;
-    var newAbi, newDisc;
+    var digi = party.find(function(d){ return d.uid===uid; });
+    if (!digi) return;
+    var { eligible, vow } = checkEvoEligible(digi, bond, crestProfile, targetId);
+    if (!eligible && !vow) return;
+    if (vow) {
+      // Consume Partner Vow item check could go here
+    }
+    var nd = digi.discovered.indexOf(targetId)<0 ? digi.discovered.concat([targetId]) : digi.discovered;
+    await supabase.from('digimon').update({
+      species_id: targetId, name: info.name,
+      level: 1, exp: 0, exp_needed: 100,
+      discovered: nd,
+    }).eq('id', uid);
     setParty(function(p){ return p.map(function(d){
       if (d.uid!==uid) return d;
-      newAbi  = (d.abi||0) + Math.max(1, Math.floor(d.level/10));
-      newDisc = d.discovered.indexOf(targetId)<0 ? d.discovered.concat([targetId]) : d.discovered;
-      return Object.assign({},d,{speciesId:targetId,name:info.name,level:1,exp:0,expNeeded:100,abi:newAbi,discovered:newDisc});
+      return Object.assign({},d,{speciesId:targetId,name:info.name,level:1,exp:0,expNeeded:100,discovered:nd});
     }); });
     setAllDisc(function(p){ return p.indexOf(targetId)<0?p.concat([targetId]):p; });
-    // Persist to Supabase
-    await supabase.from('digimon').update({
-      species_id:  targetId,
-      name:        info.name,
-      level:       1,
-      exp:         0,
-      exp_needed:  100,
-      abi:         newAbi || 1,
-      discovered:  newDisc || [targetId],
-    }).eq('id', uid);
     setEvoAnim(targetId);
     setTimeout(function(){ setEvoAnim(null); }, 3200);
-    addLog("✨", info.name+" digivolved!");
-    toast_(info.name+" digivolved!","#FFD700");
+    addLog("✨", info.name + " digivolved!");
+    toast_(info.name + " digivolved!", "#FFD700");
   }
 
-  async function sendToFarm(uid) {
-    if (party.length<=1){ toast_("Can't send your last Digimon to the farm!","#FF8080"); return; }
+  // ── Feed ──────────────────────────────────────────────────────────────────────
+  async function feedFood(food) {
+    if (bits < food.cost) { toast_("Not enough bits!", "#FF8080"); return; }
+    var addable = Math.min(food.stamina, STAMINA_FOOD_CAP - foodStaminaToday);
+    if (addable <= 0) { toast_("Daily food stamina cap reached!", "#FF8080"); return; }
+    var newStam = Math.min(STAMINA_MAX, stamina + addable);
+    var newBond = clampBond(bond + food.bond);
+    var newBits = bits - food.cost;
+    var newFoodCap = foodStaminaToday + addable;
+    var today = new Date().toISOString().split('T')[0];
+
+    setStamina(newStam); setBond(newBond); setBits(newBits);
+    setFoodStaminaToday(newFoodCap); setShowFeedPanel(false);
+    setSpeech(food.type==="treat" ? "best tamer ever 🎉" : "nom nom nom 🍎");
+
+    await supabase.from('profiles').update({
+      stamina: newStam, last_stamina_update: new Date().toISOString(),
+      bond: newBond, bits: newBits, food_stamina_today: newFoodCap,
+    }).eq('id', userId);
+
+    addLog("🍎", "Fed " + food.name + " +" + addable + " Stamina");
+    toast_("+" + addable + " Stamina 🍎  +" + food.bond + " Bond", T.pink);
+    if (!jijimonSeen['first_feed']) triggerJijimon('first_feed');
+  }
+
+  // ── Play ──────────────────────────────────────────────────────────────────────
+  async function playAction() {
+    if (!playAvailable) return;
+    var newBond = clampBond(bond + 1);
+    var today = new Date().toISOString().split('T')[0];
+    var newBAT = Object.assign({}, bondActionsToday, { play: playUsedToday + 1, date: today });
+    setBond(newBond); setBondActionsToday(newBAT);
+    setSpeech("yay let's play! 🎮");
+    addLog("🎮", "Played with " + (activeDigi ? activeDigi.name : "partner") + " +1 Bond");
+    toast_("+1 Bond 🎮  " + (2-playUsedToday) + " plays left today", T.teal);
+    await supabase.from('profiles').update({
+      bond: newBond, bond_actions_today: newBAT,
+    }).eq('id', userId);
+  }
+
+  // ── Pomodoro ──────────────────────────────────────────────────────────────────
+  function openPomodoroSetup() {
+    setPomodoroState({ phase:'setup', template:'Deep Work', duration:25 });
+  }
+  function beginPomodoro() {
+    setPomodoroState(function(ps) {
+      if (!ps) return ps;
+      var secs = (ps.duration || 25) * 60;
+      return { phase:'running', timeLeft:secs, totalSeconds:secs, template:ps.template||'Deep Work' };
+    });
+  }
+  async function claimPomodoroReward() {
+    if (!pomodoroState || pomodoroState.phase !== 'done') return;
+    var today = new Date().toISOString().split('T')[0];
+    var template = pomodoroState.template;
+    // Crest gain (equivalent to a Medium task)
+    var cg = calcCrestGain(template, 'Medium');
+    var newHistory = crestHistory;
+    if (cg) {
+      newHistory = crestHistory.concat([{ date:today, primaryCrest:cg.primaryCrest, secondaryCrest:cg.secondaryCrest, primary:cg.primary, secondary:cg.secondary }]);
+      var cutoff = Date.now() - 60*86400000;
+      newHistory = newHistory.filter(function(e){ return new Date(e.date).getTime()>=cutoff; });
+      setCrestHistory(newHistory);
+    }
+    var newBond = clampBond(bond + 1);
+    var xpGain  = Math.floor((pomodoroState.totalSeconds / 60) * 3); // 3 XP per minute
+    var newBits = bits + 75;
+    setBond(newBond); setBits(newBits);
+    if (activeDigi) {
+      var result = applyXpGain(activeDigi, xpGain);
+      await supabase.from('digimon').update({ exp:result.exp, level:result.level, exp_needed:result.expNeeded }).eq('id', activeDigi.uid);
+      setParty(function(p){ return p.map(function(d,i){ return i===0?Object.assign({},d,result):d; }); });
+    }
+    await supabase.from('profiles').update({ bond:newBond, bits:newBits, crest_history:newHistory }).eq('id', userId);
+    setSpeech("training complete! 💪");
+    addLog("⏱", "Focus session: " + template + "  +" + xpGain + " XP  +1💗" + (cg?"  "+CREST_INFO[cg.primaryCrest].icon:""));
+    toast_("Session complete! +" + xpGain + " XP  +1 Bond  +75🪙", T.mint);
+    setPomodoroState(null);
+  }
+
+  // ── Farm controls ─────────────────────────────────────────────────────────────
+  function sendToFarm(uid) {
+    if (party.length <= 1) return;
     var d = party.find(function(x){ return x.uid===uid; });
     if (!d) return;
-    await supabase.from('digimon').update({ in_farm:true }).eq('id', uid);
+    supabase.from('digimon').update({ in_farm:true }).eq('id', uid);
     setParty(function(p){ return p.filter(function(x){ return x.uid!==uid; }); });
     setFarm(function(f){ return f.concat([Object.assign({},d,{inFarm:true})]); });
-    toast_(d.name+" sent to DigiFarm.");
+    toast_(d.name + " sent to DigiFarm.");
   }
-
-  async function recallFromFarm(uid) {
-    if (party.length>=MAX_PARTY_SIZE){ toast_("Party full! Max "+MAX_PARTY_SIZE+".","#FF8080"); return; }
+  function recallFromFarm(uid) {
+    if (party.length >= MAX_PARTY_SIZE) { toast_("Party full!", "#FF8080"); return; }
     var d = farm.find(function(x){ return x.uid===uid; });
     if (!d) return;
-    await supabase.from('digimon').update({ in_farm:false, sort_order:party.length }).eq('id', uid);
+    supabase.from('digimon').update({ in_farm:false }).eq('id', uid);
     setFarm(function(f){ return f.filter(function(x){ return x.uid!==uid; }); });
     setParty(function(p){ return p.concat([Object.assign({},d,{inFarm:false})]); });
-    toast_(d.name+" recalled!");
+    toast_(d.name + " recalled!");
   }
 
-  async function setLeader(uid) {
-    var idx = party.findIndex(function(d){ return d.uid===uid; });
-    if (idx<=0) return;
-    var leader = party[0];
-    await Promise.all([
-      supabase.from('digimon').update({ sort_order:idx }).eq('id', leader.uid),
-      supabase.from('digimon').update({ sort_order:0 }).eq('id', uid),
-    ]);
-    setParty(function(p){
-      var copy = p.slice();
-      var tmp = copy[0]; copy[0] = copy[idx]; copy[idx] = tmp;
-      return copy;
-    });
-    toast_(party[idx].name+" is now leader!","#FFD700");
-  }
-
-  async function hatchDigitama(eggId) {
-    var egg = DIGITAMA_EGGS.find(function(e){ return e.id===eggId; });
-    if (!egg || digitamaCredits<=0) return;
-    var intoFarm = party.length>=MAX_PARTY_SIZE;
-    var baby = newDigimon(egg.hatch, {});
-    var { data: newDigi } = await supabase.from('digimon').insert({
-      user_id: userId, species_id: egg.hatch, name: baby.name,
-      level:1, exp:0, exp_needed:100, abi:0,
-      personality: baby.personality, bonus_stats: baby.bonusStats,
-      discovered: [egg.hatch], in_farm: intoFarm,
-      sort_order: intoFarm ? farm.length : party.length,
-    }).select().single();
-    if (newDigi) {
-      var entry = Object.assign({}, baby, { uid:newDigi.id, inFarm:intoFarm });
-      if (intoFarm) setFarm(function(f){ return f.concat([entry]); });
-      else          setParty(function(p){ return p.concat([entry]); });
-      setAllDisc(function(d){ return d.indexOf(egg.hatch)<0?d.concat([egg.hatch]):d; });
-      var newCreds = digitamaCredits-1;
-      setDigitamaCredits(newCreds);
-      await supabase.from('profiles').update({ digitama_credits:newCreds }).eq('id', userId);
-      setShowDigitamaModal(false);
-      toast_(baby.name+" hatched! 🥚✨","#FFD700");
-      addLog("🥚", baby.name+" hatched from a Digitama!");
-    }
-  }
-
-  async function resetToStarters() {
-    // Wipe all Digimon, then award 1 Digitama so user picks their new starter
-    var { data:existing } = await supabase.from('digimon').select('id').eq('user_id', userId);
-    if (existing && existing.length>0) {
-      await supabase.from('digimon').delete().in('id', existing.map(function(x){ return x.id; }));
-    }
-    setParty([]);
-    setFarm([]);
-    setAllDisc([]);
-    var newCreds = digitamaCredits + 1;
-    setDigitamaCredits(newCreds);
-    await supabase.from('profiles').update({ digitama_credits:newCreds }).eq('id', userId);
-    setConfirmReset(false);
-    setShowDigitamaModal(true);
-    toast_("Choose your new partner! 🥚","#FFD700");
-  }
-
+  // ── Tasks ─────────────────────────────────────────────────────────────────────
   async function addTask(t) {
-  const { data } = await supabase.from('tasks').insert({
-    user_id:      userId,
-    title:        t.title,
-    category:     t.category,
-    priority:     t.priority,
-    difficulty:   t.difficulty,
-    type:         t.type,
-    notes:        t.notes || '',
-    days_of_week: t.daysOfWeek || [],
-    due_date:     t.dueDate || null,
-    done:         false,
-    streak:       0,
-  }).select().single()
-
-  if (data) {
-    setTasks(ts => ts.concat([{
-      id:         data.id,
-      title:      data.title,
-      category:   data.category,
-      priority:   data.priority,
-      difficulty: data.difficulty,
-      type:       data.type,
-      notes:      data.notes,
-      done:       false,
-      streak:     0,
-      daysOfWeek: data.days_of_week || [],
-      dueDate:    data.due_date || null,
-    }]))
+    var { data } = await supabase.from('tasks').insert({
+      user_id: userId, title: t.title,
+      category: t.template, // store template in category column
+      priority: t.priority, difficulty: t.difficulty, type: t.type,
+      notes: t.notes, days_of_week: t.daysOfWeek||[], due_date: t.dueDate||null,
+      done: false, streak: 0,
+    }).select().single();
+    if (data) setTasks(function(ts){ return ts.concat([{
+      id:data.id, title:data.title, template:data.category||'Neutral',
+      priority:data.priority, difficulty:data.difficulty, type:data.type,
+      notes:data.notes||'', done:false, streak:0,
+      daysOfWeek:data.days_of_week||[], dueDate:data.due_date||null,
+    }]); });
+    toast_('Task added!');
   }
-  toast_('Task added!')
-}
-
   async function editTask(id, updates) {
-  await supabase.from('tasks').update({
-    title:        updates.title,
-    category:     updates.category,
-    priority:     updates.priority,
-    difficulty:   updates.difficulty,
-    type:         updates.type,
-    notes:        updates.notes,
-    days_of_week: updates.daysOfWeek || [],
-    due_date:     updates.dueDate || null,
-  }).eq('id', id)
-  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, updates) : t))
-}
-
-  async function rescheduleTask(id, newDate) {
-  await supabase.from('tasks').update({ due_date: newDate || null }).eq('id', id)
-  setTasks(ts => ts.map(t => t.id === id ? Object.assign({}, t, { dueDate: newDate || null }) : t))
-}
-
-  async function assignWeeklyDigimon(day, uid) {
-  var updated = Object.assign({}, weeklyDigimon, { [day]: uid || null })
-  setWeeklyDigimon(updated)
-  await supabase.from('profiles').update({ weekly_digimon: updated }).eq('id', userId)
-}
-  
+    await supabase.from('tasks').update({
+      title:updates.title, category:updates.template,
+      priority:updates.priority, difficulty:updates.difficulty, type:updates.type,
+      notes:updates.notes, days_of_week:updates.daysOfWeek||[], due_date:updates.dueDate||null,
+    }).eq('id', id);
+    setTasks(function(ts){ return ts.map(function(t){ return t.id===id?Object.assign({},t,updates):t; }); });
+  }
   async function deleteTask(id) {
-  await supabase.from('tasks').delete().eq('id', id)
-  setTasks(ts => ts.filter(t => t.id !== id))
-  toast_('Task deleted.', '#FF8080')
-}
-
-  function buyItem(item) {
-    if (bits<item.cost){ toast_("Not enough bits!","#FF8080"); return; }
-    setBits(function(b){ return b-item.cost; });
-    toast_("Purchased: "+item.name,"#FFD700");
+    await supabase.from('tasks').delete().eq('id', id);
+    setTasks(function(ts){ return ts.filter(function(t){ return t.id!==id; }); });
+    toast_('Task deleted.', '#FF8080');
+  }
+  async function rescheduleTask(id, newDate) {
+    await supabase.from('tasks').update({ due_date:newDate||null }).eq('id', id);
+    setTasks(function(ts){ return ts.map(function(t){ return t.id===id?Object.assign({},t,{dueDate:newDate||null}):t; }); });
+  }
+  async function assignWeeklyDigimon(day, uid) {
+    var updated = Object.assign({}, weeklyDigimon, { [day]: uid||null });
+    setWeeklyDigimon(updated);
+    await supabase.from('profiles').update({ weekly_digimon:updated }).eq('id', userId);
   }
 
+  // ── Battle ────────────────────────────────────────────────────────────────────
   function startBattle(diff) {
+    var cost = STAMINA_COSTS["bot_"+diff.toLowerCase()] || 10;
+    if (stamina < cost) { triggerJijimon('stamina_low'); toast_("Not enough Stamina! Need "+cost+" ⚡","#FF8080"); return; }
     var candidates = Object.values(DIGIMON_MAP).filter(function(d){
-      return diff==="Easy"?(d.stage==="Baby"||d.stage==="Rookie"):diff==="Medium"?(d.stage==="Rookie"||d.stage==="Champion"):(d.stage==="Champion"||d.stage==="Ultimate");
+      return diff==="Easy"?(d.stage==="Rookie"||d.stage==="In-Training"):
+             diff==="Medium"?(d.stage==="Champion"):
+             (d.stage==="Ultimate"||d.stage==="Mega");
     });
     var enemies = [0,1,2].map(function(){
       var id  = candidates[Math.floor(Math.random()*candidates.length)].id;
       var lvl = diff==="Easy"?Math.ceil(Math.random()*4):diff==="Medium"?4+Math.ceil(Math.random()*5):9+Math.ceil(Math.random()*6);
-      var tmp = newDigimon(id,{level:lvl}); var st=calcStats(tmp);
-      return Object.assign({},tmp,{currentHp:st.HP,maxHp:st.HP,isEnemy:true});
+      var tmp = newDigimon(id,{level:lvl});
+      var bs  = calcBattleStats(tmp);
+      return Object.assign({},tmp,{currentHp:bs.HP, maxHp:bs.HP, isEnemy:true});
     });
-    var playerTeam = party.slice(0,3).map(function(d){ var st=calcStats(d); return Object.assign({},d,{currentHp:st.HP,maxHp:st.HP}); });
-    setBattleState({ playerTeam:playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
+    var playerTeam = party.slice(0,3).map(function(d){
+      var bs = calcBattleStats(d);
+      return Object.assign({},d,{currentHp:bs.HP, maxHp:bs.HP});
+    });
+    var newStam = Math.max(0, stamina - cost);
+    setStamina(newStam);
+    supabase.from('profiles').update({ stamina:newStam, last_stamina_update:new Date().toISOString() }).eq('id', userId);
+    setBattleState({ playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
   }
 
   function battleAttack(idx) {
     if (!battleState||battleState.phase!=="fight") return;
     var bs = JSON.parse(JSON.stringify(battleState));
-    var att=bs.playerTeam[bs.selected], def=bs.enemyTeam[idx];
+    var att = bs.playerTeam[bs.selected];
+    var def = bs.enemyTeam[idx];
     if (!att||!def||def.currentHp<=0) return;
-    var dmg=Math.max(1,Math.floor(calcStats(att).ATK*1.2-calcStats(def).DEF*0.5+Math.random()*20));
-    def.currentHp=Math.max(0,def.currentHp-dmg);
-    bs.log=[att.name+" → "+def.name+"  −"+dmg].concat(bs.log).slice(0,6);
-    var aliveE=bs.enemyTeam.filter(function(e){return e.currentHp>0;});
-    if (aliveE.length>0) {
-      var en=aliveE[Math.floor(Math.random()*aliveE.length)];
-      var tgt=bs.playerTeam.filter(function(p){return p.currentHp>0;})[0];
-      if (tgt){var edm=Math.max(1,Math.floor(calcStats(en).ATK-calcStats(tgt).DEF*0.4+Math.random()*15));tgt.currentHp=Math.max(0,tgt.currentHp-edm);bs.log=[en.name+" → "+tgt.name+"  −"+edm].concat(bs.log).slice(0,6);}
+    var dmg = calcBattleDamage(att, def);
+    def.currentHp = Math.max(0, def.currentHp - dmg);
+    bs.log = [att.name + " → " + def.name + "  −" + dmg].concat(bs.log).slice(0,6);
+    var aliveE = bs.enemyTeam.filter(function(e){ return e.currentHp>0; });
+    if (aliveE.length > 0) {
+      var en  = aliveE[Math.floor(Math.random()*aliveE.length)];
+      var tgt = bs.playerTeam.filter(function(p){ return p.currentHp>0; })[0];
+      if (tgt) {
+        var edm = calcBattleDamage(en, tgt);
+        tgt.currentHp = Math.max(0, tgt.currentHp - edm);
+        bs.log = [en.name + " → " + tgt.name + "  −" + edm].concat(bs.log).slice(0,6);
+      }
     }
-    var won=bs.enemyTeam.every(function(e){return e.currentHp<=0;});
-    var lost=bs.playerTeam.every(function(p){return p.currentHp<=0;});
-    if (won||lost){ var r=BATTLE_REWARDS[bs.difficulty]||{win:60,loss:25}; var earn=won?r.win:r.loss; setBits(function(b){return b+earn;}); bs.log=[(won?"⚔ Victory! ":"💀 Defeated... ")+"+"+earn+"🪙"].concat(bs.log); bs.phase=won?"won":"lost"; }
+    var won  = bs.enemyTeam.every(function(e){ return e.currentHp<=0; });
+    var lost = bs.playerTeam.every(function(p){ return p.currentHp<=0; });
+    if (won||lost) {
+      var r    = BATTLE_REWARDS[bs.difficulty]||{win:60,loss:25};
+      var earn = won ? r.win : r.loss;
+      setBits(function(b){ return b+earn; });
+      supabase.from('profiles').update({ bits: bits+earn }).eq('id', userId);
+      bs.log = [(won?"⚔ Victory! ":"💀 Defeated... ")+"+" + earn + "🪙"].concat(bs.log);
+      bs.phase = won ? "won" : "lost";
+    }
     setBattleState(bs);
   }
 
-  // ── CSS ──────────────────────────────────────────────────────────────────
+  // ── Buy shop item ────────────────────────────────────────────────────────────
+  async function buyShopItem(item) {
+    if (bits < item.cost) { toast_("Not enough bits!","#FF8080"); return; }
+    var newBits = bits - item.cost;
+    setBits(newBits);
+    await supabase.from('profiles').update({ bits:newBits }).eq('id', userId);
+    toast_("Purchased: " + item.name, "#FFD700");
+    addLog("🛒", "Bought " + item.name);
+  }
+
+  // ── Evolution banner helper ──────────────────────────────────────────────────
+  var evoTargets = useMemo(function() {
+    if (!activeInfo || !activeDigi) return [];
+    return (activeInfo.evolvesTo||[]).filter(function(id){
+      var t = DIGIMON_MAP[id];
+      if (!t||t.fusionOf) return false;
+      var { eligible, vow } = checkEvoEligible(activeDigi, bond, crestProfile, id);
+      return eligible || vow;
+    });
+  }, [activeDigi, activeInfo, bond, crestProfile]);
+
+  // ── CSS ───────────────────────────────────────────────────────────────────────
   var css = `
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;600;700;800&display=swap');
     *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -567,12 +575,10 @@ useEffect(() => {
     ::-webkit-scrollbar-thumb { background:${T.border}; border-radius:2px; }
     select option { background:${T.bgCard}; color:${T.text}; }
     input, select, textarea, button { font-family:'Nunito',sans-serif; }
-
     .px8  { font-family:'Press Start 2P',monospace; font-size:8px; }
     .px9  { font-family:'Press Start 2P',monospace; font-size:9px; }
     .px10 { font-family:'Press Start 2P',monospace; font-size:10px; }
     .px12 { font-family:'Press Start 2P',monospace; font-size:12px; }
-
     @keyframes bob     { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
     @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0} }
     @keyframes fadeUp  { from{opacity:0;transform:translateX(-50%) translateY(-6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
@@ -580,195 +586,46 @@ useEffect(() => {
     @keyframes evoIn   { 0%,100%{opacity:0;transform:scale(0.75)} 35%,65%{opacity:1;transform:scale(1)} }
     @keyframes shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
     @keyframes floatUp { from{transform:translateY(100vh) rotate(0deg);opacity:0.12} to{transform:translateY(-10vh) rotate(180deg);opacity:0} }
-
+    @keyframes jijiIn  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
     .page-in { animation: slideUp 0.22s ease; }
-
-    /* Pixel card */
-    .pcard {
-      background: ${T.bgCard};
-      border: 2px solid ${T.border};
-      box-shadow: 3px 3px 0 ${T.border};
-    }
-    .pcard-accent {
-      border: 2px solid var(--accent);
-      box-shadow: 3px 3px 0 var(--accent);
-      background: ${T.bgCard};
-    }
-
-    /* Nav pill */
-    .nav-pill {
-      font-family:'Press Start 2P',monospace;
-      font-size:7px;
-      padding:7px 11px;
-      border:2px solid ${T.border};
-      background:transparent;
-      cursor:pointer;
-      color:${T.textMid};
-      transition:all 0.1s;
-    }
-    .nav-pill:hover, .nav-pill.active {
-      background:${T.bgCard};
-      color:${T.text};
-      transform:translate(-1px,-1px);
-      box-shadow:2px 2px 0 ${T.border};
-    }
-    .nav-pill.active {
-      border-color:var(--accent);
-      color:var(--accent);
-      box-shadow:2px 2px 0 var(--accent);
-    }
-
-    /* Task card */
-    .task-card {
-      background:${T.bgCard};
-      border:2px solid ${T.border};
-      box-shadow:3px 3px 0 ${T.border};
-      padding:13px 14px;
-      display:flex;
-      align-items:center;
-      gap:12px;
-      cursor:pointer;
-      transition:all 0.12s;
-      position:relative;
-      overflow:hidden;
-    }
+    .pcard { background:${T.bgCard}; border:2px solid ${T.border}; box-shadow:3px 3px 0 ${T.border}; }
+    .nav-pill { font-family:'Press Start 2P',monospace; font-size:7px; padding:7px 11px; border:2px solid ${T.border}; background:transparent; cursor:pointer; color:${T.textMid}; transition:all 0.1s; }
+    .nav-pill:hover,.nav-pill.active { background:${T.bgCard}; color:${T.text}; transform:translate(-1px,-1px); box-shadow:2px 2px 0 ${T.border}; }
+    .nav-pill.active { border-color:var(--accent); color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
+    .task-card { background:${T.bgCard}; border:2px solid ${T.border}; box-shadow:3px 3px 0 ${T.border}; padding:13px 14px; display:flex; align-items:center; gap:12px; cursor:pointer; transition:all 0.12s; position:relative; overflow:hidden; }
     .task-card:hover { transform:translate(-2px,-2px); box-shadow:5px 5px 0 ${T.border}; }
     .task-card.done  { opacity:0.45; }
-
-    /* Priority left strip */
     .task-card::before { content:''; position:absolute; left:0;top:0;bottom:0; width:4px; }
     .tc-high::before   { background:${T.coral}; }
     .tc-medium::before { background:${T.teal}; }
     .tc-low::before    { background:${T.lavender}; }
     .tc-urgent::before { background:${T.red}; }
-
-    /* Task checkbox */
-    .task-check {
-      width:22px; height:22px;
-      border:2px solid ${T.border};
-      background:${T.bgPanel};
-      display:grid; place-items:center;
-      flex-shrink:0; cursor:pointer;
-      transition:background 0.1s;
-    }
+    .task-check { width:22px; height:22px; border:2px solid ${T.border}; background:${T.bgPanel}; display:grid; place-items:center; flex-shrink:0; cursor:pointer; transition:background 0.1s; }
     .task-check.checked { background:${T.teal}; }
-
-    /* Pet action buttons */
-    .pet-btn {
-      font-family:'Press Start 2P',monospace;
-      font-size:7px;
-      padding:9px 6px;
-      border:2px solid ${T.border};
-      cursor:pointer;
-      text-align:center;
-      display:flex; align-items:center; justify-content:center; gap:4px;
-      transition:all 0.1s;
-    }
+    .pet-btn { font-family:'Press Start 2P',monospace; font-size:7px; padding:9px 6px; border:2px solid ${T.border}; cursor:pointer; text-align:center; display:flex; align-items:center; justify-content:center; gap:4px; transition:all 0.1s; }
     .pet-btn:hover { transform:translate(-1px,-1px); box-shadow:3px 3px 0 ${T.border}; }
     .pet-btn:active { transform:translate(2px,2px); box-shadow:none !important; }
-
-    /* Task tab */
-    .task-tab {
-      font-family:'Press Start 2P',monospace;
-      font-size:7px;
-      padding:8px 12px;
-      cursor:pointer;
-      border:none;
-      border-right:2px solid ${T.border};
-      background:${T.bgCard};
-      color:${T.textMid};
-      transition:all 0.1s;
-    }
+    .pet-btn:disabled { opacity:0.4; cursor:not-allowed; transform:none; }
+    .task-tab { font-family:'Press Start 2P',monospace; font-size:7px; padding:8px 12px; cursor:pointer; border:none; border-right:2px solid ${T.border}; background:${T.bgCard}; color:${T.textMid}; transition:all 0.1s; }
     .task-tab:last-child { border-right:none; }
     .task-tab.active { background:${T.bg}; color:var(--accent); }
-
-    /* Inventory slot */
-    .inv-slot {
-      aspect-ratio:1;
-      border:2px solid ${T.border};
-      background:${T.bgPanel};
-      display:grid; place-items:center;
-      font-size:18px; cursor:pointer;
-      transition:all 0.1s; position:relative;
-    }
+    .inv-slot { aspect-ratio:1; border:2px solid ${T.border}; background:${T.bgPanel}; display:grid; place-items:center; font-size:18px; cursor:pointer; transition:all 0.1s; position:relative; }
     .inv-slot:hover { transform:translate(-1px,-1px); box-shadow:2px 2px 0 ${T.border}; background:${T.bgCard}; }
-    .inv-slot.empty { opacity:0.25; cursor:default; font-size:11px; color:${T.textDim}; }
-    .inv-slot.empty:hover { transform:none; box-shadow:none; }
-
-    /* Digi card in team */
-    .digi-card {
-      background:${T.bgCard};
-      border:2px solid ${T.border};
-      padding:12px;
-      cursor:grab;
-      transition:all 0.12s;
-    }
+    .digi-card { background:${T.bgCard}; border:2px solid ${T.border}; padding:12px; cursor:grab; transition:all 0.12s; }
     .digi-card:hover { border-color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
-
-    /* Battle */
-    .battle-tile {
-      background:${T.bgCard};
-      border:2px solid ${T.border};
-      padding:12px;
-      text-align:center;
-      cursor:pointer;
-      transition:all 0.12s;
-    }
+    .battle-tile { background:${T.bgCard}; border:2px solid ${T.border}; padding:12px; text-align:center; cursor:pointer; transition:all 0.12s; }
     .battle-tile.enemy:hover { border-color:${T.coral}; box-shadow:2px 2px 0 ${T.coral}; }
     .battle-tile.player.active { border-color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
-
-    /* Store row */
-    .store-row {
-      background:${T.bgCard};
-      border:2px solid ${T.border};
-      padding:12px 14px;
-      display:flex; align-items:center; gap:12px;
-      transition:all 0.12s;
-    }
+    .store-row { background:${T.bgCard}; border:2px solid ${T.border}; padding:12px 14px; display:flex; align-items:center; gap:12px; transition:all 0.12s; }
     .store-row:hover { border-color:${T.gold}; box-shadow:2px 2px 0 ${T.gold}; }
-
-    /* Floating particles */
-    .particle {
-      position:fixed; pointer-events:none;
-      width:6px; height:6px;
-      border:1.5px solid ${T.border};
-      opacity:0.08;
-      animation:floatUp linear infinite;
-    }
-
-    /* Section label divider (like Nomi) */
-    .sec-label {
-      font-family:'Press Start 2P',monospace;
-      font-size:7px;
-      color:${T.textDim};
-      display:flex; align-items:center; gap:10px;
-      padding:4px 0;
-    }
+    .particle { position:fixed; pointer-events:none; width:6px; height:6px; border:1.5px solid ${T.border}; opacity:0.08; animation:floatUp linear infinite; }
+    .sec-label { font-family:'Press Start 2P',monospace; font-size:7px; color:${T.textDim}; display:flex; align-items:center; gap:10px; padding:4px 0; }
     .sec-label::after { content:''; flex:1; height:1px; background:${T.border}; opacity:0.6; }
-
-    /* Section title with divider line */
-    .sec-title {
-      font-family:'Press Start 2P',monospace;
-      font-size:8px;
-      color:${T.text};
-      margin-bottom:12px;
-      display:flex; align-items:center; gap:10px;
-    }
+    .sec-title { font-family:'Press Start 2P',monospace; font-size:8px; color:${T.text}; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
     .sec-title::after { content:''; flex:1; height:2px; background:${T.border}; }
-
-    /* Evolve banner shimmer */
-    .evo-banner {
-      background: linear-gradient(90deg, #1a1f3a, #1f2a3a, #1a1f3a);
-      background-size:200% auto;
-      animation:shimmer 3s linear infinite;
-      border:2px solid ${T.lavender};
-      box-shadow:3px 3px 0 ${T.lavender};
-      padding:10px 14px;
-      display:flex; align-items:center; gap:10px;
-      cursor:pointer;
-    }
-
-    /* Responsive */
+    .evo-banner { background:linear-gradient(90deg,#1a1f3a,#1f2a3a,#1a1f3a); background-size:200% auto; animation:shimmer 3s linear infinite; border:2px solid ${T.lavender}; box-shadow:3px 3px 0 ${T.lavender}; padding:10px 14px; display:flex; align-items:center; gap:10px; cursor:pointer; }
+    .crest-bar-fill { height:100%; transition:width 0.8s ease; position:relative; }
+    .crest-bar-fill::after { content:''; position:absolute; top:2px; left:3px; right:3px; height:3px; background:rgba(255,255,255,0.25); }
     @media (max-width:1080px) { .right-col { display:none !important; } }
     @media (max-width:700px)  { .left-col  { display:none !important; } .main-content { padding:12px; } }
   `;
@@ -777,65 +634,309 @@ useEffect(() => {
     <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Nunito',sans-serif", "--accent":accent }}>
       <style>{css}</style>
 
-      {/* Floating pixels */}
+      {/* Particles */}
       <div style={{ position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden" }} aria-hidden="true">
         {[{l:"5%",d:"12s",c:T.teal},{l:"18%",d:"9s",c:T.lavender,dd:"2s"},{l:"35%",d:"15s",c:accent,dd:"4s"},{l:"58%",d:"11s",c:T.coral,dd:"1s"},{l:"74%",d:"14s",c:T.mint,dd:"6s"},{l:"90%",d:"10s",c:T.gold,dd:"3s"}].map(function(p,i){
           return <div key={i} className="particle" style={{ left:p.l, animationDuration:p.d, animationDelay:p.dd||"0s", background:p.c }}/>;
         })}
       </div>
 
-      {/* ── CONFIRM RESET ─────────────────────────────────────────────────── */}
-      {confirmReset&&(
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:495,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
-          <div style={{ background:T.bgCard,border:"2px solid "+T.coral,boxShadow:"4px 4px 0 "+T.coral,padding:28,maxWidth:360,textAlign:"center",display:"flex",flexDirection:"column",gap:16 }}>
-            <div style={{ fontSize:36 }}>⚠️</div>
-            <div className="px10" style={{ color:T.coral }}>RESET TEAM?</div>
-            <div style={{ fontSize:12,fontWeight:700,color:T.textMid,lineHeight:1.6 }}>
-              All current Digimon will be deleted. You will receive a Digitama to choose a new starting partner. This cannot be undone.
+      {/* ── JIJIMON MODAL ─────────────────────────────────────────────────── */}
+      {jijimonModal && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",zIndex:600,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 40px" }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.gold,boxShadow:"4px 4px 0 "+T.gold,maxWidth:520,width:"calc(100% - 32px)",padding:0,animation:"jijiIn 0.3s ease",overflow:"hidden" }}>
+            {/* Header */}
+            <div style={{ background:"linear-gradient(90deg,#1a1800,#1f1f0a)",borderBottom:"2px solid "+T.gold,padding:"10px 16px",display:"flex",alignItems:"center",gap:10 }}>
+              {/* JIJIMON SPRITE — replace this div with <DigiSprite digimonId="jijimon" size={36}/> once sprite is added */}
+              <div style={{ width:36,height:36,border:"2px solid "+T.gold,background:"#1a1500",display:"grid",placeItems:"center",fontSize:18,flexShrink:0 }}>💭</div>
+              <div className="px9" style={{ color:T.gold }}>JIJIMON</div>
+              <div style={{ flex:1 }}/>
+              <button onClick={function(){ dismissJijimon(false); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px" }}>×</button>
             </div>
-            <div style={{ display:"flex",gap:10,justifyContent:"center" }}>
-              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"7px" }}
-                onClick={resetToStarters}>CONFIRM RESET</button>
-              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
-                onClick={function(){ setConfirmReset(false); }}>CANCEL</button>
+            {/* Body */}
+            <div style={{ padding:"18px 20px" }}>
+              <div style={{ fontSize:14,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:18 }}>
+                "{jijimonModal.msg}"
+              </div>
+              <div style={{ display:"flex",gap:10,alignItems:"center" }}>
+                <button className="px8" onClick={function(){ dismissJijimon(false); }} style={{ padding:"8px 18px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px",boxShadow:"2px 2px 0 "+T.gold }}>GOT IT</button>
+                <button className="px8" onClick={function(){ dismissJijimon(true); }} style={{ padding:"8px 14px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}>HIDE TIPS</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── DIGITAMA MODAL ────────────────────────────────────────────────── */}
-      {showDigitamaModal&&digitamaCredits>0&&(
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:490,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,overflowY:"auto" }}>
-          <div style={{ fontSize:48,marginBottom:8 }}>🥚</div>
-          <div className="px10" style={{ color:T.gold,letterSpacing:3,marginBottom:4 }}>DIGITAMA REWARD</div>
-          <div className="px8" style={{ color:T.textMid,marginBottom:4 }}>30-DAY LOGIN MILESTONE!</div>
-          <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:24,textAlign:"center" }}>
-            Choose an egg to add a new partner to your team:
+      {/* ── FEED PANEL ────────────────────────────────────────────────────── */}
+      {showFeedPanel && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.60)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"flex-start",paddingLeft:320 }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.pink,boxShadow:"4px 4px 0 "+T.pink,padding:16,width:260,animation:"jijiIn 0.2s ease" }}>
+            <div className="px9" style={{ color:T.pink,marginBottom:12 }}>🍎 FEED PARTNER</div>
+            <div style={{ fontSize:11,color:T.textMid,marginBottom:12 }}>
+              Stamina: {stamina}/{STAMINA_MAX} · Food cap: {Math.max(0,STAMINA_FOOD_CAP-foodStaminaToday)} left today
+            </div>
+            <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:12 }}>
+              {FOOD_ITEMS.map(function(food) {
+                var canAfford = bits >= food.cost;
+                var capLeft = STAMINA_FOOD_CAP - foodStaminaToday;
+                return (
+                  <div key={food.id} className="store-row" style={{ padding:"10px 12px",borderColor:canAfford&&capLeft>0?T.pink:T.border,cursor:canAfford&&capLeft>0?"pointer":"not-allowed",opacity:canAfford&&capLeft>0?1:0.4 }}
+                    onClick={function(){ if(canAfford&&capLeft>0) feedFood(food); }}>
+                    <span style={{ fontSize:20 }}>{food.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13,fontWeight:800 }}>{food.name}</div>
+                      <div className="px8" style={{ color:T.textMid,fontSize:"6px",marginTop:2 }}>+{food.stamina}⚡  +{food.bond}💗</div>
+                    </div>
+                    <div className="px8" style={{ color:canAfford?T.gold:T.textDim,fontSize:"6px" }}>{food.cost}🪙</div>
+                  </div>
+                );
+              })}
+            </div>
+            <button className="px8" onClick={function(){ setShowFeedPanel(false); }} style={{ padding:"7px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"6px" }}>CLOSE</button>
           </div>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20,maxWidth:520 }}>
-            {DIGITAMA_EGGS.map(function(egg){
-              return (
-                <button key={egg.id} onClick={function(){ hatchDigitama(egg.id); }}
-                  style={{ background:"transparent",border:"2px solid "+egg.color,boxShadow:"3px 3px 0 "+egg.color,padding:14,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontFamily:"'Press Start 2P',monospace" }}>
-                  <svg width={48} height={58} viewBox="0 0 48 58">
-                    <ellipse cx="24" cy="32" rx="18" ry="23" fill={egg.color} opacity="0.9"/>
-                    <ellipse cx="17" cy="22" rx="5" ry="8"  fill="rgba(255,255,255,0.3)"/>
-                    <ellipse cx="24" cy="32" rx="18" ry="23" fill="none" stroke={egg.shimmer} strokeWidth="1.5" opacity="0.7"/>
-                  </svg>
-                  <div style={{ fontSize:"6px",color:egg.color,fontWeight:900 }}>{egg.label}</div>
-                  <div style={{ fontSize:"5px",color:T.textMid,textAlign:"center" }}>{egg.desc}</div>
+        </div>
+      )}
+
+      {/* ── POMODORO MODAL ────────────────────────────────────────────────── */}
+      {pomodoroState && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:610,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.mint,boxShadow:"4px 4px 0 "+T.mint,width:"100%",maxWidth:380,animation:"jijiIn 0.3s ease",overflow:"hidden" }}>
+            {/* Header */}
+            <div style={{ background:"linear-gradient(90deg,#0a1a10,#0f1f12)",borderBottom:"2px solid "+T.mint,padding:"10px 16px",display:"flex",alignItems:"center",gap:10 }}>
+              <span style={{ fontSize:16 }}>⏱</span>
+              <div className="px9" style={{ color:T.mint }}>FOCUS TRAINING</div>
+              <div style={{ flex:1 }}/>
+              {pomodoroState.phase !== 'running' && (
+                <button onClick={function(){ setPomodoroState(null); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"0 4px" }}>×</button>
+              )}
+            </div>
+
+            {/* ── Setup ── */}
+            {pomodoroState.phase === 'setup' && (
+              <div style={{ padding:20,display:"flex",flexDirection:"column",gap:14 }}>
+                <div>
+                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>TRAINING TYPE</div>
+                  <div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
+                    {["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge"].map(function(t){
+                      var cg = calcCrestGain(t,'Medium');
+                      var ci = cg ? CREST_INFO[cg.primaryCrest] : null;
+                      var sel = pomodoroState.template === t;
+                      return (
+                        <button key={t} className="px8" onClick={function(){ setPomodoroState(function(ps){ return Object.assign({},ps,{template:t}); }); }}
+                          style={{ padding:"5px 9px",border:"2px solid "+(sel?(ci?ci.color:T.mint):T.border),background:sel?(ci?ci.color+"22":T.mint+"22"):"transparent",color:sel?(ci?ci.color:T.mint):T.textMid,cursor:"pointer",fontSize:"6px" }}>
+                          {ci&&ci.icon} {t}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>DURATION</div>
+                  <div style={{ display:"flex",gap:8 }}>
+                    {[15,25,50].map(function(d){
+                      var sel = pomodoroState.duration === d;
+                      return (
+                        <button key={d} className="px8" onClick={function(){ setPomodoroState(function(ps){ return Object.assign({},ps,{duration:d}); }); }}
+                          style={{ flex:1,padding:"9px 0",border:"2px solid "+(sel?T.mint:T.border),background:sel?T.mint+"22":"transparent",color:sel?T.mint:T.textMid,cursor:"pointer",fontSize:"6px" }}>
+                          {d} MIN
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* Reward preview */}
+                <div style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"10px 12px" }}>
+                  <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"6px" }}>ON COMPLETION</div>
+                  <div style={{ display:"flex",gap:12,flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12,fontWeight:700,color:T.gold }}>+{(pomodoroState.duration||25)*3} XP</span>
+                    <span style={{ fontSize:12,fontWeight:700,color:T.pink }}>+1 Bond</span>
+                    <span style={{ fontSize:12,fontWeight:700,color:T.gold }}>+75🪙</span>
+                    {(function(){
+                      var cg = calcCrestGain(pomodoroState.template,'Medium');
+                      if (!cg) return null;
+                      var ci = CREST_INFO[cg.primaryCrest];
+                      return <span style={{ fontSize:12,fontWeight:700,color:ci.color }}>{ci.icon} +{cg.primary} {cg.primaryCrest}</span>;
+                    })()}
+                  </div>
+                </div>
+                <button className="px8" onClick={beginPomodoro} style={{ padding:"12px",background:T.mint,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"7px",fontWeight:900,boxShadow:"2px 2px 0 "+T.border }}>
+                  START SESSION ⚡
                 </button>
-              );
-            })}
+              </div>
+            )}
+
+            {/* ── Running ── */}
+            {pomodoroState.phase === 'running' && (
+              <div style={{ padding:24,textAlign:"center" }}>
+                {/* Circular progress */}
+                <div style={{ position:"relative",width:160,height:160,margin:"0 auto 16px" }}>
+                  <svg width={160} height={160} style={{ transform:"rotate(-90deg)" }}>
+                    <circle cx={80} cy={80} r={68} fill="none" stroke={T.border} strokeWidth={9}/>
+                    <circle cx={80} cy={80} r={68} fill="none" stroke={T.mint} strokeWidth={9}
+                      strokeDasharray={String(2*Math.PI*68)}
+                      strokeDashoffset={String(2*Math.PI*68*(1-pomodoroState.timeLeft/pomodoroState.totalSeconds))}
+                      style={{ transition:"stroke-dashoffset 1s linear" }}/>
+                  </svg>
+                  <div style={{ position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center" }}>
+                    <div className="px12" style={{ color:T.mint,letterSpacing:2 }}>
+                      {String(Math.floor(pomodoroState.timeLeft/60)).padStart(2,'0')}:{String(pomodoroState.timeLeft%60).padStart(2,'0')}
+                    </div>
+                    <div className="px8" style={{ color:T.textDim,marginTop:6,fontSize:"5px" }}>REMAINING</div>
+                  </div>
+                </div>
+                <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:4 }}>{pomodoroState.template} Session</div>
+                {(function(){
+                  var cg = calcCrestGain(pomodoroState.template,'Medium');
+                  if (!cg) return null;
+                  var ci = CREST_INFO[cg.primaryCrest];
+                  return <div style={{ fontSize:11,color:ci.color,marginBottom:16 }}>{ci.icon} Building {cg.primaryCrest} crest</div>;
+                })()}
+                {activeDigi && <div style={{ marginBottom:16 }}><DigiSprite digimonId={activeDigi.speciesId} size={52} mood="happy"/></div>}
+                <div style={{ fontSize:11,color:T.textDim,marginBottom:16,fontStyle:"italic" }}>Stay focused — your partner is counting on you.</div>
+                <button className="px8" onClick={function(){ setPomodoroState(null); }}
+                  style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"6px" }}>
+                  ABANDON SESSION
+                </button>
+              </div>
+            )}
+
+            {/* ── Done ── */}
+            {pomodoroState.phase === 'done' && (
+              <div style={{ padding:24,textAlign:"center" }}>
+                <div style={{ fontSize:48,marginBottom:10 }}>💪</div>
+                <div className="px10" style={{ color:T.mint,marginBottom:8,letterSpacing:2 }}>SESSION COMPLETE!</div>
+                <div style={{ fontSize:12,color:T.textMid,marginBottom:18,lineHeight:1.7 }}>
+                  {Math.floor(pomodoroState.totalSeconds/60)} minutes of focused training.<br/>Your partner grows stronger!
+                </div>
+                <div style={{ display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:20 }}>
+                  {[
+                    { label:"+"+(Math.floor(pomodoroState.totalSeconds/60)*3)+" XP", color:T.gold },
+                    { label:"+1 Bond", color:T.pink },
+                    { label:"+75🪙",   color:T.gold },
+                  ].map(function(r){
+                    return <div key={r.label} style={{ padding:"7px 12px",border:"2px solid "+r.color,color:r.color,background:r.color+"18",fontWeight:900,fontSize:13 }}>{r.label}</div>;
+                  })}
+                  {(function(){
+                    var cg = calcCrestGain(pomodoroState.template,'Medium');
+                    if(!cg)return null;
+                    var ci=CREST_INFO[cg.primaryCrest];
+                    return <div style={{ padding:"7px 12px",border:"2px solid "+ci.color,color:ci.color,background:ci.color+"18",fontWeight:900,fontSize:13 }}>{ci.icon} +{cg.primary}</div>;
+                  })()}
+                </div>
+                <button className="px8" onClick={claimPomodoroReward}
+                  style={{ padding:"11px 28px",background:T.mint,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"7px",boxShadow:"2px 2px 0 "+T.border }}>
+                  CLAIM REWARDS ★
+                </button>
+              </div>
+            )}
           </div>
-          {party.length>0&&(
-            <button className="px8" style={{ padding:"8px 20px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
-              onClick={function(){ setShowDigitamaModal(false); }}>SAVE FOR LATER</button>
-          )}
-          {party.length===0&&(
-            <div className="px8" style={{ color:T.coral,marginTop:4,fontSize:"6px" }}>You must choose a partner to continue</div>
-          )}
-          {digitamaCredits>1&&<div className="px8" style={{ color:T.gold,marginTop:8,fontSize:"6px" }}>×{digitamaCredits} eggs available — each pick uses 1</div>}
+        </div>
+      )}
+
+      {/* ── TAMER PROFILE ─────────────────────────────────────────────────── */}
+      {showTamerProfile && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:610,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}
+          onClick={function(e){ if(e.target===e.currentTarget)setShowTamerProfile(false); }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,width:"100%",maxWidth:500,animation:"jijiIn 0.3s ease",overflow:"hidden",maxHeight:"90vh",overflowY:"auto" }}>
+            {/* Header */}
+            <div style={{ background:"linear-gradient(90deg,#1a1400,#1a1a00)",borderBottom:"2px solid "+accent,padding:"10px 16px",display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:2 }}>
+              <span style={{ fontSize:16 }}>✦</span>
+              <div className="px9" style={{ color:accent }}>TAMER PROFILE</div>
+              <div style={{ flex:1 }}/>
+              <button onClick={function(){ setShowTamerProfile(false); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"0 4px" }}>×</button>
+            </div>
+
+            <div style={{ padding:20,display:"flex",flexDirection:"column",gap:16 }}>
+              {/* Identity */}
+              <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+                <div style={{ width:64,height:64,border:"2px solid "+accent,background:T.bgPanel,display:"grid",placeItems:"center",flexShrink:0,boxShadow:"3px 3px 0 "+accent }}>
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={52} mood="happy"/>}
+                </div>
+                <div>
+                  <div style={{ fontSize:20,fontWeight:900,color:T.text }}>Tamer</div>
+                  <div className="px8" style={{ color:accent,marginTop:3,fontSize:"6px" }}>
+                    {crestProfile.primary ? (CREST_TITLES[crestProfile.primary]||"DigiDestined") : "Novice DigiDestined"}
+                  </div>
+                  <div style={{ fontSize:11,color:T.textMid,marginTop:5 }}>
+                    DigiDestined since {new Date(session.user.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats grid */}
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                {[
+                  { label:"PARTNER",        val:activeDigi?activeDigi.name:"—",                  color:accent },
+                  { label:"PARTNER LEVEL",  val:activeDigi?"Lv."+activeDigi.level:"—",           color:T.gold },
+                  { label:"BOND STRENGTH",  val:Math.round(bond)+"/100",                          color:T.pink },
+                  { label:"LOGIN STREAK",   val:streak+" days 🔥",                                color:T.coral },
+                  { label:"TODAY'S TASKS",  val:doneTasks.length+" completed",                   color:T.green },
+                  { label:"DIGIMON KNOWN",  val:allDisc.length+"/"+Object.keys(DIGIMON_MAP).length, color:T.lavender },
+                ].map(function(s){
+                  return (
+                    <div key={s.label} style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"10px 12px" }}>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:5 }}>{s.label}</div>
+                      <div style={{ fontSize:14,fontWeight:900,color:s.color }}>{s.val}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Crest identity block */}
+              {crestProfile.primary && (
+                <div style={{ background:T.bgPanel,border:"1.5px solid "+(CREST_INFO[crestProfile.primary].color),padding:"12px 14px",display:"flex",gap:12,alignItems:"center",boxShadow:"2px 2px 0 "+(CREST_INFO[crestProfile.primary].color) }}>
+                  <div style={{ fontSize:36 }}>{CREST_INFO[crestProfile.primary].icon}</div>
+                  <div style={{ flex:1 }}>
+                    <div className="px8" style={{ color:T.textDim,fontSize:"6px",marginBottom:4 }}>PRIMARY CREST</div>
+                    <div style={{ fontSize:17,fontWeight:900,color:CREST_INFO[crestProfile.primary].color }}>{crestProfile.primary}</div>
+                    <div style={{ fontSize:11,color:T.textMid,marginTop:3 }}>{CREST_INFO[crestProfile.primary].desc}</div>
+                  </div>
+                  {crestProfile.secondary&&<>
+                    <div style={{ width:1,height:44,background:T.border,flexShrink:0 }}/>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:26 }}>{CREST_INFO[crestProfile.secondary].icon}</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginTop:4 }}>SUPPORT</div>
+                      <div style={{ fontSize:11,fontWeight:800,color:CREST_INFO[crestProfile.secondary].color,marginTop:2 }}>{crestProfile.secondary}</div>
+                    </div>
+                  </>}
+                </div>
+              )}
+
+              {/* Radar chart */}
+              <div>
+                <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"7px" }}>CREST RADAR</div>
+                <div style={{ display:"flex",justifyContent:"center" }}>
+                  <RadarChart percentages={crestProfile.percentages||{}} T={T}/>
+                </div>
+              </div>
+
+              {/* DigiDestined journey */}
+              {allDisc.length > 0 && (
+                <div>
+                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>DIGIVOLUTION JOURNEY</div>
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                    {allDisc.map(function(id){
+                      var di = DIGIMON_MAP[id]; if(!di) return null;
+                      return (
+                        <div key={id} title={di.name} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"6px 8px",border:"1.5px solid "+T.border,background:T.bgPanel }}>
+                          <DigiSprite digimonId={id} size={28} animate={false}/>
+                          <div className="px8" style={{ color:T.textMid,fontSize:"5px" }}>{di.name}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Lore flavour */}
+              <div style={{ background:"linear-gradient(135deg,#1a1400,#1a1a00)",border:"1.5px solid "+T.gold+"44",padding:"12px 14px" }}>
+                <div className="px8" style={{ color:T.gold,marginBottom:6,fontSize:"6px" }}>✦ TAMER'S OATH</div>
+                <div style={{ fontSize:12,color:T.textMid,lineHeight:1.7,fontStyle:"italic" }}>
+                  "I will complete my missions, nurture my partner, and face every challenge with courage. The Digital World grows alongside me."
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -850,28 +951,6 @@ useEffect(() => {
         </div>
       )}
 
-      {/* ── ADD TASK MODAL ────────────────────────────────────────────────── */}
-      {showTaskModal&&(
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}
-          onClick={function(e){ if(e.target===e.currentTarget) setShowTaskModal(false); }}>
-          <div style={{ width:"100%",maxWidth:520,background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,padding:24,display:"flex",flexDirection:"column",gap:14,animation:"slideUp 0.2s ease" }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-              <div className="px10" style={{ color:T.text }}>ADD NEW TASK</div>
-              <button onClick={function(){ setShowTaskModal(false); }} style={{ background:"none",border:"none",color:T.textMid,cursor:"pointer",fontSize:22,lineHeight:1 }}>×</button>
-            </div>
-            <TaskForm form={modalForm} setForm={setModalForm}
-              onSubmit={function(){
-                if(!modalForm.title.trim()) return;
-                addTask(modalForm);
-                setModalForm({title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[]});
-                setShowTaskModal(false);
-              }}
-              onCancel={function(){ setShowTaskModal(false); }}
-              label="ADD TASK" accent={accent} T={T}/>
-          </div>
-        </div>
-      )}
-
       {/* ── TOAST ─────────────────────────────────────────────────────────── */}
       {toast && (
         <div style={{ position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:T.bgCard,border:"2px solid "+toast.color,boxShadow:"3px 3px 0 "+toast.color,padding:"9px 20px",zIndex:300,whiteSpace:"nowrap",animation:"slideUp 0.2s ease",color:toast.color,fontWeight:700,fontSize:13 }}>
@@ -881,40 +960,24 @@ useEffect(() => {
 
       {/* ── TOP NAV ───────────────────────────────────────────────────────── */}
       <nav style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",background:T.bgPanel,borderBottom:"2px solid "+T.border,boxShadow:"0 2px 0 "+T.border,position:"sticky",top:0,zIndex:200,gap:12,flexWrap:"wrap" }}>
-        {/* Logo */}
         <div className="px12" style={{ display:"flex",alignItems:"center",gap:10,color:T.text }}>
           <div style={{ width:10,height:10,background:accent,border:"2px solid "+T.border,animation:"blink 1.2s step-end infinite",display:"inline-block" }}/>
           DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
-
-        {/* Nav pills */}
         <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
           {NAV.map(function(n){
-            return (
-              <button key={n.id} className={"nav-pill"+(page===n.id?" active":"")} onClick={function(){ setPage(n.id); }}>
-                {n.icon} {n.label}
-              </button>
-            );
+            return <button key={n.id} className={"nav-pill"+(page===n.id?" active":"")} onClick={function(){ setPage(n.id); }}>{n.icon} {n.label}</button>;
           })}
         </div>
-
-        {/* User */}
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-          <div className="px8" style={{ color:T.textMid }}>🔥{loginStreak}</div>
-          {digitamaCredits>0&&(
-            <button className="px8" style={{ padding:"3px 7px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px" }}
-              onClick={function(){ setShowDigitamaModal(true); }}>🥚×{digitamaCredits}</button>
-          )}
           <div className="px8" style={{ color:T.textMid }}>LV.{activeDigi&&activeDigi.level}</div>
           <div style={{ width:34,height:34,border:"2px solid "+T.border,background:T.bgCard,display:"grid",placeItems:"center" }}>
             {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={26} animate={false}/>}
           </div>
-          <span style={{ fontWeight:800,fontSize:13 }}>Tamer</span>
+          <span style={{ fontWeight:800,fontSize:13,cursor:"pointer",borderBottom:"1px dashed "+T.textDim }} onClick={function(){ setShowTamerProfile(true); }}>Tamer</span>
           <div className="px8" style={{ color:T.gold }}>🪙{bits}</div>
-          <button onClick={() => supabase.auth.signOut()}
-  style={{ fontFamily:"'Press Start 2P',monospace", fontSize:"6px", padding:"5px 9px", background:"transparent", border:"1px solid rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.35)", cursor:"pointer" }}>
-  SIGN OUT
-</button>
+          <div className="px8" style={{ color:"#4ECDC4" }}>⚡{stamina}</div>
+          <button onClick={function(){ supabase.auth.signOut(); }} style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"6px",padding:"5px 9px",background:"transparent",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.35)",cursor:"pointer" }}>SIGN OUT</button>
         </div>
       </nav>
 
@@ -922,128 +985,126 @@ useEffect(() => {
       <div style={{ display:"grid",gridTemplateColumns:"300px 1fr 260px",minHeight:"calc(100vh - 64px)",position:"relative",zIndex:1 }}>
 
         {/* ═══ LEFT — PET PANEL ══════════════════════════════════════════ */}
-        <aside className="left-col" style={{ background:T.bgPanel,borderRight:"2px solid "+T.border,padding:"24px 20px",display:"flex",flexDirection:"column",gap:18,overflowY:"auto" }}>
+        <aside className="left-col" style={{ background:T.bgPanel,borderRight:"2px solid "+T.border,padding:"24px 20px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto" }}>
 
-          {/* Pet stage viewport */}
-          <div style={{ background:"linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)",border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,height:210,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14 }}>
-            {/* Dot grid bg */}
+          {/* Pet stage */}
+          <div style={{ background:"linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)",border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14 }}>
             <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,0.12) 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
-            {/* Speech bubble */}
             <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+accent,boxShadow:"2px 2px 0 "+accent,padding:"5px 10px",whiteSpace:"nowrap",zIndex:3,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)" }}>
               <span className="px8" style={{ color:accent }}>{speech}</span>
               <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+accent }}/>
             </div>
-            {/* Digimon */}
             <div style={{ position:"relative",zIndex:2,animation:"bob 2s ease-in-out infinite",cursor:"pointer",transformOrigin:"bottom center" }}
-              onClick={function(){ setSpeech(PET_SPEECHES[Math.floor(Math.random()*PET_SPEECHES.length)]); }}>
-              {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={88} mood="happy"/>}
+              onClick={function(){ setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]); }}>
+              {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood="happy"/>}
             </div>
-            {/* Ground strip */}
             <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+T.teal+"22 0px,"+T.teal+"22 16px,"+T.teal+"11 16px,"+T.teal+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
           </div>
 
-          {/* Pet name + level */}
+          {/* Name + Level */}
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <div className="px10" style={{ color:T.text }}>{activeDigi&&activeDigi.name}</div>
             <div className="px8" style={{ background:accent,border:"2px solid "+T.border,padding:"3px 8px",boxShadow:"2px 2px 0 "+T.border,color:T.bg }}>LV.{activeDigi&&activeDigi.level}</div>
           </div>
 
-          {/* Stat bars */}
-          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            {(function(){
-              var abiProgress = activeDigi ? ((activeDigi.bonusStats||{}).abi_progress||0) : 0;
-              return [
-                { label:"❤️ HP",   val:activeDigi?Math.min(100,calcStats(activeDigi).HP):75, max:100,  color:T.green  },
-                { label:"⭐ XP",   val:activeDigi?activeDigi.exp:0,                           max:activeDigi?activeDigi.expNeeded:100, color:T.gold  },
-                { label:"😊 MOOD", val:Math.max(30,100-pendTasks.length*12),                  max:100,  color:T.pink   },
-                { label:"🔷 ABI",  val:activeDigi?(activeDigi.abi||0)+abiProgress:0,           max:Math.max((activeDigi&&activeDigi.abi||0)+1,5), color:T.lavender, hint:"ABI "+(activeDigi?activeDigi.abi||0:0) },
-              ];
-            })().map(function(s){
+          {/* Stat bars: XP / Stamina / Bond */}
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            {[
+              { label:"⭐ XP",      val:activeDigi?activeDigi.exp:0,  max:activeDigi?activeDigi.expNeeded:100, color:T.gold },
+              { label:"⚡ STAMINA", val:stamina,                        max:STAMINA_MAX,                         color:"#4ECDC4" },
+              { label:"💗 BOND",    val:bond,                           max:100,                                 color:T.pink },
+            ].map(function(s){
               return (
-                <div key={s.label} style={{ display:"flex",flexDirection:"column",gap:5 }}>
+                <div key={s.label} style={{ display:"flex",flexDirection:"column",gap:4 }}>
                   <div style={{ display:"flex",justifyContent:"space-between" }}>
-                    <span className="px8" style={{ color:T.textMid }}>{s.label}</span>
-                    <span className="px8" style={{ color:T.textMid }}>{Math.round(s.val)}/{s.max}</span>
+                    <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>{s.label}</span>
+                    <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>{Math.round(s.val)}/{s.max}</span>
                   </div>
-                  <div style={{ height:12,background:T.bgCard,border:"2px solid "+T.border,overflow:"hidden" }}>
-                    <div style={{ width:Math.min((s.val/s.max)*100,100)+"%",height:"100%",background:s.color,position:"relative",transition:"width 0.8s ease" }}>
-                      <div style={{ position:"absolute",top:2,left:3,right:3,height:3,background:"rgba(255,255,255,0.25)" }}/>
-                    </div>
+                  <div style={{ height:10,background:T.bgCard,border:"2px solid "+T.border,overflow:"hidden" }}>
+                    <div className="crest-bar-fill" style={{ width:Math.min((s.val/s.max)*100,100)+"%",background:s.color }}/>
                   </div>
                 </div>
               );
             })}
+          </div>
+
+          {/* Crest alignment mini */}
+          <div style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 12px" }}>
+            <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>CREST ALIGNMENT</div>
+            {crestProfile.primary ? (
+              <div>
+                <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:4 }}>
+                  <span style={{ fontSize:14 }}>{CREST_INFO[crestProfile.primary].icon}</span>
+                  <span style={{ fontSize:12,fontWeight:800,color:CREST_INFO[crestProfile.primary].color }}>{crestProfile.primary}</span>
+                  <span className="px8" style={{ color:T.textDim,fontSize:"6px",marginLeft:"auto" }}>PRIMARY</span>
+                </div>
+                {crestProfile.secondary && (
+                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                    <span style={{ fontSize:12 }}>{CREST_INFO[crestProfile.secondary].icon}</span>
+                    <span style={{ fontSize:11,fontWeight:700,color:CREST_INFO[crestProfile.secondary].color }}>{crestProfile.secondary}</span>
+                    <span className="px8" style={{ color:T.textDim,fontSize:"6px",marginLeft:"auto" }}>SUPPORT</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize:11,color:T.textDim,fontStyle:"italic" }}>Complete tasks to build alignment.</div>
+            )}
           </div>
 
           {/* Pet action buttons */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-            {[
-              { label:"🍎 FEED",  color:T.coral,    log:"nom nom nom 🍎",       logMsg:"Mochi was fed!" },
-              { label:"🎮 PLAY",  color:T.teal,     log:"yay let's play! 🎮",   logMsg:"Mochi played happily!" },
-              { label:"💤 REST",  color:T.lavender, log:"zzz... 💤",            logMsg:"Mochi is resting." },
-              { label:"⚡ TRAIN", color:T.mint,     log:"getting stronger! ⚡", logMsg:"Mochi trained hard!" },
-            ].map(function(b){
-              return (
-                <button key={b.label} className="pet-btn" style={{ background:b.color+"22",borderColor:b.color,color:b.color }} onClick={function(){ petAction(b.log, b.logMsg); }}>
-                  {b.label}
-                </button>
-              );
-            })}
+            <button className="pet-btn" style={{ background:T.pink+"22",borderColor:T.pink,color:T.pink }} onClick={function(){ setShowFeedPanel(true); }}>
+              🍎 FEED
+            </button>
+            <button className="pet-btn" style={{ background:playAvailable?T.teal+"22":T.bgCard,borderColor:playAvailable?T.teal:T.border,color:playAvailable?T.teal:T.textDim }}
+              disabled={!playAvailable} onClick={playAction}>
+              🎮 {playUsedToday>=3?"DONE":`PLAY (${3-playUsedToday})`}
+            </button>
+            <button className="pet-btn" style={{ background:T.lavender+"22",borderColor:T.lavender,color:T.lavender }}
+              onClick={function(){ setSpeech("resting up... 💤"); addLog("💤","Resting for tomorrow."); }}>
+              💤 REST
+            </button>
+            <button className="pet-btn" style={{ background:T.mint+"22",borderColor:T.mint,color:T.mint }}
+              onClick={openPomodoroSetup}>
+              ⏱ TRAIN
+            </button>
           </div>
+          {!playAvailable && doneTasks.length < 3 && (
+            <div style={{ fontSize:11,color:T.textDim,textAlign:"center",fontStyle:"italic" }}>
+              Complete {3-doneTasks.length} more task{3-doneTasks.length!==1?"s":""} to unlock Play
+            </div>
+          )}
 
           {/* Evolution banner */}
           {activeInfo && (function(){
-            var evoT = (activeInfo.evolvesTo||[]).filter(function(id){ var t=DIGIMON_MAP[id]; return t&&!t.fusionOf&&meetsEvoReq(activeDigi,t); });
-            var xpLeft = (activeDigi.expNeeded - activeDigi.exp);
-            // Find next possible evolutions and their missing requirements
-            var nextEvoInfo = (activeInfo.evolvesTo||[]).map(function(id){
-              var t=DIGIMON_MAP[id]; if(!t||t.fusionOf) return null;
-              var req=t.evoRequires||{}; var cs=calcStats(activeDigi);
-              var missing=[];
-              if((activeDigi.level||1)<(req.level||1)) missing.push("Lv."+(req.level||1));
-              if((activeDigi.abi||0)<(req.abi||0)) missing.push("ABI "+(req.abi||0));
-              var statReqs=req.stats||{};
-              for(var s in statReqs){ if((cs[s]||0)<statReqs[s]) missing.push(s+" "+(statReqs[s])); }
-              return { id:id, name:t.name, missing:missing, ready:missing.length===0 };
-            }).filter(Boolean);
-            var anyReady=nextEvoInfo.some(function(e){return e.ready;});
-            return nextEvoInfo.length>0 ? (
-              <div className="evo-banner" onClick={function(){ setPage("team"); }}>
-                <span style={{ fontSize:18 }}>✨</span>
-                <div style={{ flex:1 }}>
-                  {anyReady
-                    ? <div className="px8" style={{ color:T.lavender }}>EVOLUTION READY</div>
-                    : <div className="px8" style={{ color:T.lavender }}>NEXT EVOLUTION</div>
-                  }
-                  {nextEvoInfo.map(function(e){
-                    return (
-                      <div key={e.id} style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:3 }}>
-                        {e.name}: {e.ready?"Ready! →":e.missing.join(", ")}
-                      </div>
-                    );
-                  })}
+            var xpLeft = activeDigi ? (activeDigi.expNeeded - activeDigi.exp) : 0;
+            if (evoTargets.length > 0) {
+              var hasTrue = (activeInfo.evolvesTo||[]).some(function(id){
+                var t = DIGIMON_MAP[id]; if(!t||t.fusionOf) return false;
+                return checkEvoEligible(activeDigi, bond, crestProfile, id).eligible;
+              });
+              return (
+                <div className="evo-banner" onClick={function(){ setPage("team"); }}>
+                  <span style={{ fontSize:18 }}>✨</span>
+                  <div style={{ flex:1 }}>
+                    <div className="px8" style={{ color:T.lavender }}>{hasTrue?"EVOLUTION READY":"PARTNER VOW"}</div>
+                    <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>Go to Team to evolve!</div>
+                  </div>
+                  <span style={{ color:T.lavender,fontWeight:900 }}>→</span>
                 </div>
-                <span style={{ color:T.lavender }}>→</span>
-              </div>
-            ) : (
-              <div className="evo-banner">
+              );
+            }
+            return (
+              <div className="evo-banner" style={{ cursor:"default" }}>
                 <span style={{ fontSize:18 }}>✨</span>
                 <div style={{ flex:1 }}>
                   <div className="px8" style={{ color:T.lavender }}>EVOLUTION NEAR</div>
-                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>{xpLeft} more XP needed!</div>
+                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>{xpLeft} XP · Bond {bond}/20</div>
                 </div>
-                <span style={{ color:T.lavender }}>→</span>
               </div>
             );
           })()}
 
-          {/* Saved stats banner */}
-          {savedStats>0&&(
-            <div style={{ background:T.gold+"18",border:"2px solid "+T.gold,boxShadow:"2px 2px 0 "+T.gold,padding:"10px 12px",cursor:"pointer" }} onClick={function(){setPage("team");}}>
-              <div className="px8" style={{ color:T.gold }}>⭐ {savedStats} STAT PTS</div>
-              <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>Tap to allocate in Team</div>
-            </div>
-          )}
         </aside>
 
         {/* ═══ MIDDLE — MAIN CONTENT ══════════════════════════════════════ */}
@@ -1053,19 +1114,18 @@ useEffect(() => {
             {/* ── DASHBOARD ────────────────────────────────────────────── */}
             {page==="dashboard"&&(
               <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
-
-                {/* Streak row */}
+                {/* Stat row */}
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
                   {[
-                    { icon:"🔥", val:loginStreak,           label:"login streak" },
-                    { icon:"✅", val:doneTasks.length+"/"+tasks.length, label:"done today" },
-                    { icon:"⭐", val:"+"+xpToday,           label:"XP today" },
+                    { icon:"🔥", val:streak,                              label:"day streak" },
+                    { icon:"✅", val:doneTasks.length+"/"+tasks.length,   label:"done today" },
+                    { icon:"⭐", val:"+"+xpToday,                         label:"XP today"   },
                   ].map(function(s){
                     return (
                       <div key={s.label} className="pcard" style={{ padding:14,display:"flex",alignItems:"center",gap:12 }}>
-                        <div style={{ fontSize:26,lineHeight:1 }}>{s.icon}</div>
+                        <div style={{ fontSize:26 }}>{s.icon}</div>
                         <div>
-                          <div className="px12" style={{ color:T.text,lineHeight:1 }}>{s.val}</div>
+                          <div className="px12" style={{ color:T.text }}>{s.val}</div>
                           <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:4 }}>{s.label}</div>
                         </div>
                       </div>
@@ -1073,37 +1133,73 @@ useEffect(() => {
                   })}
                 </div>
 
-                {/* Header */}
+                {/* Crest alignment widget */}
+                <div className="pcard" style={{ padding:16 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                    <div className="px9">CREST ALIGNMENT</div>
+                    <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}>14-day window</div>
+                  </div>
+                  {crestProfile.primary ? (
+                    <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                      {Object.entries(crestProfile.percentages)
+                        .sort(function(a,b){ return b[1]-a[1]; })
+                        .map(function([name, pct]){
+                          var ci = CREST_INFO[name];
+                          return (
+                            <div key={name} style={{ display:"flex",alignItems:"center",gap:8 }}>
+                              <span style={{ fontSize:14,width:20,textAlign:"center",flexShrink:0 }}>{ci.icon}</span>
+                              <span style={{ fontSize:11,fontWeight:700,width:90,color:ci.color,flexShrink:0 }}>{name}</span>
+                              <div style={{ flex:1,height:8,background:T.bgPanel,border:"1px solid "+T.border,overflow:"hidden" }}>
+                                <div className="crest-bar-fill" style={{ width:pct+"%",background:ci.color }}/>
+                              </div>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"6px",width:32,textAlign:"right",flexShrink:0 }}>{pct}%</span>
+                              {(name===crestProfile.primary||name===crestProfile.secondary)&&(
+                                <span className="px8" style={{ fontSize:"5px",color:name===crestProfile.primary?T.gold:T.textMid,width:30,flexShrink:0 }}>
+                                  {name===crestProfile.primary?"★ PRI":"◆ SEC"}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    <div style={{ padding:"20px 0",textAlign:"center",color:T.textDim,fontSize:12 }}>
+                      Complete tasks to build your crest alignment profile.
+                    </div>
+                  )}
+                </div>
+
+                {/* Tasks header */}
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end" }}>
                   <div>
                     <div className="px12">TODAY'S QUESTS</div>
-                    <div style={{ fontSize:13,fontWeight:700,color:T.textMid,marginTop:4 }}>{pendTasks.length} tasks remaining</div>
+                    <div style={{ fontSize:13,fontWeight:700,color:T.textMid,marginTop:4 }}>{pendTasks.length} remaining</div>
                   </div>
-                  <button className="px8" onClick={function(){ setShowTaskModal(true); }} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>
-                    + NEW TASK
-                  </button>
+                  <button className="px8" onClick={function(){ setPage("tasks"); }} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>+ NEW TASK</button>
                 </div>
 
-                {/* Priority sections */}
+                {/* Priority task list */}
                 {[["High","Urgent"],["Medium"],["Low"]].map(function(pris){
                   var label = pris[0]==="High"?"⚡ HIGH / URGENT":pris[0]==="Medium"?"🌿 MEDIUM":"💜 LOW";
                   var tlist = pendTasks.filter(function(t){ return pris.indexOf(t.priority)>=0; });
-                  if (tlist.length===0) return null;
+                  if (!tlist.length) return null;
                   return (
                     <div key={label} style={{ display:"flex",flexDirection:"column",gap:8 }}>
                       <div className="sec-label">{label}</div>
                       {tlist.map(function(t){
-                        var xp=calcXpReward(t,streak);
-                        var stars=t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
+                        var xp = calcXpReward(t,streak);
+                        var stars = t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
+                        var cg = calcCrestGain(t.template, t.difficulty);
                         return (
                           <div key={t.id} className={"task-card tc-"+(t.priority||"low").toLowerCase()}>
                             <div className={"task-check"+(t.done?" checked":"")} onClick={function(e){ e.stopPropagation(); completeTask(t.id); }}>
                               {t.done&&<span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>}
                             </div>
                             <div style={{ flex:1 }}>
-                              <div style={{ fontSize:14,fontWeight:800,color:T.text }}>{t.title}</div>
+                              <div style={{ fontSize:14,fontWeight:800 }}>{t.title}</div>
                               <div style={{ display:"flex",gap:6,marginTop:5,flexWrap:"wrap",alignItems:"center" }}>
-                                {(function(){ var sc=STAT_CATEGORIES.find(function(s){return s.id===t.category;}); return sc ? <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(sc.color||T.border),color:sc.color||T.textMid,background:T.bgPanel,fontSize:"6px" }}>{sc.icon} {sc.id}</span> : <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category}</span>; })()}
+                                {cg&&<span style={{ fontSize:12 }}>{CREST_INFO[cg.primaryCrest]?.icon}</span>}
+                                <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.template}</span>
                                 <span className="px8" style={{ padding:"2px 6px",background:"#2a2000",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
                                 <span style={{ fontSize:11,fontWeight:700,color:t.type==="daily"?T.teal:T.textDim }}>{t.type}</span>
                               </div>
@@ -1118,71 +1214,38 @@ useEffect(() => {
                   );
                 })}
 
-                {/* 7-day completion chart */}
-                {(function(){
-                  var today2 = new Date();
-                  var days = [];
-                  for (var di=6; di>=0; di--) {
-                    var d2 = new Date(today2); d2.setDate(today2.getDate()-di);
-                    var dateStr = d2.toISOString().split('T')[0];
-                    var dayLabel = ['Su','Mo','Tu','We','Th','Fr','Sa'][d2.getDay()];
-                    var count = tasks.filter(function(t){ return t.done && t.completedAt===dateStr; }).length;
-                    days.push({ dateStr:dateStr, dayLabel:dayLabel, count:count, isToday:di===0 });
-                  }
-                  var maxCount = Math.max(1, days.reduce(function(m,d){ return Math.max(m,d.count); },0));
-                  var todayCount = days[days.length-1].count;
-                  return (
-                    <div className="pcard" style={{ padding:"14px 16px" }}>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-                        <div className="px8" style={{ color:T.textMid,fontSize:"7px" }}>7-DAY COMPLETION</div>
-                        <div className="px8" style={{ color:accent,fontSize:"7px" }}>{todayCount} done today</div>
-                      </div>
-                      <div style={{ display:"flex",gap:6,alignItems:"flex-end",height:68 }}>
-                        {days.map(function(dd){
-                          var pct = dd.count/maxCount;
-                          var barH = dd.count>0 ? Math.max(pct*48,6) : 2;
-                          var col  = dd.isToday ? accent : T.teal;
-                          return (
-                            <div key={dd.dateStr} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
-                              {dd.count>0&&<div style={{ fontSize:9,fontWeight:800,color:col }}>{dd.count}</div>}
-                              {dd.count===0&&<div style={{ fontSize:9 }}> </div>}
-                              <div style={{ width:"100%",height:48,display:"flex",alignItems:"flex-end" }}>
-                                <div style={{ width:"100%",height:barH,background:col,opacity:dd.count>0?1:0.18,border:dd.isToday?"1.5px solid "+col:"none",transition:"height 0.3s ease" }}/>
-                              </div>
-                              <div className="px8" style={{ fontSize:"5px",color:dd.isToday?accent:T.textDim }}>{dd.dayLabel}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {doneTasks.length>0&&(
-                        <div style={{ marginTop:12,borderTop:"1px solid "+T.border,paddingTop:10,display:"flex",flexDirection:"column",gap:6 }}>
-                          {doneTasks.map(function(t){
-                            return (
-                              <div key={t.id} style={{ display:"flex",alignItems:"center",gap:8,opacity:0.6 }}>
-                                <div className="task-check checked" style={{ width:18,height:18,border:"2px solid "+T.border,background:T.teal,display:"grid",placeItems:"center",flexShrink:0 }}>
-                                  <span style={{ fontSize:10,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>
-                                </div>
-                                <div style={{ fontSize:12,fontWeight:700,color:T.textMid,textDecoration:"line-through",flex:1 }}>{t.title}</div>
-                                <span style={{ fontSize:10,color:T.textDim }}>{t.category}</span>
-                              </div>
-                            );
-                          })}
+                {doneTasks.length>0&&(
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    <div className="sec-label">✓ COMPLETED</div>
+                    {doneTasks.map(function(t){
+                      return (
+                        <div key={t.id} className="task-card done tc-low">
+                          <div className="task-check checked"><span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span></div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:14,fontWeight:800,color:T.textMid,textDecoration:"line-through" }}>{t.title}</div>
+                          </div>
+                          <span className="px8" style={{ fontSize:"6px",color:T.green }}>DONE</span>
                         </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* ── TASKS FULL ───────────────────────────────────────────── */}
+            {/* ── TASKS ────────────────────────────────────────────────── */}
             {page==="tasks"&&(
               <TasksPage tasks={tasks} onComplete={completeTask} onAdd={addTask} onEdit={editTask} onDelete={deleteTask} onReschedule={rescheduleTask} accent={accent} streak={streak} T={T}/>
             )}
 
-            {/* ── WEEKLY PLANNER ───────────────────────────────────────── */}
+            {/* ── WEEKLY ───────────────────────────────────────────────── */}
             {page==="weekly"&&(
               <WeeklyPlannerPage tasks={tasks} party={party} farm={farm} weeklyDigimon={weeklyDigimon} onAssignDigimon={assignWeeklyDigimon} onReschedule={rescheduleTask} onComplete={completeTask} accent={accent} T={T}/>
+            )}
+
+            {/* ── CRESTS ───────────────────────────────────────────────── */}
+            {page==="crests"&&(
+              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} onGoTeam={function(){ setPage("team"); }}/>
             )}
 
             {/* ── TEAM ─────────────────────────────────────────────────── */}
@@ -1190,38 +1253,20 @@ useEffect(() => {
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div className="px12">TEAM MANAGER</div>
-                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                    <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
-                    {digitamaCredits>0&&(
-                      <button className="px8" style={{ padding:"5px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"6px" }}
-                        onClick={function(){ setShowDigitamaModal(true); }}>🥚 ×{digitamaCredits}</button>
-                    )}
-                  </div>
+                  <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
                 </div>
-                <div style={{ background:T.bgCard,border:"1px solid "+T.border,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}>🔥 Login streak: <span style={{ color:T.coral }}>{loginStreak} days</span></div>
-                  <button className="px8" style={{ padding:"4px 8px",background:"transparent",border:"1px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"5px" }}
-                    onClick={function(){ setConfirmReset(true); }}>↺ RESET TEAM</button>
-                </div>
-                {savedStats>0&&(
-                  <div style={{ background:T.gold+"15",border:"2px solid "+T.gold,boxShadow:"3px 3px 0 "+T.gold,padding:14 }}>
-                    <div className="px8" style={{ color:T.gold,marginBottom:10 }}>⭐ {savedStats} STAT POINTS</div>
-                    <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                      {["HP","SP","ATK","DEF","INT","SPD"].map(function(stat){
-                        return (
-                          <button key={stat} className="px8" style={{ padding:"6px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px" }} onClick={function(){
-                            if(savedStats<=0)return;
-                            setParty(function(p){return p.map(function(d,i){if(i!==0)return d;if(totalBonusStats(d)>=abiCap(d)){toast_("ABI cap reached!","#FF8080");return d;}var nb=Object.assign({},d.bonusStats);nb[stat]=(nb[stat]||0)+1;return Object.assign({},d,{bonusStats:nb});});});
-                            setSavedStats(function(s){return s-1;});
-                          }}>+{stat}</button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
                 {party.map(function(digi,i){
-                  var inf2=DIGIMON_MAP[digi.speciesId]; var st2=calcStats(digi);
-                  var evoT=(inf2&&inf2.evolvesTo||[]).filter(function(id){var t=DIGIMON_MAP[id];return t&&!t.fusionOf&&meetsEvoReq(digi,t);});
+                  var inf2 = DIGIMON_MAP[digi.speciesId];
+                  var bs   = calcBattleStats(digi);
+                  var role = inf2 && ROLES[inf2.role] ? ROLES[inf2.role] : ROLES.Balanced;
+                  var pers = PERSONALITIES.find(function(p){ return p.id===digi.personality; });
+                  // Eligible evolutions
+                  var evoList = (inf2&&inf2.evolvesTo||[]).map(function(id){
+                    var ti = DIGIMON_MAP[id]; if(!ti||ti.fusionOf) return null;
+                    var check = checkEvoEligible(digi, bond, crestProfile, id);
+                    return { id, info:ti, ...check };
+                  }).filter(Boolean);
+
                   return (
                     <div key={digi.uid} className="pcard" style={{ padding:16,borderColor:i===0?accent:T.border,boxShadow:"3px 3px 0 "+(i===0?accent:T.border) }}>
                       <div style={{ display:"flex",gap:14,flexWrap:"wrap" }}>
@@ -1230,23 +1275,70 @@ useEffect(() => {
                           {i===0&&<div style={{ position:"absolute",top:-6,right:-6,background:accent,border:"2px solid "+T.border,width:18,height:18,display:"grid",placeItems:"center",fontSize:9,color:T.bg,fontWeight:900 }}>★</div>}
                         </div>
                         <div style={{ flex:1,minWidth:160 }}>
-                          <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6 }}>
+                          {/* Name + badges */}
+                          <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4 }}>
                             <div className="px10">{digi.name}</div>
                             <div className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"6px" }}>{inf2&&inf2.stage}</div>
+                            {pers&&<div className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+pers.color,color:pers.color,fontSize:"6px" }}>{pers.label}</div>}
                           </div>
-                          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"6px" }}>Lv.{digi.level} · ABI {digi.abi} · {PERSONALITIES.find(function(p){return p.id===digi.personality;})&&PERSONALITIES.find(function(p){return p.id===digi.personality;}).label}</div>
-                          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10 }}>
-                            {[["HP",st2.HP,T.green],["ATK",st2.ATK,T.coral],["DEF",st2.DEF,T.teal],["SP",st2.SP,T.lavender],["INT",st2.INT,T.lavender],["SPD",st2.SPD,T.gold]].map(function(s){
-                              return <div key={s[0]} style={{ fontSize:11,fontWeight:700,color:T.textMid }}><span style={{ color:s[2],fontWeight:900 }}>{s[1]}</span> {s[0]}</div>;
+                          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"6px" }}>Lv.{digi.level} · Bond {Math.round(bond)} · {inf2&&inf2.type}</div>
+
+                          {/* Role */}
+                          <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
+                            <div className="px8" style={{ padding:"3px 8px",border:"2px solid "+role.color,color:role.color,background:role.color+"18",fontSize:"6px" }}>{role.icon} {inf2&&inf2.role||"Balanced"}</div>
+                          </div>
+
+                          {/* Battle stats: Power / Guard / Focus / Momentum */}
+                          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10 }}>
+                            {[["PWR",bs.Power,"#FF6B35"],["GRD",bs.Guard,"#7EB8F7"],["FOC",bs.Focus,"#B8A0E8"],["MTM",bs.Momentum,"#FFD700"]].map(function(s){
+                              return (
+                                <div key={s[0]} style={{ textAlign:"center",background:T.bgPanel,border:"1px solid "+T.border,padding:"6px 4px" }}>
+                                  <div style={{ fontSize:18,fontWeight:900,color:s[2] }}>{s[1]}</div>
+                                  <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginTop:2 }}>{s[0]}</div>
+                                </div>
+                              );
                             })}
                           </div>
+
+                          {/* Passive + Signature */}
+                          {inf2&&inf2.passive&&(
+                            <div style={{ marginBottom:6 }}>
+                              <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}><span style={{ color:T.mint }}>Passive — </span>{inf2.passive}</div>
+                            </div>
+                          )}
+                          {inf2&&inf2.signature&&(
+                            <div style={{ marginBottom:10 }}>
+                              <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}><span style={{ color:T.gold }}>Signature — </span>{inf2.signature}</div>
+                            </div>
+                          )}
+
+                          {/* XP bar */}
                           <div style={{ marginBottom:10 }}>
+                            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"6px" }}>⭐ XP</span>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"6px" }}>{digi.exp}/{digi.expNeeded}</span>
+                            </div>
                             <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={8}/>
                           </div>
+
+                          {/* Evolutions */}
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                            {evoT.map(function(tid){return <button key={tid} className="px8" style={{ padding:"6px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"6px" }} onClick={function(){evolve(digi.uid,tid);}}>→ {DIGIMON_MAP[tid]&&DIGIMON_MAP[tid].name}</button>;})}
-                            {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){setLeader(digi.uid);}}>★ Set Leader</button>}
-                            {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){sendToFarm(digi.uid);}}>→ Farm</button>}
+                            {evoList.map(function(evo){
+                              var canEvo  = evo.eligible;
+                              var canVow  = evo.vow;
+                              var ci      = evo.info.crestReq ? CREST_INFO[evo.info.crestReq.primary] : null;
+                              var btnCol  = canEvo ? T.gold : canVow ? T.lavender : T.textDim;
+                              var btnLbl  = canEvo ? "→ "+evo.info.name : canVow ? "Vow → "+evo.info.name : "→ "+evo.info.name+" ("+evo.reason+")";
+                              return (
+                                <button key={evo.id} className="px8" disabled={!canEvo&&!canVow}
+                                  style={{ padding:"6px 10px",background:btnCol+"22",border:"2px solid "+btnCol,color:btnCol,cursor:canEvo||canVow?"pointer":"not-allowed",fontSize:"6px",opacity:canEvo||canVow?1:0.5 }}
+                                  title={evo.reason||""}
+                                  onClick={function(){ if(canEvo||canVow) evolve(digi.uid,evo.id); }}>
+                                  {ci&&<span style={{ marginRight:4 }}>{ci.icon}</span>}{btnLbl}
+                                </button>
+                              );
+                            })}
+                            {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</button>}
                           </div>
                         </div>
                       </div>
@@ -1266,14 +1358,15 @@ useEffect(() => {
                 {farm.length===0
                   ? <div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No Digimon in the farm yet.</div>
                   : farm.map(function(d){
+                    var fi = DIGIMON_MAP[d.speciesId];
                     return (
                       <div key={d.uid} className="pcard" style={{ padding:14,display:"flex",alignItems:"center",gap:14 }}>
                         <DigiSprite digimonId={d.speciesId} size={54} animate={false}/>
                         <div style={{ flex:1 }}>
                           <div style={{ fontWeight:800,fontSize:14 }}>{d.name}</div>
-                          <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>Lv.{d.level} · ABI {d.abi}</div>
+                          <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>Lv.{d.level} · {fi&&fi.stage} · {fi&&fi.role}</div>
                         </div>
-                        <button className="px8" style={{ padding:"7px 12px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){recallFromFarm(d.uid);}}>RECALL</button>
+                        <button className="px8" style={{ padding:"7px 12px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){ recallFromFarm(d.uid); }}>RECALL</button>
                       </div>
                     );
                   })
@@ -1284,17 +1377,23 @@ useEffect(() => {
             {/* ── BATTLE ───────────────────────────────────────────────── */}
             {page==="battle"&&(
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-                <div className="px12">BATTLE ARENA</div>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div className="px12">BATTLE ARENA</div>
+                  <div className="px8" style={{ color:"#4ECDC4" }}>⚡ Stamina: {stamina}/{STAMINA_MAX}</div>
+                </div>
                 {!battleState?(
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
                     {["Easy","Medium","Hard"].map(function(diff){
-                      var r=BATTLE_REWARDS[diff]||{win:60,loss:25};
-                      var c=diff==="Easy"?T.green:diff==="Medium"?T.gold:T.coral;
+                      var r    = BATTLE_REWARDS[diff]||{win:60,loss:25};
+                      var cost = STAMINA_COSTS["bot_"+diff.toLowerCase()]||10;
+                      var c    = diff==="Easy"?T.green:diff==="Medium"?T.gold:T.coral;
+                      var ok   = stamina >= cost;
                       return (
-                        <div key={diff} className="pcard" style={{ padding:20,textAlign:"center",cursor:"pointer",borderColor:c,boxShadow:"3px 3px 0 "+c }} onClick={function(){startBattle(diff);}}>
+                        <div key={diff} className="pcard" style={{ padding:20,textAlign:"center",cursor:ok?"pointer":"not-allowed",borderColor:c,boxShadow:"3px 3px 0 "+c,opacity:ok?1:0.55 }} onClick={function(){ if(ok) startBattle(diff); }}>
                           <div className="px10" style={{ color:c,marginBottom:8 }}>{diff.toUpperCase()}</div>
-                          <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}>Win {r.win}🪙</div>
-                          <div style={{ fontSize:11,fontWeight:700,color:T.textDim }}>Loss {r.loss}🪙</div>
+                          <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginBottom:4 }}>Win {r.win}🪙</div>
+                          <div style={{ fontSize:11,fontWeight:700,color:T.textDim,marginBottom:8 }}>Loss {r.loss}🪙</div>
+                          <div className="px8" style={{ color:"#4ECDC4",fontSize:"6px" }}>Costs {cost} ⚡</div>
                         </div>
                       );
                     })}
@@ -1304,12 +1403,17 @@ useEffect(() => {
                     <div className="sec-label">ENEMY TEAM — tap to attack</div>
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
                       {battleState.enemyTeam.map(function(e,i){
+                        var ebs = calcBattleStats(e);
                         return (
-                          <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){battleAttack(i);}}>
+                          <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){ battleAttack(i); }}>
                             <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0}/>
                             <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{e.name}</div>
                             <Bar value={e.currentHp} max={e.maxHp} color={T.coral} h={6}/>
-                            <div style={{ fontSize:9,color:T.textMid,marginTop:2 }}>{e.currentHp}/{e.maxHp}</div>
+                            <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
+                              {[["PWR",ebs.Power,"#FF6B35"],["GRD",ebs.Guard,"#7EB8F7"]].map(function(s){
+                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:12,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"5px",color:T.textDim }}>{s[0]}</div></div>;
+                              })}
+                            </div>
                           </div>
                         );
                       })}
@@ -1317,13 +1421,22 @@ useEffect(() => {
                     <div className="sec-label">YOUR TEAM — select attacker</div>
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
                       {battleState.playerTeam.map(function(p,i){
-                        var isAct=battleState.selected===i;
+                        var isAct = battleState.selected===i;
+                        var pbs   = calcBattleStats(p);
+                        var pInfo = DIGIMON_MAP[p.speciesId];
+                        var role  = pInfo&&ROLES[pInfo.role]?ROLES[pInfo.role]:ROLES.Balanced;
                         return (
-                          <div key={i} className={"battle-tile player"+(isAct?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){setBattleState(function(bs){return Object.assign({},bs,{selected:i});});}}>
+                          <div key={i} className={"battle-tile player"+(isAct?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){ setBattleState(function(bs){ return Object.assign({},bs,{selected:i}); }); }}>
                             <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isAct?"happy":"stoic"} animate={isAct&&p.currentHp>0}/>
                             <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{p.name}</div>
                             <Bar value={p.currentHp} max={p.maxHp} color={T.green} h={6}/>
+                            <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
+                              {[["PWR",pbs.Power,"#FF6B35"],["GRD",pbs.Guard,"#7EB8F7"],["FOC",pbs.Focus,"#B8A0E8"],["MTM",pbs.Momentum,"#FFD700"]].map(function(s){
+                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:11,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"5px",color:T.textDim }}>{s[0]}</div></div>;
+                              })}
+                            </div>
                             {isAct&&<div className="px8" style={{ color:accent,marginTop:4,fontSize:"6px" }}>★ ATTACKER</div>}
+                            {isAct&&pInfo&&pInfo.passive&&<div style={{ fontSize:9,color:T.mint,marginTop:2,fontStyle:"italic",lineHeight:1.3 }}>{pInfo.passive.split('—')[0]}</div>}
                           </div>
                         );
                       })}
@@ -1340,7 +1453,7 @@ useEffect(() => {
                     <div style={{ fontSize:42,marginBottom:12 }}>{battleState.phase==="won"?"🏆":"💀"}</div>
                     <div className="px12" style={{ color:battleState.phase==="won"?T.green:T.coral,marginBottom:8 }}>{battleState.phase==="won"?"VICTORY!":"DEFEATED"}</div>
                     <div style={{ fontSize:12,color:T.textMid,marginBottom:20 }}>{battleState.log[0]}</div>
-                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"7px" }} onClick={function(){setBattleState(null);}}>RETURN</button>
+                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"7px" }} onClick={function(){ setBattleState(null); }}>RETURN</button>
                   </div>
                 )}
               </div>
@@ -1348,31 +1461,64 @@ useEffect(() => {
 
             {/* ── CHAT ─────────────────────────────────────────────────── */}
             {page==="chat"&&activeDigi&&(
-              <ChatPage digimon={Object.assign({},activeDigi,{stage:activeInfo?activeInfo.stage:"Rookie",streak:streak,hp:75})} tasks={tasks}/>
+              <ChatPage digimon={Object.assign({},activeDigi,{stage:activeInfo?activeInfo.stage:"Rookie",streak,hp:75})} tasks={tasks}/>
             )}
 
             {/* ── STORE ────────────────────────────────────────────────── */}
             {page==="store"&&(
-              <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+              <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div className="px12">NEEMON'S SHOP</div>
+                  <div className="px12">JIJIMON'S SHOP</div>
                   <div className="px8" style={{ color:T.gold }}>🪙 {bits} BITS</div>
                 </div>
-                <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>Earn bits by winning Arena battles.</div>
-                {STORE_ITEMS.map(function(item){
-                  return (
-                    <div key={item.id} className="store-row">
-                      <span style={{ fontSize:24,flexShrink:0 }}>{item.icon}</span>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:14,fontWeight:800 }}>{item.name}</div>
-                        <div className="px8" style={{ color:T.textDim,marginTop:3,fontSize:"6px" }}>ONE-TIME USE</div>
-                      </div>
-                      <button className="px8" style={{ padding:"7px 12px",background:bits>=item.cost?T.gold+"22":"transparent",border:"2px solid "+(bits>=item.cost?T.gold:T.textDim),color:bits>=item.cost?T.gold:T.textDim,cursor:bits>=item.cost?"pointer":"not-allowed",fontSize:"6px",boxShadow:bits>=item.cost?"2px 2px 0 "+T.gold:"none" }} onClick={function(){buyItem(item);}}>
-                        {item.cost}🪙
-                      </button>
-                    </div>
-                  );
-                })}
+                <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>Earn bits by winning Arena battles and completing tasks.</div>
+
+                {/* Food section */}
+                <div>
+                  <div className="sec-label">🍎 FOOD — restores Stamina</div>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8,marginTop:8 }}>
+                    {FOOD_ITEMS.map(function(food){
+                      var ok = bits >= food.cost && (STAMINA_FOOD_CAP - foodStaminaToday) > 0;
+                      return (
+                        <div key={food.id} className="store-row" style={{ borderColor:ok?T.pink:T.border }}>
+                          <span style={{ fontSize:24,flexShrink:0 }}>{food.icon}</span>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:14,fontWeight:800 }}>{food.name}</div>
+                            <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>+{food.stamina}⚡ Stamina  ·  +{food.bond}💗 Bond  ·  {food.desc}</div>
+                          </div>
+                          <button className="px8" style={{ padding:"7px 12px",background:ok?T.pink+"22":"transparent",border:"2px solid "+(ok?T.pink:T.textDim),color:ok?T.pink:T.textDim,cursor:ok?"pointer":"not-allowed",fontSize:"6px",boxShadow:ok?"2px 2px 0 "+T.pink:"none" }}
+                            onClick={function(){ if(ok) feedFood(food); }}>
+                            {food.cost}🪙
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {STAMINA_FOOD_CAP-foodStaminaToday<=0&&<div style={{ fontSize:11,color:T.textDim,fontStyle:"italic",padding:"4px 0" }}>Daily food stamina cap reached. Resets tomorrow.</div>}
+                  </div>
+                </div>
+
+                {/* Upgrades */}
+                <div>
+                  <div className="sec-label">⭐ UPGRADES & SPECIAL</div>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8,marginTop:8 }}>
+                    {SHOP_ITEMS.map(function(item){
+                      var ok = bits >= item.cost;
+                      return (
+                        <div key={item.id} className="store-row">
+                          <span style={{ fontSize:24,flexShrink:0 }}>{item.icon}</span>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:14,fontWeight:800 }}>{item.name}</div>
+                            {item.desc&&<div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>{item.desc}</div>}
+                          </div>
+                          <button className="px8" style={{ padding:"7px 12px",background:ok?T.gold+"22":"transparent",border:"2px solid "+(ok?T.gold:T.textDim),color:ok?T.gold:T.textDim,cursor:ok?"pointer":"not-allowed",fontSize:"6px",boxShadow:ok?"2px 2px 0 "+T.gold:"none" }}
+                            onClick={function(){ if(ok) buyShopItem(item); }}>
+                            {item.cost}🪙
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1384,31 +1530,30 @@ useEffect(() => {
                   <span className="px8" style={{ color:accent }}>{allDisc.length}/{Object.keys(DIGIMON_MAP).length}</span>
                 </div>
                 <Bar value={allDisc.length} max={Object.keys(DIGIMON_MAP).length} color={accent} h={8}/>
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:10 }}>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10 }}>
                   {Object.values(DIGIMON_MAP).map(function(d){
-                    var known=allDisc.indexOf(d.id)>=0;
+                    var known = allDisc.indexOf(d.id)>=0;
+                    var role  = ROLES[d.role]||ROLES.Balanced;
                     return (
-                      <div key={d.id} className="pcard" style={{ padding:12,textAlign:"center",opacity:known?1:0.45,cursor:"pointer",transition:"all 0.1s" }}
-                        onClick={function(){ setDexSelected(d.id); }}
-                        onMouseEnter={function(e){ e.currentTarget.style.borderColor=accent; e.currentTarget.style.boxShadow="3px 3px 0 "+accent; }}
-                        onMouseLeave={function(e){ e.currentTarget.style.borderColor=""; e.currentTarget.style.boxShadow=""; }}>
-                        <div style={{ margin:"0 auto",width:48,height:48 }}>
-                          <DigiSprite digimonId={d.id} size={48} animate={false}/>
-                        </div>
-                        <div style={{ fontSize:11,fontWeight:800,marginTop:6 }}>{known?d.name:"???"}</div>
-                        <div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:4,fontSize:"6px" }}>{d.stage}</div>
+                      <div key={d.id} className="pcard" style={{ padding:14,textAlign:"center",opacity:known?1:0.3 }}>
+                        {known
+                          ? <DigiSprite digimonId={d.id} size={48} animate={false}/>
+                          : <div style={{ width:48,height:48,margin:"0 auto",background:T.bgPanel,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:18,color:T.textDim }}>?</div>
+                        }
+                        <div style={{ fontSize:11,fontWeight:800,marginTop:8 }}>{known?d.name:"???"}</div>
+                        {known&&<div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:5,fontSize:"6px" }}>{d.stage}</div>}
+                        {known&&<div className="px8" style={{ color:role.color,marginTop:3,fontSize:"5px" }}>{role.icon} {d.role}</div>}
                       </div>
                     );
                   })}
                 </div>
-                {dexSelected&&<DigiDexModal id={dexSelected} allDisc={allDisc} onClose={function(){setDexSelected(null);}} accent={accent} T={T}/>}
               </div>
             )}
 
           </div>
         </main>
 
-        {/* ═══ RIGHT — INVENTORY + LOG ════════════════════════════════════ */}
+        {/* ═══ RIGHT — LOG + PARTY ════════════════════════════════════════ */}
         <aside className="right-col" style={{ background:T.bgPanel,borderLeft:"2px solid "+T.border,padding:"24px 18px",display:"flex",flexDirection:"column",gap:22,overflowY:"auto" }}>
 
           {/* Daily Quest */}
@@ -1416,28 +1561,13 @@ useEffect(() => {
             <div className="sec-title">DAILY QUEST</div>
             <div style={{ background:"linear-gradient(135deg,#1a1a00,#1f1800)",border:"2px solid "+T.gold,boxShadow:"3px 3px 0 "+T.gold,padding:14 }}>
               <div className="px8" style={{ color:T.gold,marginBottom:6 }}>🗡 PRODUCTIVITY WARRIOR</div>
-              <div style={{ fontSize:12,fontWeight:700,color:T.textMid,marginBottom:10,lineHeight:1.5 }}>Complete {questTotal} tasks before midnight to earn a Rare Treat!</div>
+              <div style={{ fontSize:12,fontWeight:700,color:T.textMid,marginBottom:10,lineHeight:1.5 }}>Complete 5 tasks to earn a Rare Treat!</div>
               <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                 <div style={{ flex:1,height:10,background:T.bgCard,border:"1.5px solid "+T.border,overflow:"hidden" }}>
-                  <div style={{ width:Math.min((questDone/questTotal)*100,100)+"%",height:"100%",background:T.coral }}/>
+                  <div style={{ width:Math.min((doneTasks.length/5)*100,100)+"%",height:"100%",background:T.coral }}/>
                 </div>
-                <div className="px8" style={{ color:T.gold,fontSize:"6px" }}>{questDone}/{questTotal}</div>
+                <div className="px8" style={{ color:T.gold,fontSize:"6px" }}>{doneTasks.length}/5</div>
               </div>
-            </div>
-          </div>
-
-          {/* Inventory */}
-          <div>
-            <div className="sec-title">INVENTORY</div>
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6 }}>
-              {INV_ITEMS.map(function(item,i){
-                return (
-                  <div key={i} className={"inv-slot"+(item.count===0?" empty":"")} title={item.count>0?item.icon:""}>
-                    <span>{item.icon}</span>
-                    {item.count>0&&<span className="px8" style={{ position:"absolute",bottom:2,right:3,fontSize:"5px",color:T.textMid }}>{item.count}</span>}
-                  </div>
-                );
-              })}
             </div>
           </div>
 
@@ -1448,9 +1578,7 @@ useEffect(() => {
               {actLog.map(function(entry,i){
                 return (
                   <div key={i} style={{ display:"flex",gap:10,alignItems:"flex-start" }}>
-                    <div style={{ width:24,height:24,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:12,flexShrink:0,background:T.bgCard }}>
-                      {entry.icon}
-                    </div>
+                    <div style={{ width:24,height:24,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:12,flexShrink:0,background:T.bgCard }}>{entry.icon}</div>
                     <div>
                       <div style={{ fontSize:11,fontWeight:700,color:T.textMid,lineHeight:1.5 }}>{entry.text}</div>
                       <div className="px8" style={{ color:T.textDim,marginTop:2,fontSize:"5px" }}>{entry.time}</div>
@@ -1461,19 +1589,22 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Party quick-view */}
+          {/* Party */}
           <div>
             <div className="sec-title">PARTY</div>
             <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
               {party.map(function(d,i){
-                var inf2=DIGIMON_MAP[d.speciesId];
+                var inf2 = DIGIMON_MAP[d.speciesId];
+                var role = inf2&&ROLES[inf2.role]?ROLES[inf2.role]:ROLES.Balanced;
                 return (
                   <div key={d.uid} className="digi-card" style={{ display:"flex",alignItems:"center",gap:10,borderColor:i===0?accent:T.border }}
-                    draggable onDragStart={function(){dragIdx.current=i;}} onDrop={function(){if(dragIdx.current!==null&&dragIdx.current!==i){setParty(function(p){var a=p.slice();var tmp=a[dragIdx.current];a[dragIdx.current]=a[i];a[i]=tmp;return a;});}dragIdx.current=null;}} onDragOver={function(e){e.preventDefault();}}>
+                    draggable onDragStart={function(){ dragIdx.current=i; }}
+                    onDrop={function(){ if(dragIdx.current!==null&&dragIdx.current!==i){ setParty(function(p){ var a=p.slice(); var tmp=a[dragIdx.current]; a[dragIdx.current]=a[i]; a[i]=tmp; return a; }); } dragIdx.current=null; }}
+                    onDragOver={function(e){ e.preventDefault(); }}>
                     <DigiSprite digimonId={d.speciesId} size={32} animate={false}/>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12,fontWeight:800 }}>{d.name}</div>
-                      <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginTop:2 }}>Lv.{d.level} · {inf2&&inf2.stage}</div>
+                      <div className="px8" style={{ color:role.color,fontSize:"5px",marginTop:2 }}>{role.icon} {inf2&&inf2.role}</div>
                     </div>
                     {i===0&&<span className="px8" style={{ color:accent,fontSize:"6px" }}>★</span>}
                   </div>
@@ -1488,40 +1619,236 @@ useEffect(() => {
   );
 }
 
+// ── RadarChart (SVG, no deps) ─────────────────────────────────────────────────
+function RadarChart({ percentages, T }) {
+  var CRESTS = ["Courage","Hope","Knowledge","Reliability","Care","Friendship","Sincerity","Light"];
+  var cx = 110, cy = 110, r = 80, n = CRESTS.length;
+  function pt(i, pct) {
+    var a = (i / n) * 2 * Math.PI - Math.PI / 2;
+    var d = r * Math.min(pct, 100) / 100;
+    return [cx + d * Math.cos(a), cy + d * Math.sin(a)];
+  }
+  function outerPt(i) { return pt(i, 100); }
+  var dataPoints  = CRESTS.map(function(c,i){ return pt(i, percentages[c]||0); });
+  var outerPoints = CRESTS.map(function(_,i){ return outerPt(i); });
+  var poly = dataPoints.map(function(p){ return p[0].toFixed(1)+","+p[1].toFixed(1); }).join(" ");
+  var grids = [25,50,75,100];
+  return (
+    <svg width={220} height={220} viewBox="0 0 220 220">
+      {/* Grid rings */}
+      {grids.map(function(g){
+        var gpts = CRESTS.map(function(_,i){ var p=pt(i,g); return p[0].toFixed(1)+","+p[1].toFixed(1); }).join(" ");
+        return <polygon key={g} points={gpts} fill="none" stroke={T.border} strokeWidth={1} opacity={0.7}/>;
+      })}
+      {/* Axis lines */}
+      {outerPoints.map(function(p,i){
+        return <line key={i} x1={cx} y1={cy} x2={p[0].toFixed(1)} y2={p[1].toFixed(1)} stroke={T.border} strokeWidth={1} opacity={0.6}/>;
+      })}
+      {/* Data fill */}
+      <polygon points={poly} fill="rgba(78,205,196,0.18)" stroke="#4ECDC4" strokeWidth={2}/>
+      {/* Data dots */}
+      {dataPoints.map(function(p,i){
+        var ci = CREST_INFO[CRESTS[i]];
+        return <circle key={i} cx={p[0].toFixed(1)} cy={p[1].toFixed(1)} r={4} fill={ci.color} stroke={T.bgCard} strokeWidth={1.5}/>;
+      })}
+      {/* Labels */}
+      {outerPoints.map(function(p,i){
+        var ci = CREST_INFO[CRESTS[i]];
+        var lx = (cx + (r+18) * Math.cos((i/n)*2*Math.PI - Math.PI/2)).toFixed(1);
+        var ly = (cy + (r+18) * Math.sin((i/n)*2*Math.PI - Math.PI/2)).toFixed(1);
+        return (
+          <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill={ci.color}>
+            {ci.icon}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ── CrestsPage ────────────────────────────────────────────────────────────────
+function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, T, accent, onGoTeam }) {
+  var windowDays = 14;
+  var today = new Date().toISOString().split('T')[0];
+  var todayEntries = crestHistory.filter(function(e){ return e.date===today; });
+  var todayCounts = {};
+  todayEntries.forEach(function(e){
+    if (e.primaryCrest) todayCounts[e.primaryCrest] = (todayCounts[e.primaryCrest]||0) + e.primary;
+  });
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
+      <div className="px12">CREST ALIGNMENT</div>
+
+      {/* Primary / Secondary callout */}
+      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+        {[
+          { role:"Primary Crest",   key:crestProfile.primary },
+          { role:"Supporting Crest",key:crestProfile.secondary },
+        ].map(function(slot){
+          var ci = slot.key ? CREST_INFO[slot.key] : null;
+          return (
+            <div key={slot.role} className="pcard" style={{ padding:16,borderColor:ci?ci.color:T.border,boxShadow:"3px 3px 0 "+(ci?ci.color:T.border) }}>
+              <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>{slot.role.toUpperCase()}</div>
+              {ci ? (
+                <div>
+                  <div style={{ fontSize:32,marginBottom:6 }}>{ci.icon}</div>
+                  <div style={{ fontSize:18,fontWeight:900,color:ci.color }}>{slot.key}</div>
+                  <div style={{ fontSize:11,color:T.textMid,marginTop:4 }}>{ci.desc}</div>
+                </div>
+              ) : (
+                <div style={{ fontSize:11,color:T.textDim,fontStyle:"italic" }}>Complete tasks to determine alignment.</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* All 8 crests */}
+      <div className="pcard" style={{ padding:16 }}>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+          <div className="px9">ALIGNMENT PROFILE</div>
+          <div style={{ fontSize:11,color:T.textMid }}>Rolling {windowDays}-day window</div>
+        </div>
+        {Object.entries(crestProfile.percentages||{})
+          .sort(function(a,b){ return b[1]-a[1]; })
+          .map(function([name, pct]){
+            var ci = CREST_INFO[name];
+            var isPrim = name===crestProfile.primary;
+            var isSec  = name===crestProfile.secondary;
+            return (
+              <div key={name} style={{ marginBottom:10 }}>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
+                  <span style={{ fontSize:16,width:22,textAlign:"center",flexShrink:0 }}>{ci.icon}</span>
+                  <span style={{ fontSize:12,fontWeight:800,color:ci.color,width:100,flexShrink:0 }}>{name}</span>
+                  {isPrim&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"5px" }}>★ PRIMARY</span>}
+                  {isSec&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.textMid,color:T.textMid,fontSize:"5px" }}>◆ SUPPORT</span>}
+                  <span className="px8" style={{ color:T.textMid,fontSize:"6px",marginLeft:"auto" }}>{pct}%</span>
+                </div>
+                <div style={{ height:10,background:T.bgPanel,border:"2px solid "+T.border,overflow:"hidden" }}>
+                  <div style={{ width:pct+"%",height:"100%",background:ci.color,transition:"width 0.8s ease",position:"relative" }}>
+                    <div style={{ position:"absolute",top:2,left:3,right:3,height:3,background:"rgba(255,255,255,0.25)" }}/>
+                  </div>
+                </div>
+                <div style={{ fontSize:10,color:T.textDim,marginTop:2 }}>{ci.desc}</div>
+              </div>
+            );
+          })
+        }
+      </div>
+
+      {/* Today's crest activity */}
+      <div className="pcard" style={{ padding:14 }}>
+        <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"7px" }}>TODAY'S CREST ACTIVITY</div>
+        {Object.keys(todayCounts).length > 0 ? (
+          <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
+            {Object.entries(todayCounts).map(function([name,pts]){
+              var ci = CREST_INFO[name];
+              return (
+                <div key={name} style={{ display:"flex",alignItems:"center",gap:6,padding:"6px 10px",border:"1.5px solid "+ci.color,background:ci.color+"18" }}>
+                  <span style={{ fontSize:14 }}>{ci.icon}</span>
+                  <span style={{ fontSize:12,fontWeight:800,color:ci.color }}>{name}</span>
+                  <span className="px8" style={{ color:ci.color,fontSize:"7px" }}>+{pts}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize:11,color:T.textDim,fontStyle:"italic" }}>No crest tasks completed yet today.</div>
+        )}
+      </div>
+
+      {/* Evolution path hint */}
+      {activeInfo&&activeInfo.evolvesTo&&activeInfo.evolvesTo.length>0&&(
+        <div className="pcard" style={{ padding:14 }}>
+          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"7px" }}>EVOLUTION PATHS FROM {(activeDigi&&activeDigi.name)||"PARTNER"}</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            {activeInfo.evolvesTo.map(function(id){
+              var ti = DIGIMON_MAP[id];
+              if (!ti||ti.fusionOf) return null;
+              var cr = ti.crestReq;
+              if (!cr) return null;
+              var pci = CREST_INFO[cr.primary];
+              var sci = cr.secondary ? CREST_INFO[cr.secondary] : null;
+              var pPct = (crestProfile.percentages&&crestProfile.percentages[cr.primary])||0;
+              var sPct = sci ? ((crestProfile.percentages&&crestProfile.percentages[cr.secondary])||0) : 0;
+              var matchScore = Math.round(cr.secondary ? pPct*0.7+sPct*0.3 : pPct);
+              return (
+                <div key={id} style={{ padding:"10px 12px",background:T.bgPanel,border:"2px solid "+T.border }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:6 }}>
+                    <DigiSprite digimonId={id} size={36} animate={false}/>
+                    <div>
+                      <div style={{ fontSize:13,fontWeight:800 }}>{ti.name}</div>
+                      <div className="px8" style={{ color:CREST_INFO[cr.primary].color,fontSize:"6px",marginTop:2 }}>{pci.icon} {cr.primary}{sci?" + "+sci.icon+" "+cr.secondary:""}</div>
+                    </div>
+                    <div style={{ marginLeft:"auto",textAlign:"right" }}>
+                      <div style={{ fontSize:18,fontWeight:900,color:matchScore>=70?T.green:matchScore>=40?T.gold:T.coral }}>{matchScore}%</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"5px" }}>MATCH</div>
+                    </div>
+                  </div>
+                  {/* Mini bars */}
+                  <div style={{ display:"flex",flexDirection:"column",gap:3 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <span style={{ fontSize:10,width:16 }}>{pci.icon}</span>
+                      <div style={{ flex:1,height:6,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden" }}>
+                        <div style={{ width:pPct+"%",height:"100%",background:pci.color,transition:"width 0.6s ease" }}/>
+                      </div>
+                      <span className="px8" style={{ color:T.textMid,fontSize:"5px",width:24,textAlign:"right" }}>{pPct}%</span>
+                    </div>
+                    {sci&&(
+                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                        <span style={{ fontSize:10,width:16 }}>{sci.icon}</span>
+                        <div style={{ flex:1,height:6,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden" }}>
+                          <div style={{ width:sPct+"%",height:"100%",background:sci.color,transition:"width 0.6s ease" }}/>
+                        </div>
+                        <span className="px8" style={{ color:T.textMid,fontSize:"5px",width:24,textAlign:"right" }}>{sPct}%</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button className="px8" style={{ marginTop:12,padding:"8px 14px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={onGoTeam}>
+            GO TO TEAM →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TasksPage ─────────────────────────────────────────────────────────────────
 function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, accent, streak, T }) {
-  var [filterCat,  setFilterCat]  = useState("All");
+  var [filterTpl,  setFilterTpl]  = useState("All");
   var [filterType, setFilterType] = useState("All");
   var [showAdd,    setShowAdd]    = useState(false);
   var [editId,     setEditId]     = useState(null);
-  var [form, setForm] = useState({ title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
+  var [form, setForm] = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
 
-  function reset(){ setForm({title:"",category:"HP",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }
+  function reset(){ setForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }
   function submitAdd(){ if(!form.title.trim())return; onAdd(form); reset(); setShowAdd(false); }
   function submitEdit(){ if(!editId||!form.title.trim())return; onEdit(editId,form); setEditId(null); reset(); }
-  function startEdit(t){ setEditId(t.id); setForm({title:t.title,category:t.category,priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
+  function startEdit(t){ setEditId(t.id); setForm({title:t.title,template:t.template||"Neutral",priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
 
-  var typeColor = {once:T.lavender,daily:T.teal,recurring:T.mint};
-  var visible   = tasks
-    .filter(function(t){ return (filterCat==="All"||t.category===filterCat)&&(filterType==="All"||t.type===filterType); })
+  var typeColor = { once:T.lavender, daily:T.teal, recurring:T.mint };
+  var visible = tasks
+    .filter(function(t){ return (filterTpl==="All"||t.template===filterTpl)&&(filterType==="All"||t.type===filterType); })
     .sort(function(a,b){ return (a.done===b.done)?0:a.done?1:-1; });
-
-  var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif" };
-  var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
 
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-      {/* Category filters */}
+      {/* Template filters */}
       <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,width:"fit-content",flexWrap:"wrap" }}>
-        {[{id:"All",icon:"◈"}].concat(STAT_CATEGORIES).map(function(c){
-          var id=c.id; var a=filterCat===id;
-          return <button key={id} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?(c.color||accent):T.textMid,borderRight:"2px solid "+T.border }} onClick={function(){setFilterCat(id);}}>{c.icon||""} {id}</button>;
+        {["All"].concat(["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"]).map(function(c){
+          var a=filterTpl===c;
+          return <button key={c} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterTpl(c); }}>{c.toUpperCase()}</button>;
         })}
       </div>
       <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,width:"fit-content" }}>
         {["All","once","daily","recurring"].map(function(t){
           var a=filterType===t;
-          return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid,borderRight:"2px solid "+T.border }} onClick={function(){setFilterType(t);}}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
+          return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(t); }}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
         })}
       </div>
 
@@ -1533,14 +1860,15 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
       {visible.length===0&&<div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No tasks found.</div>}
 
       {visible.map(function(t){
-        var xp=calcXpReward(t,streak); var sp=calcStatReward(t);
-        var stars=t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
+        var xp    = calcXpReward(t,streak);
+        var cg    = calcCrestGain(t.template, t.difficulty);
+        var stars = t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
         return (
           <div key={t.id}>
             {editId===t.id
               ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){setEditId(null);reset();}} label="SAVE" accent={accent} T={T}/>
               : (
-                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()+(t.done?" done":"")} style={{ borderColor:T.border }}>
+                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()+(t.done?" done":"")}>
                   <div className={"task-check"+(t.done?" checked":"")} onClick={function(){if(!t.done)onComplete(t.id);}}>
                     {t.done&&<span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>}
                   </div>
@@ -1548,9 +1876,12 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
                     <div style={{ fontSize:14,fontWeight:800,textDecoration:t.done?"line-through":"none" }}>{t.title}</div>
                     {t.notes&&<div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.notes}</div>}
                     <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center" }}>
-                      {(function(){ var sc=STAT_CATEGORIES.find(function(s){return s.id===t.category;}); return sc ? <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(sc.color||T.border),color:sc.color||T.textMid,background:T.bgPanel,fontSize:"6px" }}>{sc.icon} {sc.id}</span> : <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.category}</span>; })()}
+                      {/* Template badge with crest icon */}
+                      {cg&&<span style={{ fontSize:12 }}>{CREST_INFO[cg.primaryCrest]?.icon}</span>}
+                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.template}</span>
                       <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"6px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
                       <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
+                      {cg&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(CREST_INFO[cg.primaryCrest]?.color||T.border),color:CREST_INFO[cg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"6px" }}>+{cg.primary} {cg.primaryCrest}</span>}
                       <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"6px" }}>{t.priority.toUpperCase()}</span>
                       {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"6px" }}>🔥 {t.streak}D</span>}
                       {t.dueDate&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"6px" }}>📅 {t.dueDate}</span>}
@@ -1573,235 +1904,15 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
   );
 }
 
-// ── DigiDexModal — full evolution tree shown on click ─────────────────────────
-function DigiDexModal({ id, allDisc, onClose, accent, T }) {
-  var info = DIGIMON_MAP[id];
-  if (!info) return null;
-
-  var STAGE_ORDER = ["Baby","In-Training","Rookie","Champion","Ultimate","Mega","Ultra"];
-
-  // Walk up parent chain to find the root of this evolution line
-  function getRoot(startId) {
-    var cur = startId;
-    var visited = new Set();
-    while (true) {
-      if (visited.has(cur)) break;
-      visited.add(cur);
-      var parent = Object.values(DIGIMON_MAP).find(function(d){ return !d.fusionOf && (d.evolvesTo||[]).indexOf(cur)>=0; });
-      if (!parent) break;
-      cur = parent.id;
-    }
-    return cur;
-  }
-
-  // BFS to collect all digimon reachable from rootId
-  function getDescendants(rootId) {
-    var result = [];
-    var queue = [rootId];
-    var seen = new Set();
-    while (queue.length) {
-      var cur = queue.shift();
-      if (seen.has(cur)) continue;
-      seen.add(cur);
-      var d = DIGIMON_MAP[cur];
-      if (!d) continue;
-      result.push(cur);
-      (d.evolvesTo||[]).forEach(function(tid){ if(!DIGIMON_MAP[tid]||!DIGIMON_MAP[tid].fusionOf) queue.push(tid); });
-    }
-    return result;
-  }
-
-  // Find direct path from one id to another (for highlighting dedigivolution route)
-  function findPath(fromId, toId, visited) {
-    visited = visited || new Set();
-    if (fromId === toId) return [fromId];
-    if (visited.has(fromId)) return null;
-    visited.add(fromId);
-    var d = DIGIMON_MAP[fromId];
-    if (!d) return null;
-    for (var i=0; i<(d.evolvesTo||[]).length; i++) {
-      var sub = findPath(d.evolvesTo[i], toId, visited);
-      if (sub) return [fromId].concat(sub);
-    }
-    return null;
-  }
-
-  var rootId   = getRoot(id);
-  var chainIds = getDescendants(rootId);
-
-  // Group by stage
-  var byStage = {};
-  chainIds.forEach(function(did){
-    var d = DIGIMON_MAP[did];
-    if (!d) return;
-    if (!byStage[d.stage]) byStage[d.stage] = [];
-    byStage[d.stage].push(did);
-  });
-  var stages = STAGE_ORDER.filter(function(s){ return byStage[s] && byStage[s].length > 0; });
-
-  var pathToSelected = findPath(rootId, id) || [id];
-
-  // Format evoRequires for display
-  function fmtReq(req) {
-    if (!req) return null;
-    var parts = [];
-    if (req.level) parts.push({ label:"Lv."+req.level, color:T.teal });
-    if (req.abi)   parts.push({ label:"ABI."+req.abi,  color:T.lavender });
-    Object.entries(req.stats||{}).forEach(function(e){ parts.push({ label:e[0]+" "+e[1], color:T.gold }); });
-    return parts;
-  }
-
-  // Find what evolves INTO a given digimon (its pre-evolutions)
-  function getParents(targetId) {
-    return Object.values(DIGIMON_MAP).filter(function(d){ return !d.fusionOf && (d.evolvesTo||[]).indexOf(targetId)>=0; });
-  }
-
-  var known = allDisc.indexOf(id) >= 0;
-
-  return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }} onClick={onClose}>
-      <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,width:"100%",maxWidth:680,maxHeight:"88vh",overflowY:"auto",padding:20,display:"flex",flexDirection:"column",gap:16 }} onClick={function(e){e.stopPropagation();}}>
-
-        {/* ── Header ── */}
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-          <div style={{ display:"flex",gap:14,alignItems:"center" }}>
-            <DigiSprite digimonId={id} size={72} mood="happy" animate={true}/>
-            <div>
-              <div className="px12" style={{ color:known?T.text:T.textDim }}>{known?info.name:"???"}</div>
-              <div style={{ display:"flex",gap:6,marginTop:7,flexWrap:"wrap" }}>
-                <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+(STAGE_COLOR[info.stage]||"#aaa"),color:STAGE_COLOR[info.stage]||"#aaa",fontSize:"6px" }}>{info.stage}</span>
-                <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+(ATTR_COLOR[info.attr]||"#aaa"),color:ATTR_COLOR[info.attr]||"#aaa",fontSize:"6px" }}>{info.attr}</span>
-                <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.border,color:T.textMid,fontSize:"6px" }}>{info.type}</span>
-                {!known&&<span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.textDim,color:T.textDim,fontSize:"6px" }}>UNDISCOVERED</span>}
-              </div>
-            </div>
-          </div>
-          <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:24,padding:"0 4px",lineHeight:1 }} onClick={onClose}>×</button>
-        </div>
-
-        {/* ── Base stats ── */}
-        {known&&(
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6,background:T.bgPanel,padding:10,border:"1px solid "+T.border }}>
-            {[["HP",info.hp,T.green],["SP",info.sp,T.lavender],["ATK",info.atk,T.coral],["DEF",info.def,T.teal],["INT",info.int,T.mint],["SPD",info.spd,T.gold]].map(function(s){
-              return <div key={s[0]} style={{ textAlign:"center" }}>
-                <div style={{ fontSize:13,fontWeight:900,color:s[2] }}>{s[1]}</div>
-                <div className="px8" style={{ fontSize:"5px",color:T.textMid,marginTop:2 }}>{s[0]}</div>
-              </div>;
-            })}
-          </div>
-        )}
-
-        {/* ── Evolution chain ── */}
-        <div>
-          <div className="sec-label" style={{ marginBottom:10 }}>EVOLUTION CHAIN</div>
-          <div style={{ display:"flex",flexDirection:"column",gap:0 }}>
-            {stages.map(function(stage, si){
-              var stageDigis = byStage[stage];
-              var isLastStage = si === stages.length - 1;
-              return (
-                <div key={stage}>
-                  {/* Stage row */}
-                  <div style={{ display:"flex",gap:6,alignItems:"flex-start" }}>
-                    {/* Stage label */}
-                    <div style={{ minWidth:76,paddingTop:8 }}>
-                      <div className="px8" style={{ color:STAGE_COLOR[stage]||"#aaa",fontSize:"6px",lineHeight:1.4 }}>{stage.toUpperCase()}</div>
-                    </div>
-                    {/* Digimon cards */}
-                    <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                      {stageDigis.map(function(did){
-                        var dd = DIGIMON_MAP[did];
-                        var isSelected = did === id;
-                        var isOnPath   = pathToSelected.indexOf(did) >= 0;
-                        var isKnown    = allDisc.indexOf(did) >= 0;
-                        return (
-                          <div key={did} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 10px",border:"2px solid "+(isSelected?accent:isOnPath?T.teal:T.border),background:isSelected?accent+"18":isOnPath?T.teal+"0d":T.bgPanel,opacity:isKnown?1:0.4,minWidth:70,textAlign:"center" }}>
-                            <DigiSprite digimonId={did} size={40} animate={isSelected}/>
-                            <div style={{ fontSize:10,fontWeight:800,color:isSelected?accent:isKnown?T.text:T.textDim,lineHeight:1.2 }}>{isKnown?dd.name:"???"}</div>
-                            {isSelected&&<div className="px8" style={{ fontSize:"5px",color:accent }}>◄ HERE</div>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Requirements arrow to next stage */}
-                  {!isLastStage&&(function(){
-                    var nextStage = stages[si+1];
-                    var nextDigis = byStage[nextStage];
-                    return (
-                      <div style={{ marginLeft:82,paddingLeft:10,borderLeft:"2px dashed "+T.border,paddingTop:4,paddingBottom:4 }}>
-                        {nextDigis.map(function(nid){
-                          var nd = DIGIMON_MAP[nid];
-                          var parents = getParents(nid).filter(function(p){ return chainIds.indexOf(p.id)>=0; });
-                          var req = nd.evoRequires;
-                          if (!req) return null;
-                          var parts = fmtReq(req);
-                          var isEvolvePath = pathToSelected.indexOf(nid) >= 0;
-                          return (
-                            <div key={nid} style={{ display:"flex",flexWrap:"wrap",gap:4,alignItems:"center",marginBottom:3 }}>
-                              <span style={{ fontSize:11,color:isEvolvePath?T.teal:T.textDim }}>↳ {allDisc.indexOf(nid)>=0?nd.name:"???"}</span>
-                              {parts&&parts.map(function(p,i){
-                                return <span key={i} className="px8" style={{ padding:"1px 5px",background:T.bgCard,border:"1px solid "+p.color,color:p.color,fontSize:"6px" }}>{p.label}</span>;
-                              })}
-                            </div>
-                          );
-                        }).filter(Boolean)}
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ── Dedigivolution route ── */}
-        {(function(){
-          var parents = getParents(id);
-          if (parents.length === 0) return null;
-          return (
-            <div>
-              <div className="sec-label" style={{ marginBottom:8 }}>DEDIGIVOLUTION</div>
-              <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                {parents.map(function(p){
-                  var pKnown = allDisc.indexOf(p.id)>=0;
-                  return (
-                    <div key={p.id} style={{ display:"flex",alignItems:"center",gap:8,background:T.bgPanel,border:"1.5px solid "+T.border,padding:"6px 10px",opacity:pKnown?1:0.4 }}>
-                      <DigiSprite digimonId={p.id} size={30} animate={false}/>
-                      <div>
-                        <div style={{ fontSize:11,fontWeight:800,color:pKnown?T.text:T.textDim }}>{pKnown?p.name:"???"}</div>
-                        <div className="px8" style={{ color:STAGE_COLOR[p.stage]||"#aaa",fontSize:"5px",marginTop:2 }}>{p.stage}</div>
-                      </div>
-                      <span style={{ fontSize:16,color:T.textDim }}>→</span>
-                      <span style={{ fontSize:11,fontWeight:800,color:accent }}>{known?info.name:"???"}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
-
-      </div>
-    </div>
-  );
-}
-
 // ── WeeklyPlannerPage ─────────────────────────────────────────────────────────
 function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon, onReschedule, onComplete, accent, T }) {
   var today = new Date();
-  var dayOfWeek = today.getDay(); // 0=Sun
-  var mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  var dayOfWeek = today.getDay();
+  var mondayOffset = dayOfWeek===0?-6:1-dayOfWeek;
   var monday = new Date(today);
-  monday.setDate(today.getDate() + mondayOffset);
-
+  monday.setDate(today.getDate()+mondayOffset);
   var DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  var weekDates = DAYS.map(function(_,i){
-    var d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d;
-  });
-
+  var weekDates = DAYS.map(function(_,i){ var d=new Date(monday); d.setDate(monday.getDate()+i); return d; });
   var todayStr = today.toISOString().split('T')[0];
   var allDigimon = party.concat(farm);
   var BUSY_COLOR = ['#7EF797','#FFD700','#FF9940','#FF4444'];
@@ -1814,93 +1925,75 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
           {monday.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {weekDates[6].toLocaleDateString('en-US',{month:'short',day:'numeric'})}
         </div>
       </div>
-
-      {/* Summary banner */}
       {(function(){
-        var pending = tasks.filter(function(t){ return !t.done && t.dueDate; });
-        var unscheduled = tasks.filter(function(t){ return !t.done && !t.dueDate; });
+        var pending = tasks.filter(function(t){ return !t.done&&t.dueDate; });
+        var unscheduled = tasks.filter(function(t){ return !t.done&&!t.dueDate; });
         return (
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
             <div style={{ background:T.coral+"18",border:"2px solid "+T.coral,padding:"10px 14px" }}>
               <div className="px8" style={{ color:T.coral,marginBottom:3,fontSize:"7px" }}>📋 REMAINING THIS WEEK</div>
-              <div style={{ fontSize:22,fontWeight:900,color:T.text }}>{pending.length}</div>
+              <div style={{ fontSize:22,fontWeight:900 }}>{pending.length}</div>
             </div>
             <div style={{ background:T.textDim+"18",border:"2px solid "+T.border,padding:"10px 14px" }}>
               <div className="px8" style={{ color:T.textMid,marginBottom:3,fontSize:"7px" }}>📭 UNSCHEDULED</div>
-              <div style={{ fontSize:22,fontWeight:900,color:T.text }}>{unscheduled.length}</div>
+              <div style={{ fontSize:22,fontWeight:900 }}>{unscheduled.length}</div>
             </div>
           </div>
         );
       })()}
-
-      {/* Day columns */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,overflowX:"auto" }}>
-        {weekDates.map(function(date, i){
-          var dateStr = date.toISOString().split('T')[0];
-          var dayLabel = DAYS[i];
-          var isToday = dateStr === todayStr;
-          var dayTasks = tasks.filter(function(t){ return t.dueDate === dateStr; });
+        {weekDates.map(function(date,i){
+          var dateStr   = date.toISOString().split('T')[0];
+          var dayLabel  = DAYS[i];
+          var isToday   = dateStr===todayStr;
+          var dayTasks  = tasks.filter(function(t){ return t.dueDate===dateStr; });
           var pendCount = dayTasks.filter(function(t){ return !t.done; }).length;
-          var busyColor = BUSY_COLOR[pendCount === 0 ? 0 : pendCount <= 2 ? 1 : pendCount <= 4 ? 2 : 3];
-          var assignedUid = weeklyDigimon[dayLabel];
-          var assignedDigi = allDigimon.find(function(d){ return d.uid === assignedUid; });
-
+          var busyColor = BUSY_COLOR[pendCount===0?0:pendCount<=2?1:pendCount<=4?2:3];
+          var assignedDigi = allDigimon.find(function(d){ return d.uid===weeklyDigimon[dayLabel]; });
           return (
             <div key={dayLabel} style={{ minWidth:130,background:T.bgCard,border:"2px solid "+(isToday?accent:T.border),boxShadow:"3px 3px 0 "+(isToday?accent:T.border),display:"flex",flexDirection:"column",overflow:"hidden" }}>
-              {/* Day header */}
               <div style={{ background:isToday?accent+"22":T.bgPanel,padding:"8px 10px",borderBottom:"2px solid "+T.border }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div className="px8" style={{ color:isToday?accent:T.text,fontSize:"7px" }}>{dayLabel}</div>
-                  <div style={{ width:8,height:8,background:busyColor,border:"1px solid "+T.border }} title={pendCount+" tasks"}/>
+                  <div style={{ width:8,height:8,background:busyColor,border:"1px solid "+T.border }}/>
                 </div>
-                <div style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:2 }}>
-                  {date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
-                </div>
+                <div style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:2 }}>{date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
               </div>
-
-              {/* Digimon assignment */}
               <div style={{ padding:"8px 10px",borderBottom:"2px solid "+T.border,background:T.bgPanel }}>
-                {assignedDigi
-                  ? (
-                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                      <DigiSprite digimonId={assignedDigi.speciesId} size={28} animate={false}/>
-                      <div style={{ flex:1,minWidth:0 }}>
-                        <div style={{ fontSize:10,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{assignedDigi.name}</div>
-                        <div className="px8" style={{ color:"#FFD700",fontSize:"5px" }}>⚡1.5x XP</div>
-                      </div>
-                      <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:0,lineHeight:1,flexShrink:0 }} onClick={function(){onAssignDigimon(dayLabel,null);}}>×</button>
+                {assignedDigi ? (
+                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                    <DigiSprite digimonId={assignedDigi.speciesId} size={28} animate={false}/>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <div style={{ fontSize:10,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{assignedDigi.name}</div>
+                      <div className="px8" style={{ color:T.gold,fontSize:"5px" }}>⚡1.5x XP</div>
                     </div>
-                  )
-                  : (
-                    <select defaultValue="" onChange={function(e){ if(e.target.value) onAssignDigimon(dayLabel, e.target.value); }}
-                      style={{ width:"100%",background:T.bgPanel,border:"1.5px solid "+T.border,padding:"4px 6px",color:T.textMid,fontSize:11,cursor:"pointer",fontFamily:"'Nunito',sans-serif",outline:"none" }}>
-                      <option value="" disabled>+ Assign Digi</option>
-                      {party.length>0&&<optgroup label="Party">{party.map(function(d){return <option key={d.uid} value={d.uid}>{d.name}</option>;})}</optgroup>}
-                      {farm.length>0&&<optgroup label="Farm">{farm.map(function(d){return <option key={d.uid} value={d.uid}>{d.name}</option>;})}</optgroup>}
-                    </select>
-                  )
-                }
+                    <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:0 }} onClick={function(){ onAssignDigimon(dayLabel,null); }}>×</button>
+                  </div>
+                ) : (
+                  <select defaultValue="" onChange={function(e){ if(e.target.value) onAssignDigimon(dayLabel,e.target.value); }} style={{ width:"100%",background:T.bgPanel,border:"1.5px solid "+T.border,padding:"4px 6px",color:T.textMid,fontSize:11,cursor:"pointer",fontFamily:"'Nunito',sans-serif",outline:"none" }}>
+                    <option value="" disabled>+ Assign</option>
+                    {party.length>0&&<optgroup label="Party">{party.map(function(d){return <option key={d.uid} value={d.uid}>{d.name}</option>;})}</optgroup>}
+                    {farm.length>0&&<optgroup label="Farm">{farm.map(function(d){return <option key={d.uid} value={d.uid}>{d.name}</option>;})}</optgroup>}
+                  </select>
+                )}
               </div>
-
-              {/* Tasks */}
               <div style={{ padding:"8px 10px",display:"flex",flexDirection:"column",gap:6,flex:1 }}>
-                {dayTasks.length === 0
+                {dayTasks.length===0
                   ? <div style={{ fontSize:10,color:T.textDim,fontStyle:"italic" }}>No tasks</div>
                   : dayTasks.map(function(t){
                     return (
                       <div key={t.id} style={{ background:t.done?T.bgPanel:T.bgCard,border:"1.5px solid "+(t.done?T.border:T.teal),padding:"5px 7px",opacity:t.done?0.5:1 }}>
                         <div style={{ display:"flex",alignItems:"flex-start",gap:5 }}>
-                          <div style={{ width:14,height:14,border:"1.5px solid "+(t.done?T.teal:T.border),background:t.done?T.teal:"transparent",display:"grid",placeItems:"center",flexShrink:0,cursor:"pointer",marginTop:1 }}
-                            onClick={function(){ if(!t.done) onComplete(t.id); }}>
+                          <div style={{ width:14,height:14,border:"1.5px solid "+(t.done?T.teal:T.border),background:t.done?T.teal:"transparent",display:"grid",placeItems:"center",flexShrink:0,cursor:"pointer",marginTop:1 }} onClick={function(){ if(!t.done)onComplete(t.id); }}>
                             {t.done&&<span style={{ fontSize:9,color:"white",lineHeight:1,fontWeight:900 }}>✓</span>}
                           </div>
                           <div style={{ flex:1,minWidth:0 }}>
                             <div style={{ fontSize:11,fontWeight:700,color:t.done?T.textMid:T.text,textDecoration:t.done?"line-through":"none",lineHeight:1.3,wordBreak:"break-word" }}>{t.title}</div>
-                            <div style={{ fontSize:9,color:T.textDim,marginTop:2 }}>{t.priority}</div>
+                            <div style={{ fontSize:9,fontWeight:700,color:T.textDim,marginTop:2 }}>{t.template}</div>
                           </div>
                         </div>
                         {!t.done&&(
-                          <input type="date" defaultValue={t.dueDate||""} onBlur={function(e){ if(e.target.value && e.target.value!==t.dueDate) onReschedule(t.id, e.target.value); }}
+                          <input type="date" defaultValue={t.dueDate||""} onBlur={function(e){ if(e.target.value&&e.target.value!==t.dueDate) onReschedule(t.id,e.target.value); }}
                             style={{ width:"100%",marginTop:5,background:T.bgPanel,border:"1px solid "+T.border,padding:"3px 5px",color:T.textMid,fontSize:10,outline:"none",fontFamily:"'Nunito',sans-serif",colorScheme:"dark" }}/>
                         )}
                       </div>
@@ -1912,24 +2005,22 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
           );
         })}
       </div>
-
-      {/* Unscheduled tasks */}
       {(function(){
-        var unscheduled = tasks.filter(function(t){ return !t.done && !t.dueDate; });
-        if(unscheduled.length === 0) return null;
+        var unscheduled = tasks.filter(function(t){ return !t.done&&!t.dueDate; });
+        if (!unscheduled.length) return null;
         return (
           <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-            <div className="sec-label">📭 UNSCHEDULED — set a due date to add to the week</div>
+            <div className="sec-label">📭 UNSCHEDULED TASKS</div>
             {unscheduled.map(function(t){
               return (
                 <div key={t.id} style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 14px",display:"flex",alignItems:"center",gap:12 }}>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:13,fontWeight:700 }}>{t.title}</div>
-                    <div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.priority} · {t.category}</div>
+                    <div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.priority} · {t.template}</div>
                   </div>
                   <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                     <span className="px8" style={{ color:T.textDim,fontSize:"6px" }}>DUE:</span>
-                    <input type="date" defaultValue="" onBlur={function(e){ if(e.target.value) onReschedule(t.id, e.target.value); }}
+                    <input type="date" defaultValue="" onBlur={function(e){ if(e.target.value) onReschedule(t.id,e.target.value); }}
                       style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"5px 8px",color:T.text,fontSize:12,outline:"none",fontFamily:"'Nunito',sans-serif",colorScheme:"dark" }}/>
                   </div>
                 </div>
@@ -1942,32 +2033,50 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
   );
 }
 
+// ── TaskForm ──────────────────────────────────────────────────────────────────
 function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
   var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif",boxSizing:"border-box" };
   var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
+  var TEMPLATES = ["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"];
+  var cg = calcCrestGain(form.template, form.difficulty);
+  var PCOL = { Low:"#C3B1E1", Medium:"#4ECDC4", High:"#FF6B6B", Urgent:"#FF4444" };
+
   return (
     <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"3px 3px 0 "+accent,padding:16,display:"flex",flexDirection:"column",gap:10 }}>
       <input value={form.title} onChange={function(e){setForm(function(f){return Object.assign({},f,{title:e.target.value});});}} onKeyDown={function(e){if(e.key==="Enter")onSubmit();}} placeholder="Task title..." autoFocus style={inputSt}/>
       <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-        <select value={form.type}       onChange={function(e){setForm(function(f){return Object.assign({},f,{type:e.target.value});});}}       style={Object.assign({},selSt,{flex:1,minWidth:100})}>
-          <option value="once">Data-Hunt</option><option value="daily">Daily-Protocol</option><option value="recurring">Loop-Protocols</option>
+        <select value={form.type} onChange={function(e){setForm(function(f){return Object.assign({},f,{type:e.target.value});});}} style={Object.assign({},selSt,{flex:1,minWidth:100})}>
+          <option value="once">One-Time</option><option value="daily">Daily</option><option value="recurring">Recurring</option>
         </select>
-        <select value={form.category}   onChange={function(e){setForm(function(f){return Object.assign({},f,{category:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:130})}>
-          {STAT_CATEGORIES.map(function(c){return <option key={c.id} value={c.id}>{c.icon} {c.id} — {c.desc}</option>;})}
+        <select value={form.template} onChange={function(e){setForm(function(f){return Object.assign({},f,{template:e.target.value});});}} style={Object.assign({},selSt,{flex:1,minWidth:120})}>
+          {TEMPLATES.map(function(c){return <option key={c}>{c}</option>;})}
         </select>
-        <select value={form.priority}   onChange={function(e){setForm(function(f){return Object.assign({},f,{priority:e.target.value});});}}   style={Object.assign({},selSt,{flex:1,minWidth:80,color:PCOL[form.priority]||T.text})}>
+        <select value={form.priority} onChange={function(e){setForm(function(f){return Object.assign({},f,{priority:e.target.value});});}} style={Object.assign({},selSt,{flex:1,minWidth:80,color:PCOL[form.priority]||"#e8eaf0"})}>
           <option>Low</option><option>Medium</option><option>High</option>
         </select>
         <select value={form.difficulty} onChange={function(e){setForm(function(f){return Object.assign({},f,{difficulty:e.target.value});});}} style={Object.assign({},selSt,{flex:1,minWidth:80})}>
           <option>Easy</option><option>Medium</option><option>Hard</option>
         </select>
       </div>
+      {/* Crest preview */}
+      {cg && (
+        <div style={{ display:"flex",gap:8,alignItems:"center",padding:"8px 10px",background:T.bgPanel,border:"1.5px solid "+T.border }}>
+          <span style={{ fontSize:13 }}>{CREST_INFO[cg.primaryCrest]?.icon}</span>
+          <span style={{ fontSize:11,fontWeight:700,color:CREST_INFO[cg.primaryCrest]?.color }}>+{cg.primary} {cg.primaryCrest}</span>
+          {cg.secondaryCrest&&cg.secondary>0&&<>
+            <span style={{ color:T.textDim }}>·</span>
+            <span style={{ fontSize:11,fontWeight:700,color:CREST_INFO[cg.secondaryCrest]?.color }}>+{cg.secondary} {cg.secondaryCrest}</span>
+          </>}
+          <span style={{ fontSize:11,color:T.textDim,marginLeft:"auto" }}>on complete</span>
+        </div>
+      )}
       {form.type==="recurring"&&(
         <div style={{ display:"flex",gap:4,flexWrap:"wrap",alignItems:"center" }}>
           <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>DAYS:</span>
-          {DAYS_OF_WEEK.map(function(d){
+          {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(function(d){
             var on=(form.daysOfWeek||[]).indexOf(d)>=0;
-            return <button key={d} className="px8" style={{ padding:"4px 8px",border:"1.5px solid "+(on?accent:T.border),background:on?accent+"22":"transparent",color:on?accent:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){setForm(function(f){var dw=f.daysOfWeek||[];return Object.assign({},f,{daysOfWeek:on?dw.filter(function(x){return x!==d;}):dw.concat([d])});});}}>{d}</button>;
+            return <button key={d} className="px8" style={{ padding:"4px 8px",border:"1.5px solid "+(on?accent:T.border),background:on?accent+"22":"transparent",color:on?accent:T.textDim,cursor:"pointer",fontSize:"6px" }}
+              onClick={function(){setForm(function(f){var dw=f.daysOfWeek||[];return Object.assign({},f,{daysOfWeek:on?dw.filter(function(x){return x!==d;}):dw.concat([d])});});}}>{d}</button>;
           })}
         </div>
       )}
