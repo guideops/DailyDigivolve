@@ -91,6 +91,11 @@ export default function App({ session }) {
   var [digitamaCredits,  setDigitamaCredits]  = useState(0);
   var [showDigitamaModal,setShowDigitamaModal]= useState(false);
   var [confirmReset,     setConfirmReset]     = useState(false);
+  // sleepState: null | { phase:'countdown'|'sleeping', startedAt:ISO, wakeTime:"HH:MM", sleepDate:"YYYY-MM-DD" }
+  var [sleepState,       setSleepState]       = useState(null);
+  var [showRestModal,    setShowRestModal]    = useState(false);
+  var [sleepLog,         setSleepLog]         = useState([]);
+  var [wakeGreeting,     setWakeGreeting]     = useState(null); // shown once on wake
 
   var dragIdx = useRef(null);
   var userId  = session.user.id;
@@ -161,6 +166,23 @@ export default function App({ session }) {
         }
         setLoginStreak(curStreak);
         setDigitamaCredits(curCreds);
+
+        // Sleep state
+        setSleepLog(profile.sleep_log || []);
+        var ss = profile.sleep_state || null;
+        if (ss && ss.phase === 'sleeping') {
+          var now = new Date();
+          var [wh, wm] = (ss.wakeTime || "07:00").split(':').map(Number);
+          var wakeToday = new Date(now); wakeToday.setHours(wh, wm, 0, 0);
+          // If wake time is earlier than current time, it may be AM the next day context — check sleepDate
+          if (ss.sleepDate !== today) { wakeToday.setDate(wakeToday.getDate()); }
+          if (now >= wakeToday) {
+            // Wake time has passed — greet and clear sleep
+            handleWakeUp(ss, profile.sleep_log || [], false);
+          } else {
+            setSleepState(ss);
+          }
+        }
       }
 
       if (digimonData && digimonData.length > 0) {
@@ -215,6 +237,21 @@ export default function App({ session }) {
     }, 1000);
     return function() { clearTimeout(id); };
   }, [pomodoroState]);
+
+  // ── Wake alarm polling (checks every minute if alarm time reached) ────────────
+  useEffect(function() {
+    if (!sleepState || sleepState.phase !== 'sleeping') return;
+    var interval = setInterval(function() {
+      var now = new Date();
+      var [wh, wm] = (sleepState.wakeTime || "07:00").split(':').map(Number);
+      var wakeTime = new Date(now); wakeTime.setHours(wh, wm, 0, 0);
+      if (now >= wakeTime) {
+        clearInterval(interval);
+        handleWakeUp(sleepState, sleepLog, false);
+      }
+    }, 60000);
+    return function() { clearInterval(interval); };
+  }, [sleepState, sleepLog]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   var activeDigi  = party[0];
@@ -299,6 +336,75 @@ export default function App({ session }) {
     await supabase.from('profiles').update({ digitama_credits: newCreds }).eq('id', userId);
     if (newCreds <= 0) setShowDigitamaModal(false);
     toast_("Welcome, " + s.name + "! 🥚→✨", T.gold);
+  }
+
+  // ── Sleep / REST system ──────────────────────────────────────────────────────
+  var SLEEP_GOODNIGHT = {
+    durable:  function(name){ return name + " will stand guard even in dreams. Sleep well, Tamer."; },
+    lively:   function(name){ return "Ahh~ even " + name + " needs to recharge! Sweet dreams! 💤"; },
+    fighter:  function(name){ return name + " rests so tomorrow's battles can be won. Good night!"; },
+    defender: function(name){ return name + " keeps watch while you sleep. Rest easy, Tamer."; },
+    brainy:   function(name){ return "Sleep consolidates memory and growth. " + name + " understands. Good night."; },
+    nimble:   function(name){ return name + " is already curled up! Time to rest, Tamer~ ✨"; },
+  };
+  var SLEEP_GOODMORNING = {
+    durable:  function(name){ return name + " is ready! A new day of missions awaits, Tamer!"; },
+    lively:   function(name){ return "GOOD MORNING! " + name + " is fully charged and raring to go! ⚡"; },
+    fighter:  function(name){ return name + " slept like a champion. Time to conquer today!"; },
+    defender: function(name){ return "Morning, Tamer. " + name + " protected your rest well. Ready when you are."; },
+    brainy:   function(name){ return "Rise and process! " + name + " has been thinking of today's strategy. 🧠"; },
+    nimble:   function(name){ return name + " springs awake! Let's go, Tamer — today's waiting!"; },
+  };
+
+  function getSleepMsg(map, fallback) {
+    if (!activeDigi) return fallback;
+    var fn = map[activeDigi.personality];
+    return fn ? fn(activeDigi.name) : fallback;
+  }
+
+  async function startRest(wakeTime) {
+    var now = new Date();
+    var ss = {
+      phase: 'countdown',
+      startedAt: now.toISOString(),
+      wakeTime: wakeTime,
+      sleepDate: now.toISOString().split('T')[0],
+    };
+    setSleepState(ss);
+    setShowRestModal(false);
+    setSpeech(getSleepMsg(SLEEP_GOODNIGHT, "good night... 💤"));
+    await supabase.from('profiles').update({ sleep_state: ss }).eq('id', userId);
+    // After 2 minutes, transition to sleeping phase
+    setTimeout(async function() {
+      var sleeping = Object.assign({}, ss, { phase: 'sleeping' });
+      setSleepState(sleeping);
+      await supabase.from('profiles').update({ sleep_state: sleeping }).eq('id', userId);
+    }, 2 * 60 * 1000);
+  }
+
+  async function handleWakeUp(ss, log, isManual) {
+    var now = new Date();
+    var bedtimeDate = new Date(ss.startedAt);
+    var durationMins = Math.round((now - bedtimeDate) / 60000);
+    var entry = {
+      date: now.toISOString().split('T')[0],
+      bedtime: bedtimeDate.toTimeString().slice(0,5),
+      waketime: now.toTimeString().slice(0,5),
+      alarmTime: ss.wakeTime,
+      durationMins: durationMins,
+    };
+    var newLog = [entry].concat(log || sleepLog).slice(0, 30);
+    setSleepLog(newLog);
+    setSleepState(null);
+    var greeting = isManual
+      ? (activeDigi ? "...yawn... good morning, Tamer 🌅" : "good morning! 🌅")
+      : getSleepMsg(SLEEP_GOODMORNING, "good morning! time to shine! 🌅");
+    setSpeech(greeting);
+    setWakeGreeting({ msg: greeting, duration: durationMins, entry });
+    await supabase.from('profiles').update({
+      sleep_state: null,
+      sleep_log: newLog,
+    }).eq('id', userId);
   }
 
   // ── Complete task ────────────────────────────────────────────────────────────
@@ -636,14 +742,16 @@ export default function App({ session }) {
     .px9  { font-family:'Press Start 2P',monospace; font-size:9px; }
     .px10 { font-family:'Press Start 2P',monospace; font-size:10px; }
     .px12 { font-family:'Press Start 2P',monospace; font-size:12px; }
-    @keyframes bob     { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
-    @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0} }
-    @keyframes fadeUp  { from{opacity:0;transform:translateX(-50%) translateY(-6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
-    @keyframes slideUp { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
-    @keyframes evoIn   { 0%,100%{opacity:0;transform:scale(0.75)} 35%,65%{opacity:1;transform:scale(1)} }
-    @keyframes shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
-    @keyframes floatUp { from{transform:translateY(100vh) rotate(0deg);opacity:0.12} to{transform:translateY(-10vh) rotate(180deg);opacity:0} }
-    @keyframes jijiIn  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes bob      { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+    @keyframes sleepBob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+    @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes fadeUp   { from{opacity:0;transform:translateX(-50%) translateY(-6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    @keyframes slideUp  { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
+    @keyframes evoIn    { 0%,100%{opacity:0;transform:scale(0.75)} 35%,65%{opacity:1;transform:scale(1)} }
+    @keyframes shimmer  { 0%{background-position:200% center} 100%{background-position:-200% center} }
+    @keyframes floatUp  { from{transform:translateY(100vh) rotate(0deg);opacity:0.12} to{transform:translateY(-10vh) rotate(180deg);opacity:0} }
+    @keyframes jijiIn   { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes zzzFloat { 0%{opacity:0;transform:translateY(0) scale(0.8)} 30%{opacity:0.9} 100%{opacity:0;transform:translateY(-48px) scale(1.2)} }
     .page-in { animation: slideUp 0.22s ease; }
     .pcard { background:${T.bgCard}; border:2px solid ${T.border}; box-shadow:3px 3px 0 ${T.border}; }
     .nav-pill { font-family:'Press Start 2P',monospace; font-size:7px; padding:7px 11px; border:2px solid ${T.border}; background:transparent; cursor:pointer; color:${T.textMid}; transition:all 0.1s; }
@@ -1066,6 +1174,68 @@ export default function App({ session }) {
         </div>
       )}
 
+      {/* ── REST MODAL ───────────────────────────────────────────────────── */}
+      {showRestModal && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:620,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}
+          onClick={function(e){ if(e.target===e.currentTarget)setShowRestModal(false); }}>
+          <RestModal
+            sleepState={sleepState}
+            sleepLog={sleepLog}
+            activeDigi={activeDigi}
+            T={T}
+            accent={accent}
+            onStart={startRest}
+            onWake={function(){ handleWakeUp(sleepState, sleepLog, true); setShowRestModal(false); }}
+            onClose={function(){ setShowRestModal(false); }}
+          />
+        </div>
+      )}
+
+      {/* ── WAKE GREETING ────────────────────────────────────────────────── */}
+      {wakeGreeting && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:625,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}
+          onClick={function(){ setWakeGreeting(null); }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.gold,boxShadow:"4px 4px 0 "+T.gold,padding:28,maxWidth:380,textAlign:"center",display:"flex",flexDirection:"column",gap:14,animation:"jijiIn 0.3s ease" }}>
+            <div style={{ fontSize:36 }}>🌅</div>
+            <div className="px10" style={{ color:T.gold }}>GOOD MORNING!</div>
+            {activeDigi && (
+              <div style={{ display:"flex",justifyContent:"center",marginBottom:4 }}>
+                <DigiSprite digimonId={activeDigi.speciesId} size={64} mood="happy"/>
+              </div>
+            )}
+            <div style={{ fontSize:12,fontWeight:700,color:T.text,lineHeight:1.7 }}>
+              {wakeGreeting.msg}
+            </div>
+            <div style={{ display:"flex",gap:16,justifyContent:"center",background:T.bgPanel,padding:"10px 14px",border:"1px solid "+T.border }}>
+              <div style={{ textAlign:"center" }}>
+                <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:3 }}>SLEEP TIME</div>
+                <div style={{ fontSize:13,fontWeight:900,color:T.lavender }}>
+                  {Math.floor(wakeGreeting.duration/60)}h {wakeGreeting.duration%60}m
+                </div>
+              </div>
+              <div style={{ width:1,background:T.border }}/>
+              <div style={{ textAlign:"center" }}>
+                <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:3 }}>BEDTIME</div>
+                <div style={{ fontSize:13,fontWeight:900,color:T.teal }}>
+                  {wakeGreeting.entry&&wakeGreeting.entry.bedtime}
+                </div>
+              </div>
+              <div style={{ width:1,background:T.border }}/>
+              <div style={{ textAlign:"center" }}>
+                <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:3 }}>WAKE</div>
+                <div style={{ fontSize:13,fontWeight:900,color:T.gold }}>
+                  {wakeGreeting.entry&&wakeGreeting.entry.waketime}
+                </div>
+              </div>
+            </div>
+            <button className="px8" style={{ padding:"8px 20px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px" }}
+              onClick={function(){ setWakeGreeting(null); }}>
+              START THE DAY ✦
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── EVOLUTION OVERLAY ─────────────────────────────────────────────── */}
       {evoAnim && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:500,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"evoIn 3.2s ease" }}>
@@ -1114,18 +1284,63 @@ export default function App({ session }) {
         <aside className="left-col" style={{ background:T.bgPanel,borderRight:"2px solid "+T.border,padding:"24px 20px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto" }}>
 
           {/* Pet stage */}
-          <div style={{ background:"linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)",border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14 }}>
-            <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,0.12) 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
-            <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+accent,boxShadow:"2px 2px 0 "+accent,padding:"5px 10px",whiteSpace:"nowrap",zIndex:3,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)" }}>
-              <span className="px8" style={{ color:accent }}>{speech}</span>
-              <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+accent }}/>
-            </div>
-            <div style={{ position:"relative",zIndex:2,animation:"bob 2s ease-in-out infinite",cursor:"pointer",transformOrigin:"bottom center" }}
-              onClick={function(){ setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]); }}>
-              {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood="happy"/>}
-            </div>
-            <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+T.teal+"22 0px,"+T.teal+"22 16px,"+T.teal+"11 16px,"+T.teal+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
-          </div>
+          {(function(){
+            var isSleeping = sleepState && sleepState.phase === 'sleeping';
+            var isCountdown = sleepState && sleepState.phase === 'countdown';
+            var stageBg = isSleeping
+              ? "linear-gradient(160deg,#050810 0%,#080510 50%,#050810 100%)"
+              : "linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)";
+            return (
+              <div style={{ background:stageBg,border:"2px solid "+(isSleeping?T.lavender:T.border),boxShadow:"3px 3px 0 "+(isSleeping?T.lavender:T.border),height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14 }}>
+                {/* Star field (always) / deeper at night */}
+                <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,"+(isSleeping?"0.28":"0.12")+") 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
+                {/* Moon when sleeping */}
+                {isSleeping && (
+                  <div style={{ position:"absolute",top:10,right:14,fontSize:20,opacity:0.85,zIndex:2 }}>🌙</div>
+                )}
+                {/* Zzz floating bubbles when sleeping */}
+                {isSleeping && (
+                  <div style={{ position:"absolute",top:0,left:0,right:0,bottom:0,pointerEvents:"none",zIndex:3,overflow:"hidden" }}>
+                    {["z","Z","Z"].map(function(z,i){
+                      return (
+                        <span key={i} style={{
+                          position:"absolute",
+                          left:(38+i*18)+"%",
+                          bottom:(30+i*18)+"%",
+                          fontSize:(11+i*4)+"px",
+                          color:T.lavender,
+                          fontWeight:900,
+                          animation:"zzzFloat "+(2.2+i*0.8)+"s ease-in-out "+(i*0.7)+"s infinite",
+                          opacity:0,
+                        }}>{z}</span>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Speech bubble */}
+                <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+(isSleeping?T.lavender:accent),boxShadow:"2px 2px 0 "+(isSleeping?T.lavender:accent),padding:"5px 10px",zIndex:4,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)",maxWidth:220,whiteSpace:"normal",textAlign:"center" }}>
+                  <span className="px8" style={{ color:isSleeping?T.lavender:accent,fontSize:"6px" }}>{speech}</span>
+                  <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+(isSleeping?T.lavender:accent) }}/>
+                </div>
+                {/* Sprite — sleepy mood when sleeping/countdown */}
+                <div style={{ position:"relative",zIndex:2,animation:isSleeping?"sleepBob 4s ease-in-out infinite":"bob 2s ease-in-out infinite",cursor:"pointer",transformOrigin:"bottom center" }}
+                  onClick={function(){
+                    if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
+                    setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]);
+                  }}>
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":"happy"}/>}
+                </div>
+                {/* Ground strip */}
+                <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
+                {/* Wake hint when sleeping */}
+                {isSleeping && (
+                  <div style={{ position:"absolute",bottom:42,left:0,right:0,textAlign:"center",zIndex:3 }}>
+                    <span className="px8" style={{ color:T.lavender,fontSize:"5px",opacity:0.7 }}>tap to wake early</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Name + Level */}
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
@@ -1186,9 +1401,9 @@ export default function App({ session }) {
               disabled={!playAvailable} onClick={playAction}>
               🎮 {playUsedToday>=3?"DONE":`PLAY (${3-playUsedToday})`}
             </button>
-            <button className="pet-btn" style={{ background:T.lavender+"22",borderColor:T.lavender,color:T.lavender }}
-              onClick={function(){ setSpeech("resting up... 💤"); addLog("💤","Resting for tomorrow."); }}>
-              💤 REST
+            <button className="pet-btn" style={{ background:sleepState?T.lavender+"44":T.lavender+"22",borderColor:T.lavender,color:T.lavender }}
+              onClick={function(){ setShowRestModal(true); }}>
+              {sleepState ? "💤 SLEEPING" : "💤 REST"}
             </button>
             <button className="pet-btn" style={{ background:T.mint+"22",borderColor:T.mint,color:T.mint }}
               onClick={openPomodoroSetup}>
@@ -2215,6 +2430,136 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
       <div style={{ display:"flex",gap:8 }}>
         <button className="px8" style={{ padding:"9px 18px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontWeight:800,fontSize:"7px",boxShadow:"2px 2px 0 "+T.border }} onClick={onSubmit}>{label}</button>
         <button className="px8" style={{ padding:"9px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"7px" }} onClick={onCancel}>CANCEL</button>
+      </div>
+    </div>
+  );
+}
+
+// ── REST Modal ────────────────────────────────────────────────────────────────
+function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWake, onClose }) {
+  var [wakeTime, setWakeTime] = useState("07:00");
+  var isSleeping = sleepState && (sleepState.phase === 'sleeping' || sleepState.phase === 'countdown');
+
+  var PRESETS = [
+    { label:"5:30", val:"05:30" },
+    { label:"6:00", val:"06:00" },
+    { label:"6:30", val:"06:30" },
+    { label:"7:00", val:"07:00" },
+    { label:"7:30", val:"07:30" },
+    { label:"8:00", val:"08:00" },
+  ];
+
+  function fmtDuration(mins) {
+    if (mins < 60) return mins + "m";
+    return Math.floor(mins/60) + "h " + (mins%60) + "m";
+  }
+
+  return (
+    <div style={{ background:T.bgCard,border:"2px solid "+T.lavender,boxShadow:"4px 4px 0 "+T.lavender,width:"100%",maxWidth:440,animation:"jijiIn 0.3s ease",overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ background:"linear-gradient(90deg,#0d0820,#08050d)",borderBottom:"2px solid "+T.lavender,padding:"10px 16px",display:"flex",alignItems:"center",gap:10 }}>
+        <span style={{ fontSize:16 }}>🌙</span>
+        <div className="px9" style={{ color:T.lavender }}>REST & SLEEP TRACKER</div>
+        <div style={{ flex:1 }}/>
+        <button onClick={onClose} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"0 4px" }}>×</button>
+      </div>
+
+      <div style={{ padding:20,display:"flex",flexDirection:"column",gap:16 }}>
+
+        {/* Current state */}
+        {isSleeping ? (
+          <div style={{ background:T.bgPanel,border:"1.5px solid "+T.lavender,padding:"14px 16px",display:"flex",alignItems:"center",gap:14 }}>
+            <div style={{ fontSize:32 }}>💤</div>
+            <div style={{ flex:1 }}>
+              <div className="px8" style={{ color:T.lavender,marginBottom:4,fontSize:"6px" }}>
+                {sleepState.phase === 'countdown' ? "WINDING DOWN..." : "SLEEPING"}
+              </div>
+              <div style={{ fontSize:12,color:T.textMid }}>
+                {sleepState.phase === 'countdown'
+                  ? (activeDigi ? activeDigi.name + " is settling in..." : "Getting sleepy...")
+                  : "Alarm set for " + sleepState.wakeTime
+                }
+              </div>
+              {activeDigi && (
+                <div style={{ fontSize:11,color:T.textDim,marginTop:3 }}>
+                  Bedtime: {new Date(sleepState.startedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+                </div>
+              )}
+            </div>
+            <DigiSprite digimonId={activeDigi&&activeDigi.speciesId} size={44} mood="sleepy" animate={false}/>
+          </div>
+        ) : (
+          <div style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"12px 14px" }}>
+            <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"6px" }}>SET WAKE-UP ALARM</div>
+            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
+              <input
+                type="time"
+                value={wakeTime}
+                onChange={function(e){ setWakeTime(e.target.value||"07:00"); }}
+                style={{ fontFamily:"'Press Start 2P',monospace",fontSize:18,fontWeight:900,color:T.lavender,background:T.bgCard,border:"2px solid "+T.lavender,padding:"8px 12px",outline:"none",colorScheme:"dark",flex:1 }}
+              />
+            </div>
+            {/* Quick presets */}
+            <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"5px" }}>QUICK SELECT</div>
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {PRESETS.map(function(p){
+                return (
+                  <button key={p.val}
+                    className="px8"
+                    style={{ padding:"5px 10px",background:wakeTime===p.val?T.lavender+"33":"transparent",border:"1.5px solid "+(wakeTime===p.val?T.lavender:T.border),color:wakeTime===p.val?T.lavender:T.textMid,cursor:"pointer",fontSize:"6px" }}
+                    onClick={function(){ setWakeTime(p.val); }}>
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Action */}
+        {isSleeping ? (
+          <button className="px8"
+            style={{ padding:"10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+            onClick={onWake}>
+            ☀ WAKE UP EARLY
+          </button>
+        ) : (
+          <button className="px8"
+            style={{ padding:"10px",background:T.lavender+"22",border:"2px solid "+T.lavender,color:T.lavender,cursor:"pointer",fontSize:"7px" }}
+            onClick={function(){ onStart(wakeTime); }}>
+            🌙 BEGIN REST — ALARM {wakeTime}
+          </button>
+        )}
+
+        {/* Sleep log */}
+        {sleepLog.length > 0 && (
+          <div>
+            <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"6px" }}>SLEEP HISTORY</div>
+            <div style={{ display:"flex",flexDirection:"column",gap:4,maxHeight:160,overflowY:"auto" }}>
+              {sleepLog.slice(0,7).map(function(entry,i){
+                return (
+                  <div key={i} style={{ display:"flex",alignItems:"center",gap:8,background:T.bgPanel,padding:"7px 10px",border:"1px solid "+T.border,fontSize:11 }}>
+                    <div style={{ color:T.textDim,minWidth:72 }}>{entry.date}</div>
+                    <div style={{ color:T.lavender,minWidth:40 }}>{entry.bedtime}</div>
+                    <span style={{ color:T.textDim }}>→</span>
+                    <div style={{ color:T.teal,minWidth:40 }}>{entry.waketime}</div>
+                    <div style={{ marginLeft:"auto",color:T.gold,fontWeight:900 }}>{fmtDuration(entry.durationMins)}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {sleepLog.length > 0 && (function(){
+              var recent = sleepLog.slice(0,7);
+              var avg = Math.round(recent.reduce(function(s,e){ return s+e.durationMins; },0) / recent.length);
+              return (
+                <div style={{ marginTop:8,padding:"7px 10px",background:T.bgPanel,border:"1px solid "+T.lavender+"44",display:"flex",justifyContent:"space-between" }}>
+                  <span className="px8" style={{ color:T.textDim,fontSize:"5px" }}>7-DAY AVG SLEEP</span>
+                  <span style={{ color:T.lavender,fontWeight:900,fontSize:12 }}>{fmtDuration(avg)}</span>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
     </div>
   );
