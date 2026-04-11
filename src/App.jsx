@@ -1328,7 +1328,7 @@ export default function App({ session }) {
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
                     setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]);
                   }}>
-                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":"happy"}/>}
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":showFeedPanel?"eat":"happy"}/>}
                 </div>
                 {/* Ground strip */}
                 <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
@@ -1747,7 +1747,7 @@ export default function App({ session }) {
                         var ebs = calcBattleStats(e);
                         return (
                           <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){ battleAttack(i); }}>
-                            <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0}/>
+                            <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0} />
                             <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{e.name}</div>
                             <Bar value={e.currentHp} max={e.maxHp} color={T.coral} h={6}/>
                             <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
@@ -1768,7 +1768,7 @@ export default function App({ session }) {
                         var role  = pInfo&&ROLES[pInfo.role]?ROLES[pInfo.role]:ROLES.Balanced;
                         return (
                           <div key={i} className={"battle-tile player"+(isAct?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){ setBattleState(function(bs){ return Object.assign({},bs,{selected:i}); }); }}>
-                            <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isAct?"happy":"stoic"} animate={isAct&&p.currentHp>0}/>
+                            <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isAct?"attack":"walk"} animate={isAct&&p.currentHp>0}/>
                             <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{p.name}</div>
                             <Bar value={p.currentHp} max={p.maxHp} color={T.green} h={6}/>
                             <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>

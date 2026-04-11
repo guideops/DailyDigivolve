@@ -1,39 +1,79 @@
 // ─── DigiSprite — animated PNG sprite with SVG fallback ───────────────────────
 // Props:
 //   digimonId  — species id, e.g. "agumon"
-//   mood       — "happy" | "sad" | "angry" | "stoic" | "sleepy"  (affects SVG fallback only)
+//   mood       — controls which animation frames play (PNG) and eye shape (SVG fallback)
+//                "happy" | "sleepy" | "eat" | "angry" | "sad" | "hurt" | "attack"
+//                default (idle/walk) plays Walk 1–2 frames
 //   size       — number (px), default 64
 //   animate    — boolean, default true
+//
+// Standard 3×4 grid frame layout (48×64px sheet, 16×16 per frame):
+//   Row 0: [0] Walk 1   [1] Walk 2   [2] Eat 1
+//   Row 1: [3] Eat 2    [4] Sleep 1  [5] Sleep 2
+//   Row 2: [6] Refuse   [7] Happy    [8] Angry
+//   Row 3: [9] Hurt 1  [10] Hurt 2  [11] Attack
+//
+// Taomon exception: sheet mode, 8 frames walk-only — always plays frames 0–1.
 
 import { useState, useEffect, useRef } from "react";
 import { getSpriteConfig } from "../data/sprites.js";
 import { DIGIMON_MAP } from "../data/digimon.js";
 
+// Frame ranges for the standard 3×4 grid
+var ANIM_FRAMES = {
+  walk:   [0, 1],
+  eat:    [2, 3],
+  sleep:  [4, 5],
+  refuse: [6],
+  happy:  [7],
+  angry:  [8],
+  hurt:   [9, 10],
+  attack: [11],
+};
+
+function moodToAnim(mood) {
+  switch (mood) {
+    case "happy":  return "happy";
+    case "sleepy": return "sleep";
+    case "eat":    return "eat";
+    case "angry":  return "angry";
+    case "sad":
+    case "stoic":  return "refuse";
+    case "hurt":   return "hurt";
+    case "attack": return "attack";
+    default:       return "walk";
+  }
+}
+
 // ── PNG sprite component ───────────────────────────────────────────────────────
-function PngFrames({ id, config, size, animate }) {
-  const [frame, setFrame] = useState(0);
+function PngFrames({ id, config, size, animate, mood }) {
+  // For grid mode, pick the correct frame subset based on mood
+  // Taomon (sheet mode) always walks — ignore mood
+  var frames = (config.mode === "grid") ? (ANIM_FRAMES[moodToAnim(mood)] || ANIM_FRAMES.walk) : null;
+  var [frameIdx, setFrameIdx] = useState(0);
   const timer = useRef(null);
 
   useEffect(function() {
-    setFrame(0);
-    if (!animate || config.frameCount <= 1) return;
+    setFrameIdx(0);
+    var len = frames ? frames.length : (config.frameCount || 1);
+    if (!animate || len <= 1) return;
     clearInterval(timer.current);
     timer.current = setInterval(function() {
-      setFrame(function(f) { return (f + 1) % config.frameCount; });
+      setFrameIdx(function(i) { return (i + 1) % len; });
     }, Math.round(1000 / (config.fps || 6)));
     return function() { clearInterval(timer.current); };
-  }, [id, animate, config.frameCount, config.fps]);
+  }, [id, animate, config.frameCount, config.fps, mood]);
 
   var spritePath = config.spriteId || id;
 
   if (config.mode === "grid") {
-    // Grid sprite sheet — frames run left-to-right, top-to-bottom
-    var cols   = config.cols   || 1;
+    var cols   = config.cols   || 3;
     var frameW = config.frameW || 16;
     var frameH = config.frameH || 16;
-    var scale  = size / frameW;          // e.g. 64/16 = 4× upscale
-    var col    = frame % cols;
-    var row    = Math.floor(frame / cols);
+    var scale  = size / frameW;
+    var absFrame = frames[frameIdx % frames.length];
+    var col  = absFrame % cols;
+    var row  = Math.floor(absFrame / cols);
     return (
       <div style={{
         width:              size,
@@ -49,8 +89,9 @@ function PngFrames({ id, config, size, animate }) {
   }
 
   if (config.mode === "sheet") {
-    // Horizontal strip only
-    var pct = config.frameCount > 1 ? (frame / (config.frameCount - 1)) * 100 : 0;
+    // Taomon and other sheet-only sprites: horizontal strip, walk frames 0–1
+    var walkFrame = frameIdx % Math.min(2, config.frameCount);
+    var pct = config.frameCount > 1 ? (walkFrame / (config.frameCount - 1)) * 100 : 0;
     return (
       <div style={{
         width:    size,
@@ -68,7 +109,7 @@ function PngFrames({ id, config, size, animate }) {
   // "frames" mode — individual PNGs
   return (
     <img
-      src={"/sprites/" + spritePath + "/" + frame + ".png"}
+      src={"/sprites/" + spritePath + "/" + frameIdx + ".png"}
       width={size}
       height={size}
       draggable={false}
@@ -238,6 +279,7 @@ export default function DigiSprite({ digimonId, mood, size, animate }) {
       config={config}
       size={size}
       animate={animate}
+      mood={mood}
     />
   );
 }
