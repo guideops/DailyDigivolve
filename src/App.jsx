@@ -8,7 +8,7 @@ import { DIGIMON_MAP } from "./data/digimon.js";
 import {
   STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
   CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
-  STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP,
+  STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP, EVO_REQUIREMENTS,
 } from "./data/constants.js";
 import {
   calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
@@ -87,6 +87,9 @@ export default function App({ session }) {
   var [pomodoroState,    setPomodoroState]    = useState(null);
   // pomodoroState: null | { phase:'setup'|'running'|'done', timeLeft, totalSeconds, template, duration }
   var [showTamerProfile, setShowTamerProfile] = useState(false);
+  var [tamerName,        setTamerName]        = useState("Tamer");
+  var [editingName,      setEditingName]      = useState(false);
+  var [partnerMood,      setPartnerMood]      = useState("happy"); // idle mood for main pet tile
   var [loginStreak,      setLoginStreak]      = useState(0);
   var [digitamaCredits,  setDigitamaCredits]  = useState(0);
   var [showDigitamaModal,setShowDigitamaModal]= useState(false);
@@ -112,6 +115,7 @@ export default function App({ session }) {
 
       if (profile) {
         setBits(profile.bits || 350);
+        setTamerName(profile.display_name || "Tamer");
         setWeeklyDigimon(profile.weekly_digimon || {});
         setBond(profile.bond || 0);
 
@@ -252,6 +256,18 @@ export default function App({ session }) {
     }, 60000);
     return function() { clearInterval(interval); };
   }, [sleepState, sleepLog]);
+
+  // ── Partner idle mood — cheers on app open, then random walk/happy cycle ─────
+  useEffect(function() {
+    // Show happy briefly on mount, then settle into walking
+    var settle = setTimeout(function() { setPartnerMood("walk"); }, 2200);
+    // Random happy flash every 10–20 seconds while idle
+    var idle = setInterval(function() {
+      setPartnerMood("happy");
+      setTimeout(function() { setPartnerMood("walk"); }, 1500);
+    }, 10000 + Math.random() * 10000);
+    return function() { clearTimeout(settle); clearInterval(idle); };
+  }, []);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   var activeDigi  = party[0];
@@ -405,6 +421,27 @@ export default function App({ session }) {
       sleep_state: null,
       sleep_log: newLog,
     }).eq('id', userId);
+  }
+
+  // ── Tamer name ──────────────────────────────────────────────────────────────
+  async function saveTamerName(name) {
+    var trimmed = name.trim().slice(0, 20) || "Tamer";
+    setTamerName(trimmed);
+    setEditingName(false);
+    await supabase.from('profiles').update({ display_name: trimmed }).eq('id', userId);
+  }
+
+  // ── Set party leader ────────────────────────────────────────────────────────
+  async function setLeader(uid) {
+    var idx = party.findIndex(function(d){ return d.uid === uid; });
+    if (idx <= 0) return;
+    var newParty = [party[idx]].concat(party.filter(function(_,i){ return i!==idx; }));
+    setParty(newParty);
+    // Persist new sort_order
+    await Promise.all(newParty.map(function(d, i){
+      return supabase.from('digimon').update({ sort_order: i }).eq('id', d.uid);
+    }));
+    toast_(newParty[0].name + " is now party leader! ★", accent);
   }
 
   // ── Complete task ────────────────────────────────────────────────────────────
@@ -1017,8 +1054,20 @@ export default function App({ session }) {
                 <div style={{ width:64,height:64,border:"2px solid "+accent,background:T.bgPanel,display:"grid",placeItems:"center",flexShrink:0,boxShadow:"3px 3px 0 "+accent }}>
                   {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={52} mood="happy"/>}
                 </div>
-                <div>
-                  <div style={{ fontSize:20,fontWeight:900,color:T.text }}>Tamer</div>
+                <div style={{ flex:1 }}>
+                  {editingName ? (
+                    <form style={{ display:"flex",gap:6,alignItems:"center" }} onSubmit={function(e){ e.preventDefault(); saveTamerName(e.target.elements.name.value); }}>
+                      <input name="name" defaultValue={tamerName} maxLength={20} autoFocus
+                        style={{ fontFamily:"'Press Start 2P',monospace",fontSize:11,color:T.text,background:T.bgPanel,border:"2px solid "+accent,padding:"4px 8px",outline:"none",width:130 }}/>
+                      <button type="submit" style={{ background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",padding:"4px 8px",fontFamily:"'Press Start 2P',monospace",fontSize:"6px" }}>✓</button>
+                      <button type="button" onClick={function(){ setEditingName(false); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:14 }}>×</button>
+                    </form>
+                  ) : (
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <div style={{ fontSize:20,fontWeight:900,color:T.text }}>{tamerName}</div>
+                      <button onClick={function(){ setEditingName(true); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:11,padding:0 }} title="Edit name">✏</button>
+                    </div>
+                  )}
                   <div className="px8" style={{ color:accent,marginTop:3,fontSize:"6px" }}>
                     {crestProfile.primary ? (CREST_TITLES[crestProfile.primary]||"DigiDestined") : "Novice DigiDestined"}
                   </div>
@@ -1270,7 +1319,7 @@ export default function App({ session }) {
           <div style={{ width:34,height:34,border:"2px solid "+T.border,background:T.bgCard,display:"grid",placeItems:"center" }}>
             {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={26} animate={false}/>}
           </div>
-          <span style={{ fontWeight:800,fontSize:13,cursor:"pointer",borderBottom:"1px dashed "+T.textDim }} onClick={function(){ setShowTamerProfile(true); }}>Tamer</span>
+          <span style={{ fontWeight:800,fontSize:13,cursor:"pointer",borderBottom:"1px dashed "+T.textDim }} onClick={function(){ setShowTamerProfile(true); }}>{tamerName}</span>
           <div className="px8" style={{ color:T.gold }}>🪙{bits}</div>
           <div className="px8" style={{ color:"#4ECDC4" }}>⚡{stamina}</div>
           <button onClick={function(){ supabase.auth.signOut(); }} style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"6px",padding:"5px 9px",background:"transparent",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.35)",cursor:"pointer" }}>SIGN OUT</button>
@@ -1328,7 +1377,7 @@ export default function App({ session }) {
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
                     setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]);
                   }}>
-                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":showFeedPanel?"eat":"happy"}/>}
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":showFeedPanel?"eat":partnerMood}/>}
                 </div>
                 {/* Ground strip */}
                 <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
@@ -1663,22 +1712,56 @@ export default function App({ session }) {
                           </div>
 
                           {/* Evolutions */}
+                          {evoList.length > 0 && (
+                            <div style={{ marginBottom:8 }}>
+                              <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"5px" }}>DIGIVOLUTION</div>
+                              <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                                {evoList.map(function(evo){
+                                  var canEvo  = evo.eligible;
+                                  var canVow  = evo.vow;
+                                  var ci      = evo.info.crestReq ? CREST_INFO[evo.info.crestReq.primary] : null;
+                                  var ci2     = evo.info.crestReq&&evo.info.crestReq.secondary ? CREST_INFO[evo.info.crestReq.secondary] : null;
+                                  var req     = EVO_REQUIREMENTS[evo.info.stage] || {};
+                                  var btnCol  = canEvo ? T.gold : canVow ? T.lavender : T.textDim;
+                                  return (
+                                    <div key={evo.id} style={{ background:T.bgPanel,border:"1.5px solid "+(canEvo?T.gold:canVow?T.lavender:T.border),padding:"8px 10px" }}>
+                                      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap" }}>
+                                        <DigiSprite digimonId={evo.id} size={28} animate={false}/>
+                                        <div>
+                                          <div style={{ fontSize:12,fontWeight:900,color:btnCol }}>{evo.info.name}</div>
+                                          <div className="px8" style={{ color:STAGE_COLOR[evo.info.stage]||"#aaa",fontSize:"5px" }}>{evo.info.stage} · {evo.info.type}</div>
+                                        </div>
+                                        {(canEvo||canVow)&&(
+                                          <button className="px8"
+                                            style={{ marginLeft:"auto",padding:"5px 10px",background:btnCol+"22",border:"2px solid "+btnCol,color:btnCol,cursor:"pointer",fontSize:"6px" }}
+                                            onClick={function(){ evolve(digi.uid,evo.id); }}>
+                                            {canVow&&!canEvo?"VOW →":"DIGIVOLVE →"}
+                                          </button>
+                                        )}
+                                      </div>
+                                      {/* Requirements row */}
+                                      <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                                        <span className="px8" style={{ fontSize:"5px",color:digi.level>=req.level?T.green:T.coral }}>
+                                          Lv.{req.level} {digi.level>=req.level?"✓":"✗ ("+digi.level+")"}
+                                        </span>
+                                        {req.bond>0&&<span className="px8" style={{ fontSize:"5px",color:bond>=req.bond?T.green:T.coral }}>
+                                          Bond {req.bond} {bond>=req.bond?"✓":"✗ ("+Math.round(bond)+")"}
+                                        </span>}
+                                        {ci&&<span className="px8" style={{ fontSize:"5px",color:T.textMid }}>
+                                          {ci.icon}{ci2?" + "+ci2.icon:""} Crest {req.crestMatch?Math.round(req.crestMatch*100)+"%":""} {evo.matchPct!=null?(evo.matchPct+"% ✓"):""}
+                                        </span>}
+                                        {!canEvo&&evo.reason&&<span className="px8" style={{ fontSize:"5px",color:T.coral }}>{evo.reason}</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Party controls */}
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                            {evoList.map(function(evo){
-                              var canEvo  = evo.eligible;
-                              var canVow  = evo.vow;
-                              var ci      = evo.info.crestReq ? CREST_INFO[evo.info.crestReq.primary] : null;
-                              var btnCol  = canEvo ? T.gold : canVow ? T.lavender : T.textDim;
-                              var btnLbl  = canEvo ? "→ "+evo.info.name : canVow ? "Vow → "+evo.info.name : "→ "+evo.info.name+" ("+evo.reason+")";
-                              return (
-                                <button key={evo.id} className="px8" disabled={!canEvo&&!canVow}
-                                  style={{ padding:"6px 10px",background:btnCol+"22",border:"2px solid "+btnCol,color:btnCol,cursor:canEvo||canVow?"pointer":"not-allowed",fontSize:"6px",opacity:canEvo||canVow?1:0.5 }}
-                                  title={evo.reason||""}
-                                  onClick={function(){ if(canEvo||canVow) evolve(digi.uid,evo.id); }}>
-                                  {ci&&<span style={{ marginRight:4 }}>{ci.icon}</span>}{btnLbl}
-                                </button>
-                              );
-                            })}
+                            {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){ setLeader(digi.uid); }}>★ SET LEADER</button>}
                             {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</button>}
                           </div>
                         </div>
@@ -1864,32 +1947,55 @@ export default function App({ session }) {
             )}
 
             {/* ── DIGIDEX ──────────────────────────────────────────────── */}
-            {page==="digidex"&&(
-              <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div className="px12">DIGIDEX</div>
-                  <span className="px8" style={{ color:accent }}>{allDisc.length}/{Object.keys(DIGIMON_MAP).length}</span>
-                </div>
-                <Bar value={allDisc.length} max={Object.keys(DIGIMON_MAP).length} color={accent} h={8}/>
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10 }}>
-                  {Object.values(DIGIMON_MAP).map(function(d){
-                    var known = allDisc.indexOf(d.id)>=0;
-                    var role  = ROLES[d.role]||ROLES.Balanced;
+            {page==="digidex"&&(function(){
+              var stages = ["In-Training","Rookie","Champion","Ultimate","Mega"];
+              var allDigi = Object.values(DIGIMON_MAP);
+              var byStage = {};
+              stages.forEach(function(s){ byStage[s]=[]; });
+              allDigi.forEach(function(d){ if(byStage[d.stage]) byStage[d.stage].push(d); });
+              return (
+                <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <div className="px12">DIGIDEX</div>
+                    <span className="px8" style={{ color:accent }}>{allDisc.length}/{allDigi.length} discovered</span>
+                  </div>
+                  <Bar value={allDisc.length} max={allDigi.length} color={accent} h={8}/>
+                  {stages.map(function(stage){
+                    var group = byStage[stage];
+                    if (!group||group.length===0) return null;
                     return (
-                      <div key={d.id} className="pcard" style={{ padding:14,textAlign:"center",opacity:known?1:0.3 }}>
-                        {known
-                          ? <DigiSprite digimonId={d.id} size={48} animate={false}/>
-                          : <div style={{ width:48,height:48,margin:"0 auto",background:T.bgPanel,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:18,color:T.textDim }}>?</div>
-                        }
-                        <div style={{ fontSize:11,fontWeight:800,marginTop:8 }}>{known?d.name:"???"}</div>
-                        {known&&<div className="px8" style={{ color:STAGE_COLOR[d.stage]||"#aaa",marginTop:5,fontSize:"6px" }}>{d.stage}</div>}
-                        {known&&<div className="px8" style={{ color:role.color,marginTop:3,fontSize:"5px" }}>{role.icon} {d.role}</div>}
+                      <div key={stage}>
+                        <div className="px8" style={{ color:STAGE_COLOR[stage]||"#aaa",marginBottom:10,fontSize:"7px",borderBottom:"1px solid "+T.border,paddingBottom:6 }}>
+                          {stage.toUpperCase()} — {group.filter(function(d){return allDisc.includes(d.id);}).length}/{group.length}
+                        </div>
+                        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:8 }}>
+                          {group.map(function(d){
+                            var known = allDisc.includes(d.id);
+                            var role  = ROLES[d.role]||ROLES.Balanced;
+                            return (
+                              <div key={d.id} className="pcard" style={{ padding:12,textAlign:"center",position:"relative",border:"1.5px solid "+(known?(STAGE_COLOR[d.stage]||accent)+"55":T.border) }}>
+                                <div style={{ display:"flex",justifyContent:"center",marginBottom:6,filter:known?"none":"brightness(0) opacity(0.25)" }}>
+                                  <DigiSprite digimonId={d.id} size={44} animate={false}/>
+                                </div>
+                                <div style={{ fontSize:10,fontWeight:800,color:known?T.text:T.textDim,marginBottom:3 }}>{known?d.name:"???"}</div>
+                                <div className="px8" style={{ color:known?(STAGE_COLOR[d.stage]||"#aaa"):T.textDim,fontSize:"5px" }}>{d.stage}</div>
+                                {known&&(
+                                  <>
+                                    <div className="px8" style={{ color:role.color,marginTop:3,fontSize:"5px" }}>{role.icon} {d.role}</div>
+                                    <div className="px8" style={{ color:T.textDim,marginTop:2,fontSize:"5px" }}>{d.type} · {d.attr}</div>
+                                    {d.fusionOf&&<div className="px8" style={{ color:T.lavender,marginTop:3,fontSize:"5px" }}>DNA ✦</div>}
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
           </div>
         </main>
