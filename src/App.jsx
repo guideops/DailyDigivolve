@@ -96,6 +96,7 @@ export default function App({ session }) {
   var [digitamaCredits,  setDigitamaCredits]  = useState(0);
   var [showDigitamaModal,setShowDigitamaModal]= useState(false);
   var [confirmReset,     setConfirmReset]     = useState(false);
+  var [dedigivolveConfirm, setDedigivolveConfirm] = useState(null); // { uid, prevId } | null
   // sleepState: null | { phase:'countdown'|'sleeping', startedAt:ISO, wakeTime:"HH:MM", sleepDate:"YYYY-MM-DD" }
   var [sleepState,       setSleepState]       = useState(null);
   var [showRestModal,    setShowRestModal]    = useState(false);
@@ -458,6 +459,28 @@ export default function App({ session }) {
       return supabase.from('digimon').update({ sort_order: i }).eq('id', d.uid);
     }));
     toast_(newParty[0].name + " is now party leader! ★", accent);
+  }
+
+  // ── Dedigivolve ─────────────────────────────────────────────────────────────
+  async function confirmDedigivolve() {
+    if (!dedigivolveConfirm) return;
+    var { uid, prevId } = dedigivolveConfirm;
+    var digi = party.find(function(d){ return d.uid === uid; }) || farm.find(function(d){ return d.uid === uid; });
+    if (!digi || !prevId) return;
+    var prevInfo = DIGIMON_MAP[prevId];
+    if (!prevInfo) return;
+    await supabase.from('digimon').update({ species_id: prevId, name: prevInfo.name }).eq('id', uid);
+    function updateList(list) {
+      return list.map(function(d) {
+        if (d.uid !== uid) return d;
+        return Object.assign({}, d, { speciesId: prevId, name: prevInfo.name });
+      });
+    }
+    setParty(updateList);
+    setFarm(updateList);
+    setDedigivolveConfirm(null);
+    toast_(digi.name + " returned to " + prevInfo.name + ".", T.lavender);
+    addLog("↩", digi.name + " dedigivolved to " + prevInfo.name + ".");
   }
 
   // ── Complete task ────────────────────────────────────────────────────────────
@@ -1149,7 +1172,7 @@ export default function App({ session }) {
                       var di = DIGIMON_MAP[id]; if(!di) return null;
                       return (
                         <div key={id} title={di.name} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"6px 8px",border:"1.5px solid "+T.border,background:T.bgPanel }}>
-                          <DigiSprite digimonId={id} size={28} animate={false}/>
+                          <DigiSprite digimonId={id} size={28} animate mood="walk"/>
                           <div className="px8" style={{ color:T.textMid,fontSize:"5px" }}>{di.name}</div>
                         </div>
                       );
@@ -1193,6 +1216,37 @@ export default function App({ session }) {
                 onClick={resetToStarters}>CONFIRM RESET</button>
               <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
                 onClick={function(){ setConfirmReset(false); }}>CANCEL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DEDIGIVOLVE CONFIRM ──────────────────────────────────────────── */}
+      {dedigivolveConfirm && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.90)",zIndex:620,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.coral,boxShadow:"4px 4px 0 "+T.coral,padding:28,maxWidth:380,textAlign:"center",display:"flex",flexDirection:"column",gap:16,animation:"jijiIn 0.2s ease" }}>
+            <div style={{ fontSize:32 }}>↩</div>
+            <div className="px10" style={{ color:T.coral }}>DEDIGIVOLVE?</div>
+            <div style={{ display:"flex",justifyContent:"center",gap:18,alignItems:"center",padding:"12px 0" }}>
+              <div style={{ textAlign:"center" }}>
+                {(function(){ var _dd = party.find(function(d){return d.uid===dedigivolveConfirm.uid;})||farm.find(function(d){return d.uid===dedigivolveConfirm.uid;}); return _dd ? <DigiSprite digimonId={_dd.speciesId} size={56} animate mood="sad"/> : null; })()}
+                <div style={{ fontSize:11,fontWeight:800,color:T.text,marginTop:4 }}>{dedigivolveConfirm.digiName}</div>
+              </div>
+              <div style={{ fontSize:22,color:T.coral }}>→</div>
+              <div style={{ textAlign:"center" }}>
+                <DigiSprite digimonId={dedigivolveConfirm.prevId} size={56} animate mood="walk"/>
+                <div style={{ fontSize:11,fontWeight:800,color:T.text,marginTop:4 }}>{dedigivolveConfirm.prevName}</div>
+              </div>
+            </div>
+            <div style={{ fontSize:12,fontWeight:700,color:T.textMid,lineHeight:1.6 }}>
+              {dedigivolveConfirm.digiName} will revert to {dedigivolveConfirm.prevName}.<br/>
+              <span style={{ color:T.coral }}>This cannot be undone.</span> Use this to switch digivolution branches.
+            </div>
+            <div style={{ display:"flex",gap:10,justifyContent:"center" }}>
+              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"7px" }}
+                onClick={confirmDedigivolve}>CONFIRM</button>
+              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+                onClick={function(){ setDedigivolveConfirm(null); }}>CANCEL</button>
             </div>
           </div>
         </div>
@@ -1322,7 +1376,7 @@ export default function App({ session }) {
               <div style={{ background:stCol+"18",borderBottom:"2px solid "+stCol+"44",padding:"18px 20px",display:"flex",alignItems:"center",gap:16 }}>
                 <DigiSprite digimonId={digidexEntry} size={72} animate={known} mood="walk"/>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:18,fontWeight:900,color:known?T.text:T.textDim,marginBottom:4 }}>{known ? d.name : "???"}</div>
+                  <div style={{ fontSize:18,fontWeight:900,color:known?T.text:T.textDim,marginBottom:4 }}>{d.name}</div>
                   <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
                     <span className="px8" style={{ padding:"2px 8px",background:stCol+"33",border:"1.5px solid "+stCol,color:stCol,fontSize:"5px" }}>{d.stage}</span>
                     <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.border,color:T.textMid,fontSize:"5px" }}>{d.type}</span>
@@ -1403,7 +1457,7 @@ export default function App({ session }) {
                                 style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:T.bgPanel,border:"1.5px solid "+(pKnown?STAGE_COLOR[pi.stage]+"66":T.border),cursor:"pointer",opacity:pKnown?1:0.5 }}>
                                 <DigiSprite digimonId={pid} size={32} animate={pKnown} mood="walk"/>
                                 <div>
-                                  <div style={{ fontSize:10,fontWeight:800,color:pKnown?T.text:T.textDim }}>{pKnown?pi.name:"???"}</div>
+                                  <div style={{ fontSize:10,fontWeight:800,color:pKnown?T.text:T.textDim }}>{pi.name}</div>
                                   <div className="px8" style={{ color:STAGE_COLOR[pi.stage]||"#aaa",fontSize:"4px" }}>{pi.stage}</div>
                                 </div>
                               </div>
@@ -1446,7 +1500,7 @@ export default function App({ session }) {
                                 style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.bgPanel,border:"1.5px solid "+(nKnown?nStCol+"66":T.border),cursor:"pointer",opacity:nKnown?1:0.55 }}>
                                 <DigiSprite digimonId={nid} size={40} animate={nKnown} mood="walk"/>
                                 <div style={{ flex:1 }}>
-                                  <div style={{ fontSize:11,fontWeight:800,color:nKnown?T.text:T.textDim }}>{nKnown?ni.name:"???"}</div>
+                                  <div style={{ fontSize:11,fontWeight:800,color:nKnown?T.text:T.textDim }}>{ni.name}</div>
                                   <div className="px8" style={{ color:nStCol,fontSize:"4px",marginBottom:4 }}>{ni.stage}</div>
                                   <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
                                     {nReq.level&&<span className="px8" style={{ color:T.textMid,fontSize:"4px" }}>Lv.{nReq.level}</span>}
@@ -1579,7 +1633,7 @@ export default function App({ session }) {
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
                     setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]);
                   }}>
-                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":showFeedPanel?"eat":"walk"}/>}
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":showFeedPanel?"eat":bond>=90?"happy":"walk"}/>}
                 </div>
                 {/* Ground strip */}
                 <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
@@ -1863,7 +1917,7 @@ export default function App({ session }) {
                     <div key={digi.uid} className="pcard" style={{ padding:16,borderColor:i===0?accent:T.border,boxShadow:"3px 3px 0 "+(i===0?accent:T.border) }}>
                       <div style={{ display:"flex",gap:14,flexWrap:"wrap" }}>
                         <div style={{ position:"relative" }}>
-                          <DigiSprite digimonId={digi.speciesId} size={80}/>
+                          <DigiSprite digimonId={digi.speciesId} size={80} animate mood="walk"/>
                           {i===0&&<div style={{ position:"absolute",top:-6,right:-6,background:accent,border:"2px solid "+T.border,width:18,height:18,display:"grid",placeItems:"center",fontSize:9,color:T.bg,fontWeight:900 }}>★</div>}
                         </div>
                         <div style={{ flex:1,minWidth:160 }}>
@@ -1928,7 +1982,7 @@ export default function App({ session }) {
                                   return (
                                     <div key={evo.id} style={{ background:T.bgPanel,border:"1.5px solid "+(canEvo?T.gold:canVow?T.lavender:T.border),padding:"8px 10px" }}>
                                       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap" }}>
-                                        <DigiSprite digimonId={evo.id} size={28} animate={false}/>
+                                        <DigiSprite digimonId={evo.id} size={28} animate mood="walk"/>
                                         <div>
                                           <div style={{ fontSize:12,fontWeight:900,color:btnCol }}>{evo.info.name}</div>
                                           <div className="px8" style={{ color:STAGE_COLOR[evo.info.stage]||"#aaa",fontSize:"5px" }}>{evo.info.stage} · {evo.info.type}</div>
@@ -1965,6 +2019,18 @@ export default function App({ session }) {
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                             {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){ setLeader(digi.uid); }}>★ SET LEADER</button>}
                             {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</button>}
+                            {(function(){
+                              var allDigi2 = Object.values(DIGIMON_MAP);
+                              var prevIds2 = allDigi2.filter(function(x){ return x.evolvesTo && x.evolvesTo.includes(digi.speciesId); }).map(function(x){ return x.id; });
+                              if (prevIds2.length === 0) return null;
+                              var prevId2 = prevIds2[0];
+                              return (
+                                <button className="px8" style={{ padding:"6px 10px",background:T.coral+"18",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"6px" }}
+                                  onClick={function(){ setDedigivolveConfirm({ uid:digi.uid, prevId:prevId2, digiName:digi.name, prevName:(DIGIMON_MAP[prevId2]&&DIGIMON_MAP[prevId2].name)||prevId2 }); }}>
+                                  ↩ DEDIGIVOLVE
+                                </button>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -1987,7 +2053,7 @@ export default function App({ session }) {
                     var fi = DIGIMON_MAP[d.speciesId];
                     return (
                       <div key={d.uid} className="pcard" style={{ padding:14,display:"flex",alignItems:"center",gap:14 }}>
-                        <DigiSprite digimonId={d.speciesId} size={54}/>
+                        <DigiSprite digimonId={d.speciesId} size={54} animate mood="walk"/>
                         <div style={{ flex:1 }}>
                           <div style={{ fontWeight:800,fontSize:14 }}>{d.name}</div>
                           <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>Lv.{d.level} · {fi&&fi.stage} · {fi&&fi.role}</div>
@@ -2181,7 +2247,7 @@ export default function App({ session }) {
                                 <div style={{ display:"flex",justifyContent:"center",marginBottom:5,height:48,alignItems:"flex-end" }}>
                                   <DigiSprite digimonId={d.id} size={44} animate={known}/>
                                 </div>
-                                <div style={{ fontSize:9,fontWeight:800,color:known?T.text:T.textDim,marginBottom:2 }}>{known?d.name:"???"}</div>
+                                <div style={{ fontSize:9,fontWeight:800,color:known?T.text:T.textDim,marginBottom:2 }}>{d.name}</div>
                                 <div className="px8" style={{ color:stCol,fontSize:"5px" }}>{d.stage}</div>
                                 {known&&<div className="px8" style={{ color:role.color,marginTop:2,fontSize:"5px" }}>{role.icon} {d.role}</div>}
                               </div>
@@ -2246,7 +2312,7 @@ export default function App({ session }) {
                     draggable onDragStart={function(){ dragIdx.current=i; }}
                     onDrop={function(){ if(dragIdx.current!==null&&dragIdx.current!==i){ setParty(function(p){ var a=p.slice(); var tmp=a[dragIdx.current]; a[dragIdx.current]=a[i]; a[i]=tmp; return a; }); } dragIdx.current=null; }}
                     onDragOver={function(e){ e.preventDefault(); }}>
-                    <DigiSprite digimonId={d.speciesId} size={32}/>
+                    <DigiSprite digimonId={d.speciesId} size={32} animate mood="walk"/>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12,fontWeight:800 }}>{d.name}</div>
                       <div className="px8" style={{ color:role.color,fontSize:"5px",marginTop:2 }}>{role.icon} {inf2&&inf2.role}</div>
@@ -2421,7 +2487,7 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
               return (
                 <div key={id} style={{ padding:"10px 12px",background:T.bgPanel,border:"2px solid "+T.border }}>
                   <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:6 }}>
-                    <DigiSprite digimonId={id} size={36} animate={false}/>
+                    <DigiSprite digimonId={id} size={36} animate mood="walk"/>
                     <div>
                       <div style={{ fontSize:13,fontWeight:800 }}>{ti.name}</div>
                       <div className="px8" style={{ color:CREST_INFO[cr.primary].color,fontSize:"6px",marginTop:2 }}>{pci.icon} {cr.primary}{sci?" + "+sci.icon+" "+cr.secondary:""}</div>
@@ -2607,7 +2673,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
               <div style={{ padding:"8px 10px",borderBottom:"2px solid "+T.border,background:T.bgPanel }}>
                 {assignedDigi ? (
                   <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                    <DigiSprite digimonId={assignedDigi.speciesId} size={28} animate={false}/>
+                    <DigiSprite digimonId={assignedDigi.speciesId} size={28} animate mood="walk"/>
                     <div style={{ flex:1,minWidth:0 }}>
                       <div style={{ fontSize:10,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{assignedDigi.name}</div>
                       <div className="px8" style={{ color:T.gold,fontSize:"5px" }}>⚡1.5x XP</div>
