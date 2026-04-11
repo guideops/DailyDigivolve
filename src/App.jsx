@@ -87,6 +87,10 @@ export default function App({ session }) {
   var [pomodoroState,    setPomodoroState]    = useState(null);
   // pomodoroState: null | { phase:'setup'|'running'|'done', timeLeft, totalSeconds, template, duration }
   var [showTamerProfile, setShowTamerProfile] = useState(false);
+  var [loginStreak,      setLoginStreak]      = useState(0);
+  var [digitamaCredits,  setDigitamaCredits]  = useState(0);
+  var [showDigitamaModal,setShowDigitamaModal]= useState(false);
+  var [confirmReset,     setConfirmReset]     = useState(false);
 
   var dragIdx = useRef(null);
   var userId  = session.user.id;
@@ -139,16 +143,24 @@ export default function App({ session }) {
         }
 
         // Login streak + bond
-        var lastLogin = profile.last_login_date || today;
-        var loginStreak = profile.login_streak || 0;
+        var lastLogin  = profile.last_login_date || today;
+        var curStreak  = profile.login_streak    || 0;
+        var curCreds   = profile.digitama_credits || 0;
         if (lastLogin !== today) {
-          var newStreak = (new Date(today) - new Date(lastLogin)) <= 86400000*2 ? loginStreak + 1 : 1;
+          var yest = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+          var prevMilestone = Math.floor(curStreak / 30);
+          curStreak = (lastLogin === yest) ? curStreak + 1 : 1;
+          var earned = Math.floor(curStreak / 30) - prevMilestone;
+          if (earned > 0) { curCreds += earned; setShowDigitamaModal(true); }
           var loginBond = clampBond((profile.bond || 0) + 2);
           setBond(loginBond);
           await supabase.from('profiles').update({
-            last_login_date: today, login_streak: newStreak, bond: loginBond,
+            last_login_date: today, login_streak: curStreak,
+            digitama_credits: curCreds, bond: loginBond,
           }).eq('id', userId);
         }
+        setLoginStreak(curStreak);
+        setDigitamaCredits(curCreds);
       }
 
       if (digimonData && digimonData.length > 0) {
@@ -242,6 +254,51 @@ export default function App({ session }) {
       localStorage.setItem('jijimon_seen', JSON.stringify(updated));
     }
     setJijimonModal(null);
+  }
+
+  // ── Reset team ───────────────────────────────────────────────────────────────
+  async function resetToStarters() {
+    var { data:existing } = await supabase.from('digimon').select('id').eq('user_id', userId);
+    if (existing && existing.length > 0) {
+      await supabase.from('digimon').delete().in('id', existing.map(function(x){ return x.id; }));
+    }
+    setParty([]);
+    setFarm([]);
+    setAllDisc([]);
+    var newCreds = digitamaCredits + 1;
+    setDigitamaCredits(newCreds);
+    await supabase.from('profiles').update({ digitama_credits: newCreds }).eq('id', userId);
+    setConfirmReset(false);
+    setShowDigitamaModal(true);
+    toast_("Choose your new partner! 🥚", "#FFD700");
+  }
+
+  async function hatchDigitama(eggId) {
+    var HATCH_MAP = {
+      flame:  'koromon',
+      beast:  'tsunomon',
+      dragon: 'gigimon',
+      nature: 'tanemon',
+      holy:   'sunmon',
+    };
+    var speciesId = HATCH_MAP[eggId] || 'koromon';
+    var s = newDigimon(speciesId, {});
+    var { data:newDigi } = await supabase.from('digimon').insert({
+      user_id: userId, species_id: speciesId, name: s.name,
+      level: 1, exp: 0, exp_needed: 100, abi: 0,
+      personality: s.personality, bonus_stats: s.bonusStats,
+      discovered: [speciesId], in_farm: false, sort_order: 0,
+    }).select().single();
+    if (newDigi) {
+      var hatched = Object.assign({}, s, { uid: newDigi.id });
+      setParty(function(p){ return [hatched].concat(p).slice(0, 3); });
+      setAllDisc(function(d){ return d.includes(speciesId) ? d : d.concat([speciesId]); });
+    }
+    var newCreds = Math.max(0, digitamaCredits - 1);
+    setDigitamaCredits(newCreds);
+    await supabase.from('profiles').update({ digitama_credits: newCreds }).eq('id', userId);
+    if (newCreds <= 0) setShowDigitamaModal(false);
+    toast_("Welcome, " + s.name + "! 🥚→✨", T.gold);
   }
 
   // ── Complete task ────────────────────────────────────────────────────────────
@@ -869,7 +926,7 @@ export default function App({ session }) {
                   { label:"PARTNER",        val:activeDigi?activeDigi.name:"—",                  color:accent },
                   { label:"PARTNER LEVEL",  val:activeDigi?"Lv."+activeDigi.level:"—",           color:T.gold },
                   { label:"BOND STRENGTH",  val:Math.round(bond)+"/100",                          color:T.pink },
-                  { label:"LOGIN STREAK",   val:streak+" days 🔥",                                color:T.coral },
+                  { label:"LOGIN STREAK",   val:loginStreak+" days 🔥",                           color:T.coral },
                   { label:"TODAY'S TASKS",  val:doneTasks.length+" completed",                   color:T.green },
                   { label:"DIGIMON KNOWN",  val:allDisc.length+"/"+Object.keys(DIGIMON_MAP).length, color:T.lavender },
                 ].map(function(s){
@@ -935,8 +992,77 @@ export default function App({ session }) {
                   "I will complete my missions, nurture my partner, and face every challenge with courage. The Digital World grows alongside me."
                 </div>
               </div>
+
+              {/* Danger zone */}
+              <div style={{ borderTop:"1px solid "+T.coral+"44",paddingTop:12,marginTop:4 }}>
+                <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"5px" }}>DANGER ZONE</div>
+                <button className="px8" style={{ width:"100%",padding:"9px 12px",background:T.coral+"11",border:"1.5px solid "+T.coral+"88",color:T.coral,cursor:"pointer",fontSize:"6px",textAlign:"left" }}
+                  onClick={function(){ setShowTamerProfile(false); setConfirmReset(true); }}>
+                  ⚠ RESET TEAM — Release all Digimon and start fresh
+                </button>
+              </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── CONFIRM RESET ────────────────────────────────────────────────── */}
+      {confirmReset && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:620,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.coral,boxShadow:"4px 4px 0 "+T.coral,padding:28,maxWidth:360,textAlign:"center",display:"flex",flexDirection:"column",gap:16 }}>
+            <div style={{ fontSize:36 }}>⚠️</div>
+            <div className="px10" style={{ color:T.coral }}>RESET TEAM?</div>
+            <div style={{ fontSize:12,fontWeight:700,color:T.textMid,lineHeight:1.6 }}>
+              All current Digimon will be released. You will receive a Digitama to choose a new starting partner. This cannot be undone.
+            </div>
+            <div style={{ display:"flex",gap:10,justifyContent:"center" }}>
+              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"7px" }}
+                onClick={resetToStarters}>CONFIRM RESET</button>
+              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+                onClick={function(){ setConfirmReset(false); }}>CANCEL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DIGITAMA MODAL ───────────────────────────────────────────────── */}
+      {showDigitamaModal && digitamaCredits > 0 && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:615,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,overflowY:"auto" }}>
+          <div style={{ fontSize:48,marginBottom:8 }}>🥚</div>
+          <div className="px10" style={{ color:T.gold,letterSpacing:3,marginBottom:4 }}>CHOOSE YOUR PARTNER</div>
+          <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:24,textAlign:"center",maxWidth:380 }}>
+            Select a Digitama to hatch your new partner:
+          </div>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20,maxWidth:480 }}>
+            {[
+              { id:"flame",  label:"Flame",  color:"#FF6B35", shimmer:"#FFD700", desc:"Agumon line" },
+              { id:"beast",  label:"Beast",  color:"#7EB8F7", shimmer:"#C3B1E1", desc:"Gabumon line" },
+              { id:"dragon", label:"Dragon", color:"#C3B1E1", shimmer:"#FF9EB5", desc:"Guilmon line" },
+              { id:"nature", label:"Nature", color:"#5CB85C", shimmer:"#A8E6CF", desc:"Palmon line" },
+              { id:"holy",   label:"Holy",   color:"#FFE066", shimmer:"#FFFFFF", desc:"Coronamon line" },
+            ].map(function(egg){
+              return (
+                <button key={egg.id} onClick={function(){ hatchDigitama(egg.id); }}
+                  style={{ background:"transparent",border:"2px solid "+egg.color,boxShadow:"3px 3px 0 "+egg.color,padding:14,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,fontFamily:"'Press Start 2P',monospace" }}>
+                  <svg width={48} height={58} viewBox="0 0 48 58">
+                    <ellipse cx="24" cy="32" rx="18" ry="23" fill={egg.color} opacity="0.9"/>
+                    <ellipse cx="17" cy="22" rx="5" ry="8"  fill="rgba(255,255,255,0.3)"/>
+                    <ellipse cx="24" cy="32" rx="18" ry="23" fill="none" stroke={egg.shimmer} strokeWidth="1.5" opacity="0.7"/>
+                  </svg>
+                  <div style={{ fontSize:"6px",color:egg.color,fontWeight:900 }}>{egg.label}</div>
+                  <div style={{ fontSize:"5px",color:T.textMid,textAlign:"center" }}>{egg.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+          {party.length > 0 && (
+            <button className="px8" style={{ padding:"8px 20px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+              onClick={function(){ setShowDigitamaModal(false); }}>SAVE FOR LATER</button>
+          )}
+          {party.length === 0 && (
+            <div className="px8" style={{ color:T.coral,marginTop:4,fontSize:"6px" }}>You must choose a partner to continue</div>
+          )}
+          {digitamaCredits > 1 && <div className="px8" style={{ color:T.gold,marginTop:8,fontSize:"6px" }}>×{digitamaCredits} eggs available — each pick uses 1</div>}
         </div>
       )}
 
