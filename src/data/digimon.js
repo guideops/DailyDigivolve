@@ -506,6 +506,32 @@ export const DIGIMON_DB = [
     signature:"Gargo Missiles — full-power barrage striking all enemies 3 times at 40% Power each",
     crestReq:{ primary:"Friendship", secondary:"Reliability" },
     evolvesTo:[] },
+
+  // ── Neglect / Corruption branch ────────────────────────────────────────────────
+  // Sukamon: evolves from any neglected partner. Born from corrupted data.
+  { id:"sukamon", name:"Sukamon", stage:"Rookie", type:"Virus", attr:"Dark",
+    hp:95, sp:38, atk:62, def:30, int:22, spd:58,
+    role:"Striker",
+    passive:"Corruption Core — ignores 15% of enemy Guard; damage grows with each defeated foe",
+    signature:"Poop Toss — AoE chaos attack, 30% chance to inflict Virus (enemy ATK -10% for 2 turns)",
+    evolvesTo:["etemon"] },
+
+  { id:"etemon", name:"Etemon", stage:"Champion", type:"Virus", attr:"Dark",
+    hp:175, sp:72, atk:112, def:68, int:58, spd:92,
+    role:"Vanguard",
+    passive:"Dark Network — all Virus-type attacks deal +20% damage; immunity to Charm",
+    signature:"Concert Crush — 3-hit dark-music barrage at 45% Power each; applies SPD debuff",
+    crestReq:{ primary:"Sincerity", secondary:"Courage" },
+    evolvesTo:[] },
+
+  // Monzaemon: redemption path — available after completing the Reconnection Arc
+  { id:"monzaemon", name:"Monzaemon", stage:"Champion", type:"Vaccine", attr:"Neutral",
+    hp:185, sp:88, atk:92, def:105, int:82, spd:62,
+    role:"Guardian",
+    passive:"Warm Heart — restores 8% max HP per turn; ally Guard +10% while present",
+    signature:"Hearts Attack — single target hit; inflicts Charmed (target skips next action)",
+    crestReq:{ primary:"Care", secondary:"Friendship" },
+    evolvesTo:[] },
 ];
 
 // Fast lookup map

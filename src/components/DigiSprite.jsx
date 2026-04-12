@@ -141,6 +141,8 @@ var FALLBACK_COLORS = {
   lopmon_it:"#D09060",   lopmon:"#B07040",       antylamon:"#906030",     saviorhuckmon:"#FF6030",
   // Renamon/Fox
   renamon:"#FFD080",     kyubimon:"#FFA040",     taomon:"#FF8020",        sakuyamon:"#FF6088",
+  // Neglect/corruption branch
+  sukamon:"#8B6914", etemon:"#CC4400", monzaemon:"#E8C4D0",
   // Babies/In-Training
   default:"#B8A0E8",
 };

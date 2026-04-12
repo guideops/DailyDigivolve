@@ -152,6 +152,15 @@ export const SHOP_ITEMS = [
     desc:"+3 to your lowest active crest (1 per week)." },
 ];
 
+// ── Neglect system ────────────────────────────────────────────────────────────
+// Speech shown in the pet stage bubble when neglected (random pick per level)
+export const NEGLECT_SPEECH = {
+  quiet:    ["...been managing on my own.", "you've been busy, huh?", "i kept the routine going.", "good to see you."],
+  dormant:  ["...it's been a while.", "i wasn't sure you'd come back.", "did something happen?", "i've been... different lately."],
+  unstable: ["...something was shifting inside me.", "the quiet got very loud.", "i almost gave up waiting.", "a darker path started calling."],
+  critical: ["...you left me for a long time.", "i changed while you were gone.", "the bond we had has faded.", "i'm not the same partner you left."],
+};
+
 // ── Campaign / Raid system ────────────────────────────────────────────────────
 // Template → which raid stat that task type trains
 export const TEMPLATE_RAID_STAT = {

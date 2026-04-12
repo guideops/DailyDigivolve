@@ -9,7 +9,7 @@ import {
   STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
   CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
   STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP, EVO_REQUIREMENTS,
-  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT,
+  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT, NEGLECT_SPEECH,
 } from "./data/constants.js";
 import {
   calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
@@ -60,6 +60,40 @@ var JIJIMON_LINES = {
   neglect_warn:  "Your partner has grown quiet. But it is never too late to rebuild what was lost.",
 };
 
+// ── Neglect reconnect messages (personality × severity) ───────────────────────
+var RECONNECT_MSG = {
+  durable: {
+    dormant:  function(n,d){ return n+" endured "+d+" days alone. Worn but standing. Welcome back, Tamer — let's rebuild this."; },
+    unstable: function(n,d){ return n+" held on for "+d+" days. Something shifted inside, but the connection isn't gone yet. Don't let it slip further."; },
+    critical: function(n,d){ return n+" waited "+d+" days in the dark. The bond has grown cold — a corrupted path is forming. You can still turn this around."; },
+  },
+  lively: {
+    dormant:  function(n,d){ return d+" days?! "+n+" was SO bored! But hey — you're back! Let's GO! 💥"; },
+    unstable: function(n,d){ return n+" has been alone for "+d+" days and things got... weird. Complete a few tasks and we'll snap out of it!"; },
+    critical: function(n,d){ return d+" days is a LONG time. "+n+" changed while you were gone. There's a dark energy building. Let's beat it back together!"; },
+  },
+  fighter: {
+    dormant:  function(n,d){ return d+" days without a fight. "+n+" kept training alone. Now that you're back — let's finish what we started."; },
+    unstable: function(n,d){ return n+" fought off "+d+" days of doubt. There's a darker edge now. Channel it — don't lose it."; },
+    critical: function(n,d){ return d+" days. "+n+" almost broke. The darkness is close. Fight it — or embrace a different kind of strength."; },
+  },
+  defender: {
+    dormant:  function(n,d){ return n+" kept watch for "+d+" days. Everything is still here. Ready when you are, Tamer."; },
+    unstable: function(n,d){ return d+" days of waiting. "+n+"'s guard is still up — but the cracks are showing. Let's patch them together."; },
+    critical: function(n,d){ return n+" guarded this bond alone for "+d+" days. The walls are crumbling. A shadow has settled in. Together, we rebuild."; },
+  },
+  brainy: {
+    dormant:  function(n,d){ return n+" computed the probability of your return for "+d+" days. Glad to report — you made it. Let's recalibrate."; },
+    unstable: function(n,d){ return d+" days of solitary processing. "+n+"'s patterns shifted into unusual states. Reconnect before further drift."; },
+    critical: function(n,d){ return d+" days produced unexpected emergent behavior in "+n+". A corruption branch formed. Intervention is available."; },
+  },
+  nimble: {
+    dormant:  function(n,d){ return n+" kept moving for "+d+" days — but it wasn't the same without you! Back in action now! ✨"; },
+    unstable: function(n,d){ return d+" days and "+n+" started running in circles. Something strange stirred. Let's find our rhythm again!"; },
+    critical: function(n,d){ return d+" days... "+n+" moved through the dark alone. A shadow kept pace. You can outrun it — if we start now."; },
+  },
+};
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App({ session }) {
   var [page,             setPage]             = useState("dashboard");
@@ -102,6 +136,10 @@ export default function App({ session }) {
   // raidState: null | { raidId, totalDamage, raidLog:[{date,damage,taskTitle,stat,phase}] }
   var [raidState,        setRaidState]        = useState(null);
   var [raidHit,          setRaidHit]          = useState(null); // { damage, stat } flashed on task complete
+  // neglectData: null | { level, daysAbsent, inArc, arcTasksDone, arcGoal, sukamonRisk, sukamonAccepted }
+  var [neglectData,      setNeglectData]      = useState(null);
+  var [showReconnectModal, setShowReconnectModal] = useState(false);
+  var [showSukamonModal,   setShowSukamonModal]   = useState(false);
   // sleepState: null | { phase:'countdown'|'sleeping', startedAt:ISO, wakeTime:"HH:MM", sleepDate:"YYYY-MM-DD" }
   var [sleepState,       setSleepState]       = useState(null);
   var [showRestModal,    setShowRestModal]    = useState(false);
@@ -163,6 +201,43 @@ export default function App({ session }) {
         var lastLogin  = profile.last_login_date || today;
         var curStreak  = profile.login_streak    || 0;
         var curCreds   = profile.digitama_credits || 0;
+
+        // ── Neglect detection (read BEFORE lastLogin updates to today) ────────
+        var daysSinceLogin = Math.max(0, Math.floor((new Date(today) - new Date(lastLogin)) / 86400000));
+        var storedNeglect  = profile.neglect_state || null;
+        if (daysSinceLogin >= 3 || (storedNeglect && storedNeglect.inArc)) {
+          var neglLevel = daysSinceLogin >= 14 ? "critical"
+                        : daysSinceLogin >= 7  ? "unstable"
+                        : daysSinceLogin >= 3  ? "dormant"
+                        : "quiet";
+          var isReturn  = daysSinceLogin >= 7 && lastLogin !== today;
+          var wasInArc  = storedNeglect && storedNeglect.inArc;
+          var nd = {
+            level:            neglLevel,
+            daysAbsent:       daysSinceLogin > 0 ? daysSinceLogin : (storedNeglect ? storedNeglect.daysAbsent : 0),
+            inArc:            isReturn || wasInArc,
+            arcStart:         wasInArc ? storedNeglect.arcStart : (isReturn ? today : null),
+            arcTasksDone:     wasInArc ? (storedNeglect.arcTasksDone || 0) : 0,
+            arcGoal:          3,
+            sukamonRisk:      (daysSinceLogin >= 14 || (storedNeglect && storedNeglect.sukamonRisk)) && (profile.bond || 0) < 40,
+            sukamonOffered:   storedNeglect ? (storedNeglect.sukamonOffered || false) : false,
+            sukamonAccepted:  storedNeglect ? (storedNeglect.sukamonAccepted || false) : false,
+          };
+          setNeglectData(nd);
+          // Show reconnect modal on first return from 7+ days (not if already in arc)
+          if (isReturn && !wasInArc) setShowReconnectModal(true);
+          // Show Sukamon modal after reconnect if risk and not yet offered
+          if (nd.sukamonRisk && !nd.sukamonOffered && !isReturn) setShowSukamonModal(true);
+          // Neglect speech
+          var nsp = NEGLECT_SPEECH[neglLevel] || NEGLECT_SPEECH.quiet;
+          setSpeech(nsp[Math.floor(Math.random() * nsp.length)]);
+          await supabase.from('profiles').update({ neglect_state: nd }).eq('id', userId);
+        } else if (storedNeglect && !storedNeglect.inArc) {
+          // Previously neglected but arc done — clear
+          await supabase.from('profiles').update({ neglect_state: null }).eq('id', userId);
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         if (lastLogin !== today) {
           var yest = new Date(Date.now() - 86400000).toISOString().split('T')[0];
           var prevMilestone = Math.floor(curStreak / 30);
@@ -471,6 +546,32 @@ export default function App({ session }) {
     toast_(newParty[0].name + " is now party leader! ★", accent);
   }
 
+  // ── Neglect helpers ──────────────────────────────────────────────────────────
+  async function clearNeglect() {
+    setNeglectData(null);
+    await supabase.from('profiles').update({ neglect_state: null }).eq('id', userId);
+    toast_("Bond restored! Your partner is back. 💗", T.pink);
+    setBond(function(b){ var nb = clampBond(b + 15); supabase.from('profiles').update({ bond: nb }).eq('id', userId); return nb; });
+    addLog("💗", activeDigi ? activeDigi.name + " reconnection arc complete!" : "Reconnection arc complete!");
+  }
+
+  async function acceptSukamon() {
+    var nd = Object.assign({}, neglectData, { sukamonAccepted: true, sukamonOffered: true });
+    setNeglectData(nd);
+    setShowSukamonModal(false);
+    await supabase.from('profiles').update({ neglect_state: nd }).eq('id', userId);
+    toast_("Corruption accepted. Sukamon evolution available.", "#9B59B6");
+    addLog("💀", "Dark path opened. Sukamon evolution available in TEAM.");
+  }
+
+  async function rejectSukamon() {
+    var nd = Object.assign({}, neglectData, { sukamonOffered: true, sukamonAccepted: false });
+    setNeglectData(nd);
+    setShowSukamonModal(false);
+    await supabase.from('profiles').update({ neglect_state: nd }).eq('id', userId);
+    toast_("Fighting the corruption. Complete 3 tasks to recover. 💗", T.teal);
+  }
+
   // ── Raid contribution ────────────────────────────────────────────────────────
   function calcRaidContrib(task, digi) {
     if (!digi) return { damage: 0, stat: "power" };
@@ -601,6 +702,20 @@ export default function App({ session }) {
     setSpeech("great job! +" + xp + " XP 🔥");
     addLog("✅", '"' + task.title + '" +' + xp + " XP" + (hasBoost?" ⚡1.5x":"") + (cg?" ["+cg.primaryCrest+"]":"") + (contrib.damage>0?" ⚔+"+contrib.damage:""));
     toast_("Task done!  +" + xp + " EXP" + (hasBoost?" ⚡1.5x":"") + (cg?"  "+CREST_INFO[cg.primaryCrest].icon+" "+cg.primaryCrest:""));
+
+    // Neglect reconnection arc advancement
+    if (neglectData && neglectData.inArc) {
+      var newArcDone = (neglectData.arcTasksDone || 0) + 1;
+      var arcDone    = newArcDone >= neglectData.arcGoal;
+      var updatedNeglect = Object.assign({}, neglectData, { arcTasksDone: newArcDone, inArc: !arcDone });
+      setNeglectData(updatedNeglect);
+      await supabase.from('profiles').update({ neglect_state: arcDone ? null : updatedNeglect }).eq('id', userId);
+      if (arcDone) {
+        clearNeglect();
+      } else {
+        toast_("Reconnection Arc: " + newArcDone + "/" + neglectData.arcGoal + " tasks 💗", T.pink);
+      }
+    }
 
     // Jijimon triggers
     if (crestHistory.length === 0 && cg) triggerJijimon('crest_intro');
@@ -1269,6 +1384,110 @@ export default function App({ session }) {
         </div>
       )}
 
+      {/* ── RECONNECT ARC MODAL ──────────────────────────────────────────── */}
+      {showReconnectModal && neglectData && (function(){
+        var nlvl2  = neglectData.level;
+        var days2  = neglectData.daysAbsent;
+        var pers2  = activeDigi && activeDigi.personality;
+        var msgFns = pers2 && RECONNECT_MSG[pers2] ? RECONNECT_MSG[pers2] : RECONNECT_MSG.durable;
+        var msgFn  = msgFns[nlvl2] || msgFns.dormant;
+        var msg2   = activeDigi ? msgFn(activeDigi.name, days2) : "Your partner survived alone. Welcome back, Tamer.";
+        var borderC = nlvl2==="critical"?"#cc2222":nlvl2==="unstable"?"#9B59B6":T.textDim;
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:640,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+            <div style={{ background:T.bgCard,border:"2px solid "+borderC,boxShadow:"4px 4px 0 "+borderC,maxWidth:440,width:"100%",padding:0,overflow:"hidden",animation:"jijiIn 0.3s ease" }}>
+              {/* Header */}
+              <div style={{ background:borderC+"22",borderBottom:"2px solid "+borderC+"44",padding:"16px 20px",display:"flex",alignItems:"center",gap:14 }}>
+                <div style={{ fontSize:36 }}>{nlvl2==="critical"?"💀":nlvl2==="unstable"?"😶":nlvl2==="dormant"?"💤":"😌"}</div>
+                <div>
+                  <div className="px10" style={{ color:borderC }}>
+                    {nlvl2==="critical"?"CORRUPTION RISK"
+                    :nlvl2==="unstable"?"PARTNER UNSTABLE"
+                    :nlvl2==="dormant"?"PARTNER DORMANT"
+                    :"PARTNER QUIET"}
+                  </div>
+                  <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginTop:2 }}>{days2} days absent — reconnection arc begins</div>
+                </div>
+              </div>
+              {/* Partner portrait */}
+              {activeDigi && (
+                <div style={{ display:"flex",justifyContent:"center",padding:"16px 20px 0" }}>
+                  <DigiSprite digimonId={activeDigi.speciesId} size={72} animate mood={nlvl2==="critical"||nlvl2==="unstable"?"hurt":"sad"}/>
+                </div>
+              )}
+              {/* Message */}
+              <div style={{ padding:"14px 20px 0" }}>
+                <div style={{ fontSize:13,fontWeight:700,color:T.text,lineHeight:1.7,fontStyle:"italic" }}>"{msg2}"</div>
+              </div>
+              {/* Recovery info */}
+              <div style={{ padding:"14px 20px",background:T.bgPanel,margin:"14px 20px",border:"1.5px solid "+T.border }}>
+                <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginBottom:8 }}>RECONNECTION ARC</div>
+                <div style={{ fontSize:11,color:T.textMid,lineHeight:1.6 }}>Complete <strong style={{ color:T.pink }}>3 tasks</strong> to restore the bond. Your partner survived alone — and changed. Guide them forward.</div>
+                <div style={{ display:"flex",gap:6,marginTop:10,flexWrap:"wrap" }}>
+                  <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.teal,color:T.teal,fontSize:"5px" }}>→ Bond restored +15</span>
+                  <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"5px" }}>→ Normal path continues</span>
+                </div>
+              </div>
+              {neglectData.sukamonRisk && (
+                <div style={{ padding:"0 20px 14px" }}>
+                  <div style={{ padding:"10px 12px",background:"#9B59B622",border:"2px solid #9B59B6" }}>
+                    <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:4 }}>⚠ CORRUPTION RISK DETECTED</div>
+                    <div style={{ fontSize:11,color:T.textMid,lineHeight:1.6 }}>Bond was low ({Math.round(bond)}/100) and absence was long. A darker evolution path is forming. You'll face a choice.</div>
+                  </div>
+                </div>
+              )}
+              <div style={{ padding:"0 20px 20px" }}>
+                <button className="px8" style={{ width:"100%",padding:"10px",background:borderC+"22",border:"2px solid "+borderC,color:borderC,cursor:"pointer",fontSize:"7px" }}
+                  onClick={function(){
+                    setShowReconnectModal(false);
+                    if (neglectData && neglectData.sukamonRisk && !neglectData.sukamonOffered) {
+                      setTimeout(function(){ setShowSukamonModal(true); }, 400);
+                    }
+                  }}>
+                  BEGIN RECONNECTION ARC ✦
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── SUKAMON RISK MODAL ────────────────────────────────────────────── */}
+      {showSukamonModal && neglectData && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:641,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+          <div style={{ background:T.bgCard,border:"2px solid #9B59B6",boxShadow:"4px 4px 0 #9B59B6",maxWidth:400,width:"100%",padding:0,overflow:"hidden",animation:"jijiIn 0.3s ease" }}>
+            <div style={{ background:"linear-gradient(135deg,#100010,#180018,#100010)",borderBottom:"2px solid #9B59B644",padding:"20px",textAlign:"center" }}>
+              <div style={{ fontSize:48,marginBottom:8 }}>💀</div>
+              <div className="px10" style={{ color:"#9B59B6",letterSpacing:2 }}>A DARKER PATH OPENS</div>
+            </div>
+            <div style={{ padding:"20px" }}>
+              <div style={{ display:"flex",justifyContent:"center",marginBottom:14 }}>
+                <DigiSprite digimonId="sukamon" size={56} animate mood="angry"/>
+              </div>
+              <div style={{ fontSize:12,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:14 }}>
+                Your partner's data has shifted during the long absence. The corruption has taken hold and Sukamon's form calls from the dark. You can embrace this path — or fight it.
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14 }}>
+                <div style={{ padding:"10px 12px",background:"#9B59B622",border:"1.5px solid #9B59B6" }}>
+                  <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:4 }}>EMBRACE THE DARK</div>
+                  <div style={{ fontSize:10,color:T.textMid,lineHeight:1.5 }}>Sukamon evolution unlocked. Unique dark-type path. High Power, chaotic nature.</div>
+                </div>
+                <div style={{ padding:"10px 12px",background:T.pink+"22",border:"1.5px solid "+T.pink }}>
+                  <div className="px8" style={{ color:T.pink,fontSize:"5px",marginBottom:4 }}>REBUILD THE BOND</div>
+                  <div style={{ fontSize:10,color:T.textMid,lineHeight:1.5 }}>Fight the corruption. Complete the arc. Normal path continues + Bond +15.</div>
+                </div>
+              </div>
+              <div style={{ display:"flex",gap:10 }}>
+                <button className="px8" style={{ flex:1,padding:"9px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"6px" }}
+                  onClick={acceptSukamon}>EMBRACE IT 💀</button>
+                <button className="px8" style={{ flex:1,padding:"9px",background:T.pink+"22",border:"2px solid "+T.pink,color:T.pink,cursor:"pointer",fontSize:"6px" }}
+                  onClick={rejectSukamon}>FIGHT IT 💗</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── DEDIGIVOLVE CONFIRM ──────────────────────────────────────────── */}
       {dedigivolveConfirm && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.90)",zIndex:620,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
@@ -1629,13 +1848,28 @@ export default function App({ session }) {
 
           {/* Pet stage */}
           {(function(){
-            var isSleeping = sleepState && sleepState.phase === 'sleeping';
+            var isSleeping  = sleepState && sleepState.phase === 'sleeping';
             var isCountdown = sleepState && sleepState.phase === 'countdown';
+            // Neglect visual state
+            var nlvl    = neglectData ? neglectData.level : null;
+            var isNeglected = !!nlvl;
+            var neglectBorderColor = nlvl === "critical" ? "#cc2222"
+                                   : nlvl === "unstable" ? "#9B59B6"
+                                   : nlvl === "dormant"  ? T.textDim
+                                   : T.border;
+            var neglectFilter = nlvl === "critical" ? "grayscale(0.6) brightness(0.65)"
+                              : nlvl === "unstable" ? "grayscale(0.4) brightness(0.72)"
+                              : nlvl === "dormant"  ? "grayscale(0.2) brightness(0.82)"
+                              : "none";
             var stageBg = isSleeping
               ? "linear-gradient(160deg,#050810 0%,#080510 50%,#050810 100%)"
+              : nlvl === "critical" ? "linear-gradient(160deg,#150005 0%,#100010 50%,#080008 100%)"
+              : nlvl === "unstable" ? "linear-gradient(160deg,#0d0015 0%,#0a0012 50%,#0d000d 100%)"
+              : nlvl === "dormant"  ? "linear-gradient(160deg,#0a0f16 0%,#080d14 50%,#0a0d14 100%)"
               : "linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)";
+            var stageAccent = isSleeping ? T.lavender : isNeglected ? neglectBorderColor : T.border;
             return (
-              <div style={{ background:stageBg,border:"2px solid "+(isSleeping?T.lavender:T.border),boxShadow:"3px 3px 0 "+(isSleeping?T.lavender:T.border),height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14 }}>
+              <div style={{ background:stageBg,border:"2px solid "+stageAccent,boxShadow:"3px 3px 0 "+stageAccent,height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
                 {/* Star field (always) / deeper at night */}
                 <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,"+(isSleeping?"0.28":"0.12")+") 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
                 {/* Moon when sleeping */}
@@ -1691,7 +1925,13 @@ export default function App({ session }) {
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
                     setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]);
                   }}>
-                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84} mood={isSleeping||isCountdown?"sleepy":showFeedPanel?"eat":bond>=90?"happy":"walk"}/>}
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84}
+                    mood={isSleeping||isCountdown?"sleepy"
+                      :showFeedPanel?"eat"
+                      :nlvl==="critical"||nlvl==="unstable"?"hurt"
+                      :nlvl==="dormant"?"sad"
+                      :bond>=90?"happy"
+                      :"walk"}/>}
                 </div>
                 {/* Ground strip */}
                 <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
@@ -1753,6 +1993,36 @@ export default function App({ session }) {
               </div>
             );
           })()}
+
+          {/* Neglect / Reconnection Arc widget */}
+          {neglectData && (
+            <div style={{ background:neglectData.level==="critical"?"linear-gradient(135deg,#1a0005,#150010)":neglectData.level==="unstable"?"linear-gradient(135deg,#0d0015,#110010)":"linear-gradient(135deg,#0d0d0d,#111118)", border:"2px solid "+(neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textDim), padding:"10px 12px" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
+                <div className="px8" style={{ color:neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textMid, fontSize:"5px" }}>
+                  {neglectData.level==="critical"?"⚠ CORRUPTION RISK"
+                  :neglectData.level==="unstable"?"💀 PARTNER UNSTABLE"
+                  :neglectData.level==="dormant"?"😶 PARTNER DORMANT"
+                  :"... PARTNER QUIET"}
+                </div>
+                {neglectData.inArc && (
+                  <div className="px8" style={{ color:T.pink,fontSize:"5px" }}>RECONNECTION ARC</div>
+                )}
+              </div>
+              {neglectData.inArc ? (
+                <div>
+                  <div style={{ height:6,background:T.bgCard,border:"1.5px solid "+T.pink,overflow:"hidden",marginBottom:4 }}>
+                    <div style={{ width:((neglectData.arcTasksDone/neglectData.arcGoal)*100)+"%",height:"100%",background:T.pink,transition:"width 0.4s ease" }}/>
+                  </div>
+                  <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{neglectData.arcTasksDone}/{neglectData.arcGoal} tasks — complete to restore bond</div>
+                </div>
+              ) : (
+                <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{neglectData.daysAbsent} days absent — complete tasks to reconnect</div>
+              )}
+              {neglectData.sukamonRisk && neglectData.sukamonAccepted && (
+                <div className="px8" style={{ color:"#9B59B6",fontSize:"4px",marginTop:4 }}>💀 Sukamon evo available in TEAM page</div>
+              )}
+            </div>
+          )}
 
           {/* Crest alignment mini */}
           <div style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 12px" }}>
@@ -2046,6 +2316,25 @@ export default function App({ session }) {
                             </div>
                             <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={8}/>
                           </div>
+
+                          {/* Sukamon special corruption evolution */}
+                          {neglectData && neglectData.sukamonRisk && neglectData.sukamonAccepted && DIGIMON_MAP[digi.speciesId] && (DIGIMON_MAP[digi.speciesId].stage==="In-Training"||DIGIMON_MAP[digi.speciesId].stage==="Rookie") && (
+                            <div style={{ marginBottom:8,padding:"8px 10px",background:"linear-gradient(135deg,#100010,#180010)",border:"2px solid #9B59B6" }}>
+                              <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:6 }}>💀 CORRUPTION EVOLUTION</div>
+                              <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                                <DigiSprite digimonId="sukamon" size={28} animate mood="walk"/>
+                                <div style={{ flex:1 }}>
+                                  <div style={{ fontSize:12,fontWeight:900,color:"#9B59B6" }}>Sukamon</div>
+                                  <div className="px8" style={{ color:T.textDim,fontSize:"5px" }}>Rookie · Virus · Dark</div>
+                                </div>
+                                <button className="px8" style={{ padding:"5px 10px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"6px" }}
+                                  onClick={function(){ evolve(digi.uid,"sukamon"); }}>
+                                  CORRUPT →
+                                </button>
+                              </div>
+                              <div style={{ fontSize:10,color:T.textDim,marginTop:5,fontStyle:"italic" }}>The data has warped. A darker form calls.</div>
+                            </div>
+                          )}
 
                           {/* Evolutions */}
                           {evoList.length > 0 && (
