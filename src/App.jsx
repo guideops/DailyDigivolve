@@ -9,6 +9,7 @@ import {
   STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
   CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
   STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP, EVO_REQUIREMENTS,
+  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT,
 } from "./data/constants.js";
 import {
   calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
@@ -35,6 +36,7 @@ var NAV = [
   { id:"team",      label:"TEAM",    icon:"◈" },
   { id:"digifarm",  label:"FARM",    icon:"🌿" },
   { id:"battle",    label:"BATTLE",  icon:"⚔" },
+  { id:"campaign",  label:"RAID",    icon:"☠" },
   { id:"chat",      label:"CHAT",    icon:"💬" },
   { id:"store",     label:"STORE",   icon:"🛒" },
   { id:"digidex",   label:"DIGIDEX", icon:"📖" },
@@ -97,6 +99,9 @@ export default function App({ session }) {
   var [showDigitamaModal,setShowDigitamaModal]= useState(false);
   var [confirmReset,     setConfirmReset]     = useState(false);
   var [dedigivolveConfirm, setDedigivolveConfirm] = useState(null); // { uid, prevId } | null
+  // raidState: null | { raidId, totalDamage, raidLog:[{date,damage,taskTitle,stat,phase}] }
+  var [raidState,        setRaidState]        = useState(null);
+  var [raidHit,          setRaidHit]          = useState(null); // { damage, stat } flashed on task complete
   // sleepState: null | { phase:'countdown'|'sleeping', startedAt:ISO, wakeTime:"HH:MM", sleepDate:"YYYY-MM-DD" }
   var [sleepState,       setSleepState]       = useState(null);
   var [showRestModal,    setShowRestModal]    = useState(false);
@@ -173,6 +178,11 @@ export default function App({ session }) {
         }
         setLoginStreak(curStreak);
         setDigitamaCredits(curCreds);
+
+        // Raid state — reset if raidId doesn't match current event
+        var rs = profile.raid_state || null;
+        if (rs && rs.raidId !== CURRENT_RAID.id) rs = null;
+        setRaidState(rs || { raidId: CURRENT_RAID.id, totalDamage: 0, raidLog: [] });
 
         // Sleep state
         setSleepLog(profile.sleep_log || []);
@@ -461,6 +471,25 @@ export default function App({ session }) {
     toast_(newParty[0].name + " is now party leader! ★", accent);
   }
 
+  // ── Raid contribution ────────────────────────────────────────────────────────
+  function calcRaidContrib(task, digi) {
+    if (!digi) return { damage: 0, stat: "power" };
+    var bs      = calcBattleStats(digi);
+    var raidStat = TEMPLATE_RAID_STAT[task.template] || null;
+    var statVal  = raidStat
+      ? bs[raidStat.charAt(0).toUpperCase() + raidStat.slice(1)]
+      : Math.round((bs.Power + bs.Guard + bs.Focus + bs.Momentum) / 4);
+    var diffMult = RAID_DIFF_MULT[task.difficulty] || 1.0;
+    // Current phase bonus: +50% if task stat matches phase dominant
+    var phaseFrac = raidState ? raidState.totalDamage / CURRENT_RAID.bossHp : 0;
+    var phaseIdx  = CURRENT_RAID.phases.findIndex(function(p){ return phaseFrac < p.threshold; });
+    if (phaseIdx < 0) phaseIdx = CURRENT_RAID.phases.length - 1;
+    var phase     = CURRENT_RAID.phases[phaseIdx];
+    var phaseMult = (phase && raidStat && phase.dominant === raidStat) ? 1.5 : 1.0;
+    var damage    = Math.max(1, Math.round(statVal * diffMult * phaseMult));
+    return { damage, stat: raidStat || "power", phase: phase ? phase.name : "" };
+  }
+
   // ── Dedigivolve ─────────────────────────────────────────────────────────────
   async function confirmDedigivolve() {
     if (!dedigivolveConfirm) return;
@@ -543,15 +572,34 @@ export default function App({ session }) {
       }); });
     }
 
+    // Raid auto-contribution
+    var contrib = calcRaidContrib(task, activeDigi);
+    var newRaid = null;
+    if (contrib.damage > 0 && raidState) {
+      var prevDmg = raidState.totalDamage;
+      var newDmg  = Math.min(CURRENT_RAID.bossHp, prevDmg + contrib.damage);
+      var logEntry = { date: today, damage: contrib.damage, taskTitle: task.title, stat: contrib.stat, phase: contrib.phase };
+      newRaid = {
+        raidId:      CURRENT_RAID.id,
+        totalDamage: newDmg,
+        raidLog:     [logEntry].concat(raidState.raidLog || []).slice(0, 30),
+      };
+      setRaidState(newRaid);
+      setRaidHit({ damage: contrib.damage, stat: contrib.stat });
+      setTimeout(function(){ setRaidHit(null); }, 2200);
+    }
+
     // Save profile updates
-    await supabase.from('profiles').update({
+    var profileUpdate = {
       bond: newBond,
       bond_actions_today: newBAT,
       crest_history: newHistory,
-    }).eq('id', userId);
+    };
+    if (newRaid) profileUpdate.raid_state = newRaid;
+    await supabase.from('profiles').update(profileUpdate).eq('id', userId);
 
     setSpeech("great job! +" + xp + " XP 🔥");
-    addLog("✅", '"' + task.title + '" +' + xp + " XP" + (hasBoost?" ⚡1.5x":"") + (cg?" ["+cg.primaryCrest+"]":""));
+    addLog("✅", '"' + task.title + '" +' + xp + " XP" + (hasBoost?" ⚡1.5x":"") + (cg?" ["+cg.primaryCrest+"]":"") + (contrib.damage>0?" ⚔+"+contrib.damage:""));
     toast_("Task done!  +" + xp + " EXP" + (hasBoost?" ⚡1.5x":"") + (cg?"  "+CREST_INFO[cg.primaryCrest].icon+" "+cg.primaryCrest:""));
 
     // Jijimon triggers
@@ -1618,6 +1666,16 @@ export default function App({ session }) {
                   <span className="px8" style={{ color:isSleeping?T.lavender:accent,fontSize:"6px" }}>{speech}</span>
                   <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+(isSleeping?T.lavender:accent) }}/>
                 </div>
+                {/* Raid hit flash — pops above the sprite when a task is completed */}
+                {raidHit && (function(){
+                  var sc = { power:"#FF6B35",guard:"#7EB8F7",focus:"#B8A0E8",momentum:"#FFD700" }[raidHit.stat]||"#FF6B35";
+                  var si = { power:"⚔",guard:"🛡",focus:"🎯",momentum:"⚡" }[raidHit.stat]||"⚔";
+                  return (
+                    <div style={{ position:"absolute",top:54,right:8,zIndex:5,background:"rgba(0,0,0,0.88)",border:"2px solid "+sc,boxShadow:"2px 2px 0 "+sc,padding:"4px 9px",animation:"slideUp 0.2s ease",pointerEvents:"none" }}>
+                      <div className="px8" style={{ color:sc,fontSize:"6px",whiteSpace:"nowrap" }}>{si} -{raidHit.damage} VenomMyotismon</div>
+                    </div>
+                  );
+                })()}
                 {/* Sprite — walks left/right when idle, sleepy when resting */}
                 <div style={{
                     position:"absolute",
@@ -1673,6 +1731,28 @@ export default function App({ session }) {
               );
             })}
           </div>
+
+          {/* Raid mini-widget */}
+          {(function(){
+            var rs2   = raidState || { totalDamage:0 };
+            var frac2 = Math.min(1, (rs2.totalDamage||0) / CURRENT_RAID.bossHp);
+            var phaseIdx2 = CURRENT_RAID.phases.findIndex(function(p){ return frac2 < p.threshold; });
+            if (phaseIdx2 < 0) phaseIdx2 = CURRENT_RAID.phases.length - 1;
+            var phase2 = CURRENT_RAID.phases[phaseIdx2];
+            return (
+              <div style={{ background:"linear-gradient(135deg,#0d0010,#110014)",border:"2px solid #9B59B6",padding:"10px 12px",cursor:"pointer" }}
+                onClick={function(){ setPage("campaign"); }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
+                  <div className="px8" style={{ color:"#9B59B6",fontSize:"5px" }}>☠ RAID: {CURRENT_RAID.name}</div>
+                  <div className="px8" style={{ color:phase2.color,fontSize:"5px" }}>{phase2.name}</div>
+                </div>
+                <div style={{ height:6,background:T.bgCard,border:"1.5px solid #9B59B6",overflow:"hidden",marginBottom:4 }}>
+                  <div style={{ width:(frac2*100)+"%",height:"100%",background:"linear-gradient(90deg,#9B59B6,#cc0000)",transition:"width 0.4s ease" }}/>
+                </div>
+                <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{(rs2.totalDamage||0).toLocaleString()} / {CURRENT_RAID.bossHp.toLocaleString()} dmg dealt — tap to view</div>
+              </div>
+            );
+          })()}
 
           {/* Crest alignment mini */}
           <div style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 12px" }}>
@@ -2213,6 +2293,217 @@ export default function App({ session }) {
                 </div>
               </div>
             )}
+
+            {/* ── CAMPAIGN / RAID ──────────────────────────────────────── */}
+            {page==="campaign"&&(function(){
+              var raid     = CURRENT_RAID;
+              var rs       = raidState || { totalDamage: 0, raidLog: [] };
+              var dmg      = rs.totalDamage || 0;
+              var bossHp   = raid.bossHp;
+              var frac     = Math.min(1, dmg / bossHp);
+              var pct      = Math.round(frac * 100);
+              var defeated = frac >= 1;
+              // Which phase are we in?
+              var phaseIdx = raid.phases.findIndex(function(p){ return frac < p.threshold; });
+              if (phaseIdx < 0) phaseIdx = raid.phases.length - 1;
+              var phase    = raid.phases[phaseIdx];
+              // Days remaining
+              var endDate  = new Date(raid.endDate);
+              var now2     = new Date();
+              var daysLeft = Math.max(0, Math.ceil((endDate - now2) / 86400000));
+              // Partner stats
+              var bs       = activeDigi ? calcBattleStats(activeDigi) : null;
+              var STAT_ICONS = { power:"⚔", guard:"🛡", focus:"🎯", momentum:"⚡" };
+              var STAT_LABELS = { power:"Power", guard:"Guard", focus:"Focus", momentum:"Momentum" };
+              var STAT_COLORS = { power:"#FF6B35", guard:"#7EB8F7", focus:"#B8A0E8", momentum:"#FFD700" };
+              return (
+                <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
+
+                  {/* Boss header */}
+                  <div style={{ background:"linear-gradient(135deg,#0d0010,#150015,#0d0010)",border:"2px solid #9B59B6",boxShadow:"4px 4px 0 #9B59B6",padding:20,position:"relative",overflow:"hidden" }}>
+                    {/* Star field */}
+                    <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(155,89,182,0.18) 1px,transparent 1px)",backgroundSize:"20px 20px",pointerEvents:"none" }}/>
+                    <div style={{ display:"flex",gap:18,alignItems:"center",position:"relative" }}>
+                      {/* Boss portrait — SVG placeholder */}
+                      <div style={{ width:90,height:90,flexShrink:0,position:"relative" }}>
+                        <svg width={90} height={90} viewBox="0 0 90 90" style={{ display:"block" }}>
+                          {/* Shadow */}
+                          <ellipse cx="45" cy="87" rx="20" ry="3" fill="rgba(0,0,0,0.4)"/>
+                          {/* Wings */}
+                          <path d="M45 55 L8 28 L18 50 Z"  fill="#6c3483" opacity="0.9"/>
+                          <path d="M45 55 L82 28 L72 50 Z" fill="#6c3483" opacity="0.9"/>
+                          <path d="M45 55 L2 44 L14 58 Z"  fill="#512e78" opacity="0.7"/>
+                          <path d="M45 55 L88 44 L76 58 Z" fill="#512e78" opacity="0.7"/>
+                          {/* Body */}
+                          <ellipse cx="45" cy="52" rx="16" ry="20" fill="#2c0033"/>
+                          {/* Cloak collar */}
+                          <path d="M29 48 Q45 40 61 48 L58 60 Q45 55 32 60 Z" fill="#4a0055"/>
+                          {/* Head */}
+                          <ellipse cx="45" cy="30" rx="13" ry="14" fill="#1a001f"/>
+                          {/* Bat ears */}
+                          <path d="M33 22 L28 8 L38 18 Z"  fill="#9B59B6"/>
+                          <path d="M57 22 L62 8 L52 18 Z"  fill="#9B59B6"/>
+                          {/* Eyes — red glow */}
+                          <ellipse cx="39" cy="29" rx="4" ry="4" fill="#cc0000"/>
+                          <ellipse cx="51" cy="29" rx="4" ry="4" fill="#cc0000"/>
+                          <ellipse cx="39" cy="29" rx="2" ry="2" fill="#ff4444"/>
+                          <ellipse cx="51" cy="29" rx="2" ry="2" fill="#ff4444"/>
+                          {/* Virus mouth */}
+                          <path d="M37 37 Q45 44 53 37" stroke="#9B59B6" strokeWidth="2" fill="none"/>
+                          {/* Venom drip */}
+                          <ellipse cx="43" cy="42" rx="2" ry="3" fill="#00cc44" opacity="0.8"/>
+                          <ellipse cx="47" cy="43" rx="1.5" ry="2.5" fill="#00cc44" opacity="0.6"/>
+                        </svg>
+                        {!defeated && <div style={{ position:"absolute",top:-4,right:-4,width:10,height:10,background:"#cc0000",borderRadius:"50%",animation:"blink 0.8s step-end infinite" }}/>}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:4 }}>COMMUNITY RAID BOSS — {raid.type} / {raid.attr}</div>
+                        <div style={{ fontSize:22,fontWeight:900,color:T.text,letterSpacing:1,marginBottom:4 }}>{raid.name}</div>
+                        <div style={{ fontSize:12,fontWeight:700,color:"#9B59B6",fontStyle:"italic",marginBottom:10 }}>"{raid.title}"</div>
+                        <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
+                          {defeated
+                            ? <span className="px8" style={{ padding:"3px 10px",background:"#FFD70033",border:"2px solid #FFD700",color:"#FFD700",fontSize:"6px" }}>★ DEFEATED</span>
+                            : <span className="px8" style={{ padding:"3px 10px",background:"#cc000033",border:"2px solid #cc0000",color:"#cc0000",fontSize:"6px" }}>⚡ ACTIVE RAID</span>
+                          }
+                          <span className="px8" style={{ color:T.textMid,fontSize:"6px" }}>{daysLeft > 0 ? daysLeft+" days remaining" : "Event ended"}</span>
+                          <span className="px8" style={{ color:T.textDim,fontSize:"6px" }}>{raid.startDate} — {raid.endDate}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Boss HP bar */}
+                  <div className="pcard" style={{ padding:16 }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
+                      <div className="px8" style={{ fontSize:"6px",color:T.textMid }}>COMMUNITY BOSS HP</div>
+                      <div className="px8" style={{ color:defeated?"#FFD700":T.coral,fontSize:"7px" }}>{dmg.toLocaleString()} / {bossHp.toLocaleString()}</div>
+                    </div>
+                    {/* Phase markers */}
+                    <div style={{ position:"relative",height:20,background:T.bgPanel,border:"2px solid "+T.border,overflow:"hidden",marginBottom:6 }}>
+                      <div style={{ width:pct+"%",height:"100%",background:defeated?"linear-gradient(90deg,#FFD700,#FF9940)":"linear-gradient(90deg,#9B59B6,#cc0000)",transition:"width 0.5s ease",position:"relative" }}>
+                        <div style={{ position:"absolute",top:2,left:3,right:3,height:4,background:"rgba(255,255,255,0.2)" }}/>
+                      </div>
+                      {/* Phase threshold lines */}
+                      {raid.phases.slice(0,-1).map(function(p,i){
+                        return (
+                          <div key={i} style={{ position:"absolute",top:0,bottom:0,left:(p.threshold*100)+"%",width:2,background:p.color,opacity:0.8,zIndex:2 }}/>
+                        );
+                      })}
+                    </div>
+                    {/* Phase labels below bar */}
+                    <div style={{ display:"flex",justifyContent:"space-between",marginBottom:10 }}>
+                      {raid.phases.map(function(p,i){
+                        var isActive = i === phaseIdx && !defeated;
+                        return (
+                          <div key={i} style={{ textAlign:"center",opacity:isActive?1:0.4 }}>
+                            <div className="px8" style={{ color:isActive?p.color:T.textDim,fontSize:"4px",fontWeight:isActive?900:400 }}>{p.name.toUpperCase()}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Active phase callout */}
+                    {!defeated && (
+                      <div style={{ padding:"10px 14px",background:phase.color+"18",border:"2px solid "+phase.color,display:"flex",gap:10,alignItems:"center" }}>
+                        <div style={{ fontSize:18,color:phase.color,flexShrink:0 }}>{STAT_ICONS[phase.dominant]}</div>
+                        <div>
+                          <div className="px8" style={{ color:phase.color,fontSize:"6px",marginBottom:3 }}>PHASE: {phase.name.toUpperCase()} — {STAT_LABELS[phase.dominant].toUpperCase()} ADVANTAGE</div>
+                          <div style={{ fontSize:11,color:T.textMid,lineHeight:1.5 }}>{phase.desc}</div>
+                        </div>
+                      </div>
+                    )}
+                    {defeated && (
+                      <div style={{ padding:"14px",background:"#FFD70018",border:"2px solid #FFD700",textAlign:"center" }}>
+                        <div style={{ fontSize:24,marginBottom:6 }}>🏆</div>
+                        <div className="px10" style={{ color:"#FFD700",marginBottom:6 }}>VENOM MYOTISMON DEFEATED!</div>
+                        <div style={{ fontSize:12,color:T.textMid,lineHeight:1.6,marginBottom:10 }}>{raid.reward.desc}</div>
+                        <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px",background:T.bgPanel,border:"1.5px solid "+T.border }}>
+                          <div style={{ fontSize:32 }}>🥚</div>
+                          <div>
+                            <div style={{ fontWeight:800,fontSize:13 }}>{raid.reward.name}</div>
+                            <div className="px8" style={{ color:T.textDim,fontSize:"5px" }}>REWARD UNLOCKED</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Partner contribution stats */}
+                  {activeDigi && bs && (
+                    <div className="pcard" style={{ padding:16 }}>
+                      <div className="px8" style={{ color:T.textDim,marginBottom:12,fontSize:"5px" }}>YOUR PARTNER'S RAID CONTRIBUTION</div>
+                      <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
+                        <DigiSprite digimonId={activeDigi.speciesId} size={44} animate mood="walk"/>
+                        <div>
+                          <div style={{ fontSize:13,fontWeight:800 }}>{activeDigi.name}</div>
+                          <div className="px8" style={{ color:T.textMid,fontSize:"6px" }}>Lv.{activeDigi.level} · Active Partner</div>
+                        </div>
+                      </div>
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                        {["power","guard","focus","momentum"].map(function(s){
+                          var key = s.charAt(0).toUpperCase()+s.slice(1);
+                          var val = bs[key];
+                          var isDominant = !defeated && phase && phase.dominant === s;
+                          return (
+                            <div key={s} style={{ padding:"10px",background:isDominant?STAT_COLORS[s]+"22":T.bgPanel,border:"2px solid "+(isDominant?STAT_COLORS[s]:T.border),position:"relative" }}>
+                              {isDominant && <div className="px8" style={{ position:"absolute",top:4,right:4,color:STAT_COLORS[s],fontSize:"4px" }}>★ ACTIVE</div>}
+                              <div style={{ fontSize:22,marginBottom:4 }}>{STAT_ICONS[s]}</div>
+                              <div style={{ fontSize:20,fontWeight:900,color:STAT_COLORS[s] }}>{val}</div>
+                              <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginTop:2 }}>{STAT_LABELS[s].toUpperCase()}</div>
+                              {isDominant && <div className="px8" style={{ color:STAT_COLORS[s],fontSize:"4px",marginTop:3 }}>+50% phase bonus</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Task type guide */}
+                      <div style={{ marginTop:12,padding:"10px 12px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                        <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:8 }}>TASK → RAID STAT GUIDE</div>
+                        <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
+                          {[
+                            ["Workout / Challenge","power"],
+                            ["Deep Work / Reflection","focus"],
+                            ["Maintenance / Recovery","guard"],
+                            ["Social","momentum"],
+                          ].map(function(row){
+                            var isDom = !defeated && phase && phase.dominant === row[1];
+                            return (
+                              <div key={row[0]} style={{ display:"flex",alignItems:"center",gap:8,opacity:isDom?1:0.6 }}>
+                                <span style={{ fontSize:12,color:STAT_COLORS[row[1]] }}>{STAT_ICONS[row[1]]}</span>
+                                <span style={{ fontSize:10,fontWeight:700,color:isDom?T.text:T.textMid }}>{row[0]}</span>
+                                <span className="px8" style={{ marginLeft:"auto",color:STAT_COLORS[row[1]],fontSize:"5px" }}>{STAT_LABELS[row[1]]}{ isDom?" ★":""}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Raid log */}
+                  {rs.raidLog && rs.raidLog.length > 0 && (
+                    <div className="pcard" style={{ padding:16 }}>
+                      <div className="px8" style={{ color:T.textDim,marginBottom:10,fontSize:"5px" }}>YOUR RAID LOG</div>
+                      <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
+                        {rs.raidLog.slice(0,15).map(function(entry,i){
+                          var sc = STAT_COLORS[entry.stat] || "#aaa";
+                          return (
+                            <div key={i} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                              <div style={{ fontSize:14,color:sc,flexShrink:0 }}>{STAT_ICONS[entry.stat]||"⚔"}</div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:11,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{entry.taskTitle}</div>
+                                {entry.phase && <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginTop:1 }}>{entry.phase} · {entry.date}</div>}
+                              </div>
+                              <div style={{ fontSize:13,fontWeight:900,color:sc,flexShrink:0 }}>+{entry.damage}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              );
+            })()}
 
             {/* ── DIGIDEX ──────────────────────────────────────────────── */}
             {page==="digidex"&&(function(){

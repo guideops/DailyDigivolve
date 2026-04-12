@@ -152,6 +152,49 @@ export const SHOP_ITEMS = [
     desc:"+3 to your lowest active crest (1 per week)." },
 ];
 
+// ── Campaign / Raid system ────────────────────────────────────────────────────
+// Template → which raid stat that task type trains
+export const TEMPLATE_RAID_STAT = {
+  "Workout":     "power",
+  "Challenge":   "power",
+  "Deep Work":   "focus",
+  "Reflection":  "focus",
+  "Maintenance": "guard",
+  "Recovery":    "guard",
+  "Social":      "momentum",
+  "Neutral":     null,  // contributes average of all stats
+};
+
+// Difficulty → damage multiplier
+export const RAID_DIFF_MULT = { Easy: 1.0, Medium: 1.5, Hard: 2.5 };
+
+// Active boss event definition
+export const CURRENT_RAID = {
+  id:        "venom-myotismon-2026-04",
+  name:      "VenomMyotismon",
+  title:     "Virus of the Dark Net",
+  attr:      "Dark",
+  type:      "Demon Lord",
+  stage:     "Mega",
+  bossHp:    10000,
+  startDate: "2026-04-12",
+  endDate:   "2026-04-26",
+  reward:    { eggId: "shadow", name: "Shadow DigiEgg", desc: "A dark egg pulsing with DemiDevimon's data. Raise it to forge your own dark-type partner." },
+  // Phases triggered at these damage-fraction thresholds
+  phases: [
+    { name: "Dark Surge",       threshold: 0.25, dominant: "power",    color: "#9B59B6",
+      desc:  "VenomMyotismon unleashes raw dark energy. Power attacks deal +50% bonus damage." },
+    { name: "Virus Barrier",    threshold: 0.50, dominant: "focus",    color: "#7EB8F7",
+      desc:  "A data barrier seals the boss. Focus breaches weak points — other attacks halved." },
+    { name: "Bat Swarm",        threshold: 0.75, dominant: "momentum", color: "#FF6B35",
+      desc:  "Crimson bat swarms overwhelm the team. Momentum keeps combo chains alive." },
+    { name: "Eclipse",          threshold: 0.90, dominant: "guard",    color: "#FFD700",
+      desc:  "Darkness consumes everything. Guard protects your progress from the eclipse drain." },
+    { name: "Final Virus Burst",threshold: 1.00, dominant: "power",    color: "#FF4444",
+      desc:  "VenomMyotismon is cornered. All stats amplified. Finish it — NOW." },
+  ],
+};
+
 // ── Party ─────────────────────────────────────────────────────────────────────
 export const MAX_PARTY_SIZE = 9;
 
