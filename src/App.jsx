@@ -1114,10 +1114,10 @@ export default function App({ session }) {
       var row = {
         user_id: userId, species_id: d.speciesId, name: d.name,
         level: 1, exp: 0, exp_needed: 100, abi: 0, personality: d.personality,
-        bonus_stats: {}, discovered: [sid], in_farm: i > 0, sort_order: i,
+        bonus_stats: {}, discovered: [sid], in_farm: false, sort_order: i,
       };
       var { data:saved } = await supabase.from('digimon').insert(row).select().single();
-      if (saved) newParty.push(Object.assign({}, d, { uid: saved.id, inFarm: i > 0 }));
+      if (saved) newParty.push(Object.assign({}, d, { uid: saved.id, inFarm: false }));
     }
     // If nothing was created, fall back to botamon so the app isn't empty
     if (newParty.length === 0) {
@@ -1129,8 +1129,10 @@ export default function App({ session }) {
       }).select().single();
       if (fb) newParty.push(Object.assign({}, fallback, { uid: fb.id }));
     }
-    setParty(newParty.filter(function(d){ return !d.inFarm; }));
-    setFarm(newParty.filter(function(d){ return d.inFarm; }));
+    setParty(newParty);
+    setFarm([]);
+    // Seed discovered list so all 3 starters appear in the Digidex immediately
+    setAllDisc(idList.filter(Boolean));
     localStorage.setItem('dv_onboarding_' + userId, '1');
     setShowOnboarding(false);
     setPage('tasks');
