@@ -28,18 +28,30 @@ var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
 function px(c){ return { border:"2px solid "+(c||T.pixelBorder), boxShadow:"3px 3px 0 "+(c||T.pixelBorder) }; }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-var NAV = [
-  { id:"dashboard", label:"HOME",    icon:"⌂" },
-  { id:"tasks",     label:"TASKS",   icon:"☑" },
-  { id:"weekly",    label:"WEEK",    icon:"📅" },
-  { id:"crests",    label:"CRESTS",  icon:"💎" },
-  { id:"team",      label:"TEAM",    icon:"◈" },
-  { id:"digifarm",  label:"FARM",    icon:"🌿" },
-  { id:"battle",    label:"BATTLE",  icon:"⚔" },
-  { id:"campaign",  label:"RAID",    icon:"☠" },
-  { id:"chat",      label:"CHAT",    icon:"💬" },
-  { id:"store",     label:"STORE",   icon:"🛒" },
-  { id:"digidex",   label:"DIGIDEX", icon:"📖" },
+// PET = Personal Tamer Terminal (tamer productivity + alignment)
+// FILEHAVEN = where Digimon data lives (team, farm, dex)
+// DARK AREA = Digimon lore combat dimension (battle + raid)
+var NAV_GROUPS = [
+  { id:"pet",      label:"P.E.T",      icon:"📟",
+    pages:[
+      { id:"tasks",    label:"TASKS",   icon:"☑" },
+      { id:"weekly",   label:"WEEK",    icon:"📅" },
+      { id:"crests",   label:"CRESTS",  icon:"💎" },
+    ]
+  },
+  { id:"filehaven", label:"FILEHAVEN", icon:"🗂",
+    pages:[
+      { id:"team",     label:"TEAM",    icon:"◈" },
+      { id:"digifarm", label:"FARM",    icon:"🌿" },
+      { id:"digidex",  label:"DIGIDEX", icon:"📖" },
+    ]
+  },
+  { id:"darkarea",  label:"DARK AREA", icon:"⚔",
+    pages:[
+      { id:"battle",   label:"BATTLE",  icon:"⚔" },
+      { id:"campaign", label:"RAID",    icon:"☠" },
+    ]
+  },
 ];
 
 // ── Crest-based tamer titles ──────────────────────────────────────────────────
@@ -140,6 +152,7 @@ export default function App({ session }) {
   var [neglectData,      setNeglectData]      = useState(null);
   var [showReconnectModal, setShowReconnectModal] = useState(false);
   var [showSukamonModal,   setShowSukamonModal]   = useState(false);
+  var [openGroup,          setOpenGroup]          = useState(null); // id of open nav group dropdown
   // sleepState: null | { phase:'countdown'|'sleeping', startedAt:ISO, wakeTime:"HH:MM", sleepDate:"YYYY-MM-DD" }
   var [sleepState,       setSleepState]       = useState(null);
   var [showRestModal,    setShowRestModal]    = useState(false);
@@ -993,9 +1006,14 @@ export default function App({ session }) {
     @keyframes zzzFloat { 0%{opacity:0;transform:translateY(0) scale(0.8)} 30%{opacity:0.9} 100%{opacity:0;transform:translateY(-48px) scale(1.2)} }
     .page-in { animation: slideUp 0.22s ease; }
     .pcard { background:${T.bgCard}; border:2px solid ${T.border}; box-shadow:3px 3px 0 ${T.border}; }
-    .nav-pill { font-family:'Press Start 2P',monospace; font-size:7px; padding:7px 11px; border:2px solid ${T.border}; background:transparent; cursor:pointer; color:${T.textMid}; transition:all 0.1s; }
+    .nav-pill { font-family:'Press Start 2P',monospace; font-size:7px; padding:7px 11px; border:2px solid ${T.border}; background:transparent; cursor:pointer; color:${T.textMid}; transition:all 0.1s; white-space:nowrap; }
     .nav-pill:hover,.nav-pill.active { background:${T.bgCard}; color:${T.text}; transform:translate(-1px,-1px); box-shadow:2px 2px 0 ${T.border}; }
     .nav-pill.active { border-color:var(--accent); color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
+    .nav-pill.group-active { border-color:var(--accent); color:var(--accent); }
+    .nav-drop-item { font-family:'Press Start 2P',monospace; font-size:6px; padding:8px 12px; border:none; border-bottom:1px solid ${T.border}; background:${T.bgPanel}; cursor:pointer; color:${T.textMid}; text-align:left; width:100%; transition:background 0.1s; display:flex; align-items:center; gap:7px; }
+    .nav-drop-item:last-child { border-bottom:none; }
+    .nav-drop-item:hover { background:${T.bgCard}; color:${T.text}; }
+    .nav-drop-item.active { color:var(--accent); background:${T.bgCard}; }
     .task-card { background:${T.bgCard}; border:2px solid ${T.border}; box-shadow:3px 3px 0 ${T.border}; padding:13px 14px; display:flex; align-items:center; gap:12px; cursor:pointer; transition:all 0.12s; position:relative; overflow:hidden; }
     .task-card:hover { transform:translate(-2px,-2px); box-shadow:5px 5px 0 ${T.border}; }
     .task-card.done  { opacity:0.45; }
@@ -1817,16 +1835,61 @@ export default function App({ session }) {
         </div>
       )}
 
+      {/* Click-outside overlay to close nav dropdowns */}
+      {openGroup && <div style={{ position:"fixed",inset:0,zIndex:399 }} onClick={function(){ setOpenGroup(null); }}/>}
+
       {/* ── TOP NAV ───────────────────────────────────────────────────────── */}
       <nav style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",background:T.bgPanel,borderBottom:"2px solid "+T.border,boxShadow:"0 2px 0 "+T.border,position:"sticky",top:0,zIndex:200,gap:12,flexWrap:"wrap" }}>
         <div className="px12" style={{ display:"flex",alignItems:"center",gap:10,color:T.text }}>
           <div style={{ width:10,height:10,background:accent,border:"2px solid "+T.border,animation:"blink 1.2s step-end infinite",display:"inline-block" }}/>
           DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
-        <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
-          {NAV.map(function(n){
-            return <button key={n.id} className={"nav-pill"+(page===n.id?" active":"")} onClick={function(){ setPage(n.id); }}>{n.icon} {n.label}</button>;
+        <div style={{ display:"flex",gap:4,alignItems:"center" }}>
+          {/* HOME — standalone */}
+          <button className={"nav-pill"+(page==="dashboard"?" active":"")}
+            onClick={function(){ setPage("dashboard"); setOpenGroup(null); }}>
+            ⌂ HOME
+          </button>
+
+          {/* Grouped dropdowns */}
+          {NAV_GROUPS.map(function(g){
+            var isOpen    = openGroup === g.id;
+            var hasActive = g.pages.some(function(p){ return p.id === page; });
+            var activeLabel = hasActive ? g.pages.find(function(p){ return p.id===page; }).label : null;
+            return (
+              <div key={g.id} style={{ position:"relative" }}>
+                <button
+                  className={"nav-pill"+(hasActive?" group-active":"")+(isOpen?" active":"")}
+                  onClick={function(){ setOpenGroup(isOpen ? null : g.id); }}>
+                  {g.icon} {activeLabel ? g.label+" · "+activeLabel : g.label}
+                  <span style={{ marginLeft:5,fontSize:"5px",opacity:0.6 }}>{isOpen?"▲":"▼"}</span>
+                </button>
+                {isOpen && (
+                  <div style={{ position:"absolute",top:"calc(100% + 3px)",left:0,zIndex:400,border:"2px solid "+T.pixelBorder,boxShadow:"3px 3px 0 "+T.pixelBorder,minWidth:130,overflow:"hidden" }}>
+                    {g.pages.map(function(p){
+                      return (
+                        <button key={p.id} className={"nav-drop-item"+(page===p.id?" active":"")}
+                          onClick={function(){ setPage(p.id); setOpenGroup(null); }}>
+                          <span style={{ width:14,textAlign:"center",flexShrink:0 }}>{p.icon}</span>
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
           })}
+
+          {/* CHAT + STORE — standalone */}
+          <button className={"nav-pill"+(page==="chat"?" active":"")}
+            onClick={function(){ setPage("chat"); setOpenGroup(null); }}>
+            💬 CHAT
+          </button>
+          <button className={"nav-pill"+(page==="store"?" active":"")}
+            onClick={function(){ setPage("store"); setOpenGroup(null); }}>
+            🛒 STORE
+          </button>
         </div>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
           <div className="px8" style={{ color:T.textMid }}>LV.{activeDigi&&activeDigi.level}</div>
