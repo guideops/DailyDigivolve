@@ -1,45 +1,310 @@
-// ─── Digimon roster ───────────────────────────────────────────────────────────
-// Each entry now includes:
-//   role:      battle role (Striker / Guardian / Tactician / Support / Vanguard / Balanced)
+// ─── Digimon roster ─────────────────────────────────────────────────────────
+// Each entry includes:
+//   role:      Striker / Guardian / Tactician / Support / Vanguard / Balanced
 //   passive:   always-on trait
 //   signature: memorable special mechanic
 //   crestReq:  { primary, secondary } — ideal crest alignment to evolve INTO this form
+//   neglectOnly: true — only accessible via the neglect evolution path
 
 export const DIGIMON_DB = [
 
-  // ── In-Training ──────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // BABY STAGE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"botamon",       name:"Botamon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:28, atk:18, def:20, int:14, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["koromon","wanyamon"] },
+
+  { id:"chicomon",      name:"Chicomon",      stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:28, atk:16, def:18, int:12, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["chibimon"] },
+
+  { id:"choromon",      name:"Choromon",      stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:28, atk:16, def:20, int:14, spd:16,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["caprimon"] },
+
+  { id:"cocomon",       name:"Cocomon",       stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:30, atk:14, def:22, int:16, spd:16,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["chocomon"] },
+
+  { id:"curimon",       name:"Curimon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:30, atk:18, def:18, int:16, spd:20,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["gurimon"] },
+
+  { id:"dodomon",       name:"Dodomon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:28, atk:18, def:20, int:14, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["dorimon"] },
+
+  { id:"dokimon",       name:"Dokimon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:30, atk:20, def:18, int:16, spd:22,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["bibimon"] },
+
+  { id:"jyarimon",      name:"Jyarimon",      stage:"Baby", type:"Free", attr:"None",
+    hp:65, sp:28, atk:22, def:16, int:12, spd:20,
+    role:"Balanced", passive:"Hazard Pulse — faint Power surge at low HP",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["gigimon"] },
+
+  { id:"ketomon",       name:"Ketomon",       stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:28, atk:18, def:20, int:16, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["hopmon"] },
+
+  { id:"leafmon",       name:"Leafmon",       stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:30, atk:14, def:22, int:18, spd:16,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["minomon"] },
+
+  { id:"mokumon",       name:"Mokumon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:28, atk:20, def:18, int:16, spd:20,
+    role:"Balanced", passive:"Smoldering — immune to Fire-type debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["petitmeramon","sunmon"] },
+
+  { id:"nyokimon",      name:"Nyokimon",      stage:"Baby", type:"Free", attr:"None",
+    hp:58, sp:30, atk:14, def:18, int:18, spd:20,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["pyokomon","tanemon"] },
+
+  { id:"pabumon",       name:"Pabumon",       stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:32, atk:14, def:20, int:18, spd:16,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["motimon"] },
+
+  { id:"paomon",        name:"Paomon",        stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:28, atk:16, def:22, int:14, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["xiamon"] },
+
+  { id:"pichimon",      name:"Pichimon",      stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:30, atk:14, def:20, int:16, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["bukamon"] },
+
+  { id:"punimon",       name:"Punimon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:30, atk:16, def:22, int:14, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["tokomon","tsunomon"] },
+
+  { id:"pusumon",       name:"Pusumon",       stage:"Baby", type:"Free", attr:"None",
+    hp:60, sp:28, atk:16, def:20, int:14, spd:20,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["pusurimon"] },
+
+  { id:"relemon",       name:"Relemon",       stage:"Baby", type:"Free", attr:"None",
+    hp:58, sp:32, atk:14, def:18, int:22, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["viximon"] },
+
+  { id:"yukimibotamon", name:"YukimiBotamon", stage:"Baby", type:"Free", attr:"None",
+    hp:58, sp:32, atk:12, def:22, int:20, spd:16,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["nyaromon","moonmon"] },
+
+  { id:"zerimon",       name:"Zerimon",       stage:"Baby", type:"Free", attr:"None",
+    hp:62, sp:30, atk:18, def:18, int:16, spd:22,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["gummymon"] },
+
+  { id:"zulumon",       name:"Zulumon",       stage:"Baby", type:"Free", attr:"None",
+    hp:65, sp:28, atk:20, def:20, int:12, spd:18,
+    role:"Balanced", passive:"Newly Born — immune to all debuffs",
+    signature:"Baby Bubble — weakest AoE, no recoil",
+    evolvesTo:["pagumon"] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // IN-TRAINING STAGE
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"koromon",  name:"Koromon",  stage:"In-Training", type:"Free", attr:"None",
-    hp:80,  sp:40, atk:30, def:30, int:20, spd:30,
-    role:"Balanced", passive:"Adaptable — no penalties in any mode", signature:"Bubble Blow — light AoE poke",
-    evolvesTo:["agumon"] },
+    hp:80, sp:40, atk:30, def:30, int:20, spd:30,
+    role:"Balanced", passive:"Adaptable — no penalties in any mode",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["agumon","betamon"] },
 
   { id:"tsunomon", name:"Tsunomon", stage:"In-Training", type:"Free", attr:"None",
-    hp:75,  sp:40, atk:28, def:32, int:22, spd:28,
-    role:"Balanced", passive:"Hard Shell — Guard +5%", signature:"Bubble Blow — light AoE poke",
+    hp:75, sp:40, atk:28, def:32, int:22, spd:28,
+    role:"Balanced", passive:"Hard Shell — Guard +5%",
+    signature:"Bubble Blow — light AoE poke",
     evolvesTo:["gabumon"] },
 
   { id:"gigimon",  name:"Gigimon",  stage:"In-Training", type:"Free", attr:"None",
-    hp:85,  sp:38, atk:34, def:28, int:18, spd:32,
-    role:"Balanced", passive:"Hazard Pulse — faint Power surge at low HP", signature:"Bubble Blow — light AoE poke",
-    evolvesTo:["guilmon"] },
+    hp:85, sp:38, atk:34, def:28, int:18, spd:32,
+    role:"Balanced", passive:"Hazard Pulse — faint Power surge at low HP",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["guilmon","black_guilmon"] },
 
   { id:"tanemon",  name:"Tanemon",  stage:"In-Training", type:"Free", attr:"None",
-    hp:70,  sp:45, atk:22, def:30, int:28, spd:25,
-    role:"Balanced", passive:"Absorb — heals 5% of damage dealt", signature:"Bubble Blow — light AoE poke",
+    hp:70, sp:45, atk:22, def:30, int:28, spd:25,
+    role:"Balanced", passive:"Absorb — heals 5% of damage dealt",
+    signature:"Bubble Blow — light AoE poke",
     evolvesTo:["palmon"] },
 
   { id:"sunmon",   name:"Sunmon",   stage:"In-Training", type:"Free", attr:"None",
-    hp:78,  sp:42, atk:26, def:28, int:30, spd:30,
-    role:"Balanced", passive:"Solar Warmth — team Momentum +5%", signature:"Bubble Blow — light AoE poke",
+    hp:78, sp:42, atk:26, def:28, int:30, spd:30,
+    role:"Balanced", passive:"Solar Warmth — team Momentum +5%",
+    signature:"Bubble Blow — light AoE poke",
     evolvesTo:["coronamon"] },
 
-  // ── Agumon line ───────────────────────────────────────────────────────────────
+  { id:"chibimon",     name:"Chibimon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:80, sp:38, atk:30, def:28, int:18, spd:32,
+    role:"Balanced", passive:"V-Spirit — Power +5% on the opening action",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["veemon"] },
+
+  { id:"caprimon",     name:"Caprimon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:76, sp:38, atk:28, def:30, int:20, spd:26,
+    role:"Balanced", passive:"Circuit Shell — Guard +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["kokuwamon","commandramon"] },
+
+  { id:"chocomon",     name:"Chocomon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:74, sp:42, atk:22, def:32, int:24, spd:24,
+    role:"Balanced", passive:"Gentle Aura — team takes 4% less damage",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["lopmon"] },
+
+  { id:"gurimon",      name:"Gurimon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:80, sp:40, atk:28, def:26, int:22, spd:30,
+    role:"Balanced", passive:"Gamma Spark — small chance to double-tap on poke",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["gammamon"] },
+
+  { id:"dorimon",      name:"Dorimon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:78, sp:38, atk:28, def:30, int:20, spd:28,
+    role:"Balanced", passive:"X-Pulse — immune to stat-break effects on entry",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["dorumon"] },
+
+  { id:"bibimon",      name:"Bibimon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:78, sp:40, atk:28, def:26, int:22, spd:34,
+    role:"Balanced", passive:"Pulse Charge — Momentum +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["pulsemon"] },
+
+  { id:"hopmon",       name:"Hopmon",       stage:"In-Training", type:"Free", attr:"None",
+    hp:76, sp:38, atk:26, def:30, int:22, spd:28,
+    role:"Balanced", passive:"Cyber Shell — Guard +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["monodramon"] },
+
+  { id:"minomon",      name:"Minomon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:72, sp:42, atk:20, def:32, int:22, spd:22,
+    role:"Balanced", passive:"Silk Wrap — reduces first hit taken by 10%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["wormmon"] },
+
+  { id:"petitmeramon", name:"PetiMeramon",  stage:"In-Training", type:"Free", attr:"None",
+    hp:78, sp:38, atk:28, def:24, int:20, spd:30,
+    role:"Balanced", passive:"Smolder — small burn DoT on first hit dealt",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["candlemon","vorvomon"] },
+
+  { id:"pyokomon",     name:"Pyokomon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:74, sp:42, atk:22, def:26, int:24, spd:32,
+    role:"Balanced", passive:"Feather Drift — Momentum +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["piyomon"] },
+
+  { id:"motimon",      name:"Motimon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:76, sp:44, atk:22, def:30, int:26, spd:24,
+    role:"Balanced", passive:"Static Build — stores 3% Power each idle turn",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["tentomon"] },
+
+  { id:"xiamon",       name:"Xiaomon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:74, sp:40, atk:22, def:34, int:22, spd:24,
+    role:"Balanced", passive:"Loyal Watch — team Guard +4%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["labramon"] },
+
+  { id:"bukamon",      name:"Bukamon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:76, sp:40, atk:24, def:28, int:20, spd:28,
+    role:"Balanced", passive:"Sea Legs — no Momentum penalty on Water-type terrain",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["gomamon","shakomon"] },
+
+  { id:"pusurimon",    name:"Pusurimon",    stage:"In-Training", type:"Free", attr:"None",
+    hp:76, sp:38, atk:26, def:28, int:20, spd:30,
+    role:"Balanced", passive:"Spike Coat — deals 4% counter-damage when hit",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["herissmon"] },
+
+  { id:"viximon",      name:"Viximon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:72, sp:44, atk:22, def:26, int:28, spd:30,
+    role:"Balanced", passive:"Fox Sense — Focus +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["renamon"] },
+
+  { id:"nyaromon",     name:"Nyaromon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:70, sp:44, atk:20, def:28, int:28, spd:26,
+    role:"Balanced", passive:"Holy Ring — reduces incoming damage by 5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["salamon"] },
+
+  { id:"moonmon",      name:"Moonmon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:70, sp:45, atk:18, def:28, int:30, spd:26,
+    role:"Balanced", passive:"Moonlight — team Focus +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["lunamon"] },
+
+  { id:"gummymon",     name:"Gummymon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:78, sp:40, atk:26, def:28, int:20, spd:30,
+    role:"Balanced", passive:"Terrier Bounce — Momentum +5%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["terriermon"] },
+
+  { id:"pagumon",      name:"Pagumon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:80, sp:36, atk:30, def:24, int:18, spd:28,
+    role:"Balanced", passive:"Shadow Pulse — Power +5% on first strike",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["black_agumon"] },
+
+  { id:"wanyamon",     name:"Wanyamon",     stage:"In-Training", type:"Free", attr:"None",
+    hp:78, sp:38, atk:26, def:30, int:20, spd:26,
+    role:"Balanced", passive:"Pack Instinct — team Guard +4%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["gaomon"] },
+
+  { id:"tokomon",      name:"Tokomon",      stage:"In-Training", type:"Free", attr:"None",
+    hp:72, sp:44, atk:18, def:30, int:26, spd:24,
+    role:"Balanced", passive:"Wings of Hope — team INT +4%",
+    signature:"Bubble Blow — light AoE poke",
+    evolvesTo:["patamon"] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // AGUMON LINE — Fire Dragon
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"agumon", name:"Agumon", stage:"Rookie", type:"Vaccine", attr:"Fire",
     hp:100, sp:50, atk:55, def:45, int:35, spd:50,
     role:"Balanced",
     passive:"Adapt — no role penalty, fits any team composition",
     signature:"Pepper Breath Combo — 20% chance to strike twice per turn",
-    evolvesTo:["greymon","tyranomon"] },
+    evolvesTo:["greymon","tyranomon","geomon"] },
 
   { id:"greymon", name:"Greymon", stage:"Champion", type:"Vaccine", attr:"Fire",
     hp:160, sp:70, atk:90, def:75, int:55, spd:65,
@@ -57,13 +322,29 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Courage", secondary:"Sincerity" },
     evolvesTo:[] },
 
+  { id:"geomon", name:"GeoGreymon", stage:"Champion", type:"Vaccine", attr:"Fire",
+    hp:162, sp:72, atk:92, def:74, int:58, spd:68,
+    role:"Striker",
+    passive:"Geo Tackle — attacks ignore terrain effects; +10% Power on first strike",
+    signature:"Mega Burst — concentrated fire blast; 15% bonus damage vs Data types",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["rizegreymon"] },
+
   { id:"metalgreymon", name:"MetalGreymon", stage:"Ultimate", type:"Vaccine", attr:"Fire",
     hp:230, sp:100, atk:140, def:110, int:90, spd:95,
     role:"Vanguard",
     passive:"Trident Arm — ignores 20% of enemy Guard on every hit",
     signature:"Giga Blaster — piercing missile that bypasses all shield effects",
     crestReq:{ primary:"Courage", secondary:"Reliability" },
-    evolvesTo:["wargreymon"] },
+    evolvesTo:["wargreymon","blitzgreymon"] },
+
+  { id:"rizegreymon", name:"RizeGreymon", stage:"Ultimate", type:"Vaccine", attr:"Fire",
+    hp:228, sp:102, atk:142, def:108, int:92, spd:98,
+    role:"Vanguard",
+    passive:"Trident Revolver — 30% chance to fire a second shot immediately after attacking",
+    signature:"Trident Revolver — triple-shot that stacks 10% damage per consecutive hit",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["shinegreymon","victorygreymon"] },
 
   { id:"wargreymon", name:"WarGreymon", stage:"Mega", type:"Vaccine", attr:"Fire",
     hp:310, sp:130, atk:200, def:160, int:130, spd:145,
@@ -73,39 +354,92 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Courage", secondary:"Hope" },
     evolvesTo:["omnimon"] },
 
-  // ── Agumon X line ─────────────────────────────────────────────────────────────
-  { id:"agumon_x", name:"Agumon X", stage:"Rookie", type:"Vaccine", attr:"Fire",
-    hp:110, sp:55, atk:61, def:50, int:39, spd:55, isX:true,
-    role:"Balanced",
-    passive:"X-Adapt — no role penalty, all stats +10% vs Virus types",
-    signature:"Pepper Breath X — 25% chance to strike twice",
-    evolvesTo:["greymon_x"] },
-
-  { id:"greymon_x", name:"Greymon X", stage:"Champion", type:"Vaccine", attr:"Fire",
-    hp:176, sp:77, atk:99, def:83, int:61, spd:72, isX:true,
-    role:"Striker",
-    passive:"Pressure — reduces enemy Guard by 15% for 2 turns after hit",
-    signature:"Nova Flame X — Power boosted by 30% on this form's signature move",
-    crestReq:{ primary:"Courage", secondary:"Care" },
-    evolvesTo:["metalgreymon_x"] },
-
-  { id:"metalgreymon_x", name:"MetalGreymon X", stage:"Ultimate", type:"Vaccine", attr:"Fire",
-    hp:253, sp:110, atk:154, def:121, int:99, spd:105, isX:true,
+  { id:"shinegreymon", name:"ShineGreymon", stage:"Mega", type:"Vaccine", attr:"Light",
+    hp:305, sp:135, atk:195, def:155, int:145, spd:155,
     role:"Vanguard",
-    passive:"Chrome Digizoid — Guard +25%, immune to Guard-break effects",
-    signature:"Giga Blaster X — piercing + splash, hits primary target and one adjacent enemy",
-    crestReq:{ primary:"Courage", secondary:"Reliability" },
-    evolvesTo:["wargreymon_x"] },
-
-  { id:"wargreymon_x", name:"WarGreymon X", stage:"Mega", type:"Vaccine", attr:"Fire",
-    hp:341, sp:143, atk:220, def:176, int:143, spd:160, isX:true,
-    role:"Vanguard",
-    passive:"Dramon Destroyer — Power +40% vs Virus, destroys all enemy barriers on entry",
-    signature:"Black Tornado — spinning strike that ignores all Guard",
-    crestReq:{ primary:"Courage", secondary:"Hope" },
+    passive:"Solar Prominence — Power +20% in burst mode; team gains +10% ATK on entry",
+    signature:"Shining Burst — massive solar AoE that blinds all enemies (-15% Momentum for 2 turns)",
+    crestReq:{ primary:"Courage", secondary:"Light" },
     evolvesTo:[] },
 
-  // ── Gabumon line ──────────────────────────────────────────────────────────────
+  { id:"victorygreymon", name:"VictoryGreymon", stage:"Mega", type:"Vaccine", attr:"Fire",
+    hp:312, sp:130, atk:202, def:158, int:132, spd:148,
+    role:"Vanguard",
+    passive:"Victory Swords — ignores 25% Guard; Power +15% when team has full HP",
+    signature:"Trident Sword — summons three blades that each strike for 60% Power",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:[] },
+
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // BETAMON / SEA LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"betamon",  name:"Betamon",  stage:"Rookie", type:"Data", attr:"Water",
+    hp:100, sp:52, atk:48, def:50, int:42, spd:44,
+    role:"Balanced",
+    passive:"Electro Shock — 15% chance each turn to Slow the enemy (-15% Momentum)",
+    signature:"Deluge — water burst that reduces enemy Guard by 10% for 1 turn",
+    evolvesTo:["seadramon","airdramon"] },
+
+  { id:"seadramon", name:"Seadramon", stage:"Champion", type:"Data", attr:"Water",
+    hp:158, sp:72, atk:86, def:80, int:58, spd:68,
+    role:"Guardian",
+    passive:"Serpentine — Guard +10%; immune to Momentum-reducing effects",
+    signature:"Ice Blast — water lance that freezes target (Momentum -20%) for 2 turns",
+    crestReq:{ primary:"Knowledge", secondary:"Reliability" },
+    evolvesTo:["megaseadramon"] },
+
+  { id:"airdramon", name:"Airdramon", stage:"Champion", type:"Vaccine", attr:"Neutral",
+    hp:152, sp:70, atk:84, def:72, int:60, spd:78,
+    role:"Striker",
+    passive:"Spiral Clash — Momentum bonus directly adds to Power on aerial strikes",
+    signature:"Dragon Impulse — wind attack that also reduces enemy Momentum by 15%",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["megadramon"] },
+
+  { id:"megaseadramon", name:"MegaSeadramon", stage:"Ultimate", type:"Data", attr:"Water",
+    hp:225, sp:102, atk:136, def:115, int:95, spd:100,
+    role:"Guardian",
+    passive:"Mega Ice — every hit applies a stacking -5% Momentum debuff (max 3 stacks)",
+    signature:"Thunder Javelin — lightning-infused water missile; bypasses 20% Guard",
+    crestReq:{ primary:"Knowledge", secondary:"Reliability" },
+    evolvesTo:["metalseadramon"] },
+
+  { id:"megadramon", name:"Megadramon", stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:228, sp:96, atk:145, def:102, int:88, spd:108,
+    role:"Vanguard",
+    passive:"Dark Claws — Power +20%; ignores 10% Guard on every hit",
+    signature:"Genocide Attack — AoE dark blast hitting all enemies at 80% Power",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["machinedramon"] },
+
+  { id:"metalseadramon", name:"MetalSeadramon", stage:"Mega", type:"Virus", attr:"Water",
+    hp:300, sp:128, atk:188, def:168, int:138, spd:125,
+    role:"Guardian",
+    passive:"River of Power — attacks ignore all Guard; team Guard +10%",
+    signature:"River of Power — unstoppable water beam; deals true damage (ignores all Guard)",
+    crestReq:{ primary:"Knowledge", secondary:"Reliability" },
+    evolvesTo:["gigaseadramon"] },
+
+  { id:"machinedramon", name:"Machinedramon", stage:"Mega", type:"Virus", attr:"Neutral",
+    hp:315, sp:125, atk:198, def:175, int:125, spd:108,
+    role:"Vanguard",
+    passive:"Giga Cannon — opening attack deals +40% Power; cooldown 3 turns",
+    signature:"Giga Cannon — massive dual-cannon blast at 150% Power, AoE",
+    crestReq:{ primary:"Knowledge", secondary:"Courage" },
+    evolvesTo:[] },
+
+  { id:"gigaseadramon", name:"GigaSeadramon", stage:"Ultra", type:"Virus", attr:"Water",
+    hp:368, sp:160, atk:228, def:208, int:172, spd:152,
+    role:"Guardian",
+    passive:"Leviathan — immune to all debuffs; team Guard +20%",
+    signature:"Giga Blizzard — titanic ice storm hitting all enemies 2× at 70% Power each",
+    crestReq:{ primary:"Knowledge", secondary:"Light" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // GABUMON LINE — Ice Wolf
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"gabumon", name:"Gabumon", stage:"Rookie", type:"Vaccine", attr:"Earth",
     hp:100, sp:50, atk:50, def:55, int:40, spd:45,
     role:"Balanced",
@@ -143,9 +477,53 @@ export const DIGIMON_DB = [
     passive:"Crest Bond — tamer bond grants entire team +15% to all stats",
     signature:"Shining V — places a Guard barrier on the whole team for 1 turn",
     crestReq:{ primary:"Friendship", secondary:"Light" },
+    evolvesTo:["omnimon_alts"] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // GAOMON LINE — Mach Gaogamon
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"gaomon", name:"Gaomon", stage:"Rookie", type:"Data", attr:"Earth",
+    hp:100, sp:52, atk:55, def:48, int:40, spd:55,
+    role:"Striker",
+    passive:"Rolling Upper — 15% chance to launch a free uppercut at 30% Power after any attack",
+    signature:"Gao Rush — rapid-fire three-punch combo at 30% Power each",
+    evolvesTo:["gaogamon"] },
+
+  { id:"gaogamon", name:"Gaogamon", stage:"Champion", type:"Data", attr:"Earth",
+    hp:158, sp:74, atk:92, def:78, int:62, spd:78,
+    role:"Striker",
+    passive:"Gao Spiral — Momentum +15%; spinning attacks ignore 10% Guard",
+    signature:"Spiral Blow — tornado punch AoE at 70% Power",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:["machgaogamon"] },
+
+  { id:"machgaogamon", name:"MachGaogamon", stage:"Ultimate", type:"Data", attr:"Earth",
+    hp:225, sp:100, atk:142, def:112, int:95, spd:118,
+    role:"Vanguard",
+    passive:"Mach Speed — Momentum +20%; Power +10% when attacking first in a turn",
+    signature:"Winning Blow — sonic-speed punch at 110% Power; bypasses 15% Guard",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:["miragegaogamon"] },
+
+  { id:"miragegaogamon", name:"MirageGaogamon", stage:"Mega", type:"Data", attr:"Earth",
+    hp:308, sp:132, atk:198, def:160, int:148, spd:162,
+    role:"Vanguard",
+    passive:"Full Moon Blaster — opens every battle with a free AoE at 60% Power before turn 1",
+    signature:"Full Moon Blaster — rapid full-power beam sweep; AoE 100% Power",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:["zeedgarurumon"] },
+
+  { id:"zeedgarurumon", name:"ZeedGarurumon", stage:"Ultra", type:"Data", attr:"Earth",
+    hp:378, sp:162, atk:235, def:210, int:178, spd:185,
+    role:"Vanguard",
+    passive:"Zeed Breath — Power +30%; every 3rd attack fires a free AoE at 50% Power",
+    signature:"Zeed Garu Breath — mega-AoE ice/lightning blast; hits all enemies twice at 65% Power each",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
     evolvesTo:[] },
 
-  // ── Guilmon line ──────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // GUILMON LINE — Dragon Virus
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"guilmon", name:"Guilmon", stage:"Rookie", type:"Virus", attr:"Fire",
     hp:110, sp:45, atk:65, def:40, int:30, spd:55,
     role:"Striker",
@@ -177,7 +555,41 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Sincerity", secondary:"Light" },
     evolvesTo:[] },
 
-  // ── Fusion/DNA ────────────────────────────────────────────────────────────────
+  // ── Black Guilmon line ────────────────────────────────────────────────────────
+  { id:"black_guilmon", name:"Black Guilmon", stage:"Rookie", type:"Virus", attr:"Fire",
+    hp:112, sp:44, atk:68, def:38, int:28, spd:56,
+    role:"Striker",
+    passive:"Shadow Gene — Power +25%, Guard -20%; each kill restores 5% HP",
+    signature:"Dark Pyro Sphere — fire burst that also reduces enemy Guard by 10%",
+    evolvesTo:["black_growlmon"] },
+
+  { id:"black_growlmon", name:"Black Growlmon", stage:"Champion", type:"Virus", attr:"Fire",
+    hp:172, sp:64, atk:108, def:68, int:48, spd:82,
+    role:"Striker",
+    passive:"Blood Howl — Power +15% at battle start; Guard -10% permanently",
+    signature:"Shadow Blade — dark-fire slice ignoring 15% Guard",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["black_wargrowlmon"] },
+
+  { id:"black_wargrowlmon", name:"Black WarGrowlmon", stage:"Ultimate", type:"Virus", attr:"Fire",
+    hp:242, sp:94, atk:158, def:102, int:82, spd:112,
+    role:"Vanguard",
+    passive:"Dual Blasters — every 3rd attack fires twice at 75% Power each",
+    signature:"Corona Blaster — dark fire AoE; bonus +20% Power for each enemy already defeated",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["megidramon"] },
+
+  { id:"megidramon", name:"Megidramon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:315, sp:118, atk:205, def:148, int:118, spd:138,
+    role:"Vanguard",
+    passive:"Hazard Aura — all enemies take 10% of their max HP as dark damage per turn",
+    signature:"Megido Flame — chaotic dark fire at 200% Power (true damage); self HP -10%",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // FUSION / DNA
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"omnimon", name:"Omnimon", stage:"Mega", type:"Vaccine", attr:"Neutral",
     hp:380, sp:150, atk:230, def:195, int:175, spd:180,
     role:"Vanguard",
@@ -186,15 +598,68 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Courage", secondary:"Friendship" },
     evolvesTo:[], fusionOf:["wargreymon","metalgarurumon"] },
 
-  { id:"omnimon_x", name:"Omnimon X", stage:"Mega", type:"Vaccine", attr:"Neutral",
-    hp:418, sp:165, atk:253, def:215, int:193, spd:198, isX:true,
-    role:"Vanguard",
-    passive:"X-Factor Authority — all stats +15% above Omnimon, passive-ignore retained",
-    signature:"Grey Sword X — true damage + reduces all enemy stats by 10% for 2 turns",
-    crestReq:{ primary:"Courage", secondary:"Friendship" },
-    evolvesTo:[], fusionOf:["wargreymon_x","metalgarurumon"] },
+  // ── BlitzGreymon / Alter-S ────────────────────────────────────────────────────
+  { id:"blitzgreymon", name:"BlitzGreymon", stage:"Mega", type:"Vaccine", attr:"Thunder",
+    hp:305, sp:130, atk:195, def:155, int:155, spd:170,
+    role:"Striker",
+    passive:"Thunder Drive — Momentum +30%, chain attacks trigger when Momentum threshold met",
+    signature:"Trident Javelin — 3-hit lightning strike, each hit rolls Focus crit independently",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["omnimon_alts"] },
 
-  // ── Coronamon line ────────────────────────────────────────────────────────────
+  { id:"omnimon_alts", name:"Omnimon Alter-S", stage:"Mega", type:"Vaccine", attr:"Neutral",
+    hp:390, sp:155, atk:235, def:200, int:185, spd:190,
+    role:"Vanguard",
+    passive:"Alter Power — Power scales inversely with enemy Guard (more Guard = more damage)",
+    signature:"Omega Blade — execution move: double damage when target is below 25% HP",
+    crestReq:{ primary:"Courage", secondary:"Knowledge" },
+    evolvesTo:[], fusionOf:["blitzgreymon","cresgaru"] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // BLACK AGUMON LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"black_agumon", name:"BlackAgumon", stage:"Rookie", type:"Virus", attr:"Fire",
+    hp:102, sp:48, atk:58, def:42, int:33, spd:52,
+    role:"Striker",
+    passive:"Black Pepper — Power +15%; attacks have 10% chance to apply Burn DoT",
+    signature:"Shadow Pepper — dark fire breath; 20% chance to reduce enemy Guard by 10%",
+    evolvesTo:["greymon_blue"] },
+
+  { id:"greymon_blue", name:"Greymon (Blue)", stage:"Champion", type:"Virus", attr:"Fire",
+    hp:162, sp:68, atk:94, def:74, int:52, spd:66,
+    role:"Striker",
+    passive:"Dark Nova — Power +20% vs Vaccine; first attack ignores 15% Guard",
+    signature:"Dark Nova Blast — shadowed fire AoE at 75% Power; applies Burn to all targets",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["metalgreymon_virus"] },
+
+  { id:"metalgreymon_virus", name:"MetalGreymon (Virus)", stage:"Ultimate", type:"Virus", attr:"Fire",
+    hp:232, sp:98, atk:142, def:108, int:88, spd:96,
+    role:"Vanguard",
+    passive:"Giga Destructor — Power +25%; Virus-type attacks deal +15% damage",
+    signature:"Giga Destructor — twin missile barrage; each missile bypasses 20% Guard",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["blitzgreymon","skullgreymon","blackwargreymon"] },
+
+  { id:"skullgreymon", name:"SkullGreymon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:302, sp:118, atk:202, def:142, int:108, spd:145,
+    role:"Vanguard",
+    passive:"Bone Dart — every 3rd attack launches a free bone missile at 50% Power",
+    signature:"Double Dark Shot — twin dark missiles at 80% Power each; AoE splash at 40%",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:[] },
+
+  { id:"blackwargreymon", name:"BlackWarGreymon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:312, sp:125, atk:205, def:158, int:125, spd:148,
+    role:"Vanguard",
+    passive:"Black Tornado — Power +30% vs Vaccine; destroys all enemy barriers on entry",
+    signature:"Black Tornado — dark spinning strike at 170% Power; ignores all Guard",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CORONAMON LINE — Solar Fire
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"coronamon", name:"Coronamon", stage:"Rookie", type:"Vaccine", attr:"Fire",
     hp:95, sp:55, atk:52, def:42, int:48, spd:58,
     role:"Balanced",
@@ -234,7 +699,83 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Light", secondary:"Hope" },
     evolvesTo:[], fusionOf:["apollomon","dianamon"] },
 
-  // ── Palmon line ───────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // CANDLEMON / FIRE SPIRITS LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"candlemon",   name:"Candlemon",    stage:"Rookie", type:"Data", attr:"Fire",
+    hp:95, sp:50, atk:52, def:42, int:46, spd:50,
+    role:"Balanced",
+    passive:"Wax Body — Guard +8% vs physical; Fire immunity on entry turn",
+    signature:"Lava Loogie — small fire glob; 20% chance to Burn (DoT 5% HP/turn for 2 turns)",
+    evolvesTo:["meramon"] },
+
+  { id:"meramon",     name:"Meramon",      stage:"Champion", type:"Data", attr:"Fire",
+    hp:152, sp:70, atk:90, def:72, int:60, spd:72,
+    role:"Striker",
+    passive:"Flame Body — attacker takes 8% Fire damage on contact",
+    signature:"Roaring Flame — fire AoE at 70% Power; raises own ATK +15% after use",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["bluemeramon","skullmeramon"] },
+
+  { id:"bluemeramon", name:"BlueMeramon",  stage:"Ultimate", type:"Vaccine", attr:"Water",
+    hp:218, sp:108, atk:132, def:112, int:108, spd:108,
+    role:"Tactician",
+    passive:"Ice Body — 25% chance to freeze attacker (Slow -20%) when struck",
+    signature:"Blizzard Flame — ice-fire paradox burst; hits twice at 55% Power each, ignores type resist",
+    crestReq:{ primary:"Sincerity", secondary:"Light" },
+    evolvesTo:["boltmon"] },
+
+  { id:"skullmeramon", name:"SkullMeramon", stage:"Ultimate", type:"Virus", attr:"Fire",
+    hp:225, sp:98, atk:148, def:102, int:88, spd:108,
+    role:"Vanguard",
+    passive:"Metal Body — immune to Fire; Guard +10% vs all physical attacks",
+    signature:"Heavy Metal Fire — molten chains AoE at 80% Power with 20% Burn chance",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["boltmon"] },
+
+  { id:"boltmon",     name:"Boltmon",      stage:"Mega", type:"Virus", attr:"Thunder",
+    hp:298, sp:125, atk:190, def:158, int:140, spd:148,
+    role:"Vanguard",
+    passive:"Bolt Punch — every 3rd attack chains to an adjacent enemy at 50% Power",
+    signature:"Tomahawk Steiner — mechanical fist ignoring 25% Guard; applies Shock for 1 turn",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:[] },
+
+  // ── Vorvomon / Volcano line ───────────────────────────────────────────────────
+  { id:"vorvomon",       name:"Vorvomon",       stage:"Rookie", type:"Data", attr:"Fire",
+    hp:98, sp:48, atk:54, def:44, int:42, spd:52,
+    role:"Striker",
+    passive:"Magma Coat — Fire attacks gain +10% Power",
+    signature:"Burning Pulse — fire burst; heals 8% HP if it kills the target",
+    evolvesTo:["lavorvomon"] },
+
+  { id:"lavorvomon",     name:"Lavorvomon",     stage:"Champion", type:"Data", attr:"Fire",
+    hp:155, sp:72, atk:92, def:74, int:62, spd:76,
+    role:"Striker",
+    passive:"Magma Breath — fire attacks leave a 5% burn DoT on every hit",
+    signature:"Lava Blast — volcanic eruption; 15% chance to reduce enemy Guard by 20%",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["lavogaritamon"] },
+
+  { id:"lavogaritamon",  name:"Lavogaritamon",  stage:"Ultimate", type:"Data", attr:"Fire",
+    hp:222, sp:100, atk:140, def:110, int:92, spd:108,
+    role:"Vanguard",
+    passive:"Volcanic Armor — Guard +15%; incoming Fire attacks heal 5% HP",
+    signature:"Garuda-V — rising wing strike at 100% Power + 10% burn DoT",
+    crestReq:{ primary:"Courage", secondary:"Light" },
+    evolvesTo:["volcanicdramon"] },
+
+  { id:"volcanicdramon", name:"Volcanicdramon", stage:"Mega", type:"Data", attr:"Fire",
+    hp:305, sp:130, atk:195, def:158, int:145, spd:148,
+    role:"Vanguard",
+    passive:"Eruption — battle starts with free AoE at 50% Power before turn 1",
+    signature:"Volcanic Thunder — twin-wing volcanic barrage; AoE twice at 55% Power each",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PALMON LINE — Plant
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"palmon", name:"Palmon", stage:"Rookie", type:"Data", attr:"Plant",
     hp:95, sp:60, atk:45, def:50, int:55, spd:40,
     role:"Support",
@@ -266,32 +807,51 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Sincerity", secondary:"Knowledge" },
     evolvesTo:[] },
 
-  // ── BlitzGreymon / Alter-S ────────────────────────────────────────────────────
-  { id:"blitzgreymon", name:"BlitzGreymon", stage:"Mega", type:"Vaccine", attr:"Thunder",
-    hp:305, sp:130, atk:195, def:155, int:155, spd:170,
+  // ════════════════════════════════════════════════════════════════════════════
+  // PIYOMON / PHOENIX LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"piyomon",   name:"Piyomon",   stage:"Rookie", type:"Vaccine", attr:"Fire",
+    hp:92, sp:52, atk:50, def:40, int:48, spd:58,
+    role:"Support",
+    passive:"Wing Gust — Momentum +10%; allies' Momentum +5% at battle start",
+    signature:"Spiral Twister — spinning fire tornado; 15% chance to apply Burn DoT",
+    evolvesTo:["birdramon"] },
+
+  { id:"birdramon", name:"Birdramon", stage:"Champion", type:"Vaccine", attr:"Fire",
+    hp:150, sp:74, atk:88, def:68, int:65, spd:82,
     role:"Striker",
-    passive:"Thunder Drive — Momentum +30%, chain attacks trigger when Momentum threshold met",
-    signature:"Trident Javelin — 3-hit lightning strike, each hit rolls Focus crit independently",
-    crestReq:{ primary:"Courage", secondary:"Hope" },
-    evolvesTo:["omnimon_alts"] },
+    passive:"Fire Wing — every 3rd attack adds 20% bonus Fire damage",
+    signature:"Meteor Wing — wing-sweep AoE hitting all enemies at 65% Power",
+    crestReq:{ primary:"Courage", secondary:"Care" },
+    evolvesTo:["garudamon"] },
 
-  { id:"omnimon_alts", name:"Omnimon Alter-S", stage:"Mega", type:"Vaccine", attr:"Neutral",
-    hp:390, sp:155, atk:235, def:200, int:185, spd:190,
+  { id:"garudamon", name:"Garudamon", stage:"Ultimate", type:"Vaccine", attr:"Fire",
+    hp:218, sp:108, atk:135, def:108, int:105, spd:118,
     role:"Vanguard",
-    passive:"Alter Power — Power scales inversely with enemy Guard (more Guard = more damage dealt)",
-    signature:"Omega Blade — execution move: double damage when target is below 25% HP",
-    crestReq:{ primary:"Courage", secondary:"Knowledge" },
-    evolvesTo:[], fusionOf:["blitzgreymon","cresgaru"] },
+    passive:"Shadow Wing — Power +20%; immune to all Momentum debuffs",
+    signature:"Wing Blade — razor feathers slice; -15% enemy Guard for 2 turns",
+    crestReq:{ primary:"Care", secondary:"Courage" },
+    evolvesTo:["phoenixmon"] },
 
-  // ── Patamon line (Holy Wind) ──────────────────────────────────────────────────
-  { id:"patamon", name:"Patamon", stage:"Rookie", type:"Data", attr:"Holy",
+  { id:"phoenixmon", name:"Phoenixmon", stage:"Mega", type:"Vaccine", attr:"Fire",
+    hp:302, sp:142, atk:192, def:158, int:162, spd:158,
+    role:"Support",
+    passive:"Rebirth Flame — revives once per battle at 30% HP; grants team +20% Power on revival",
+    signature:"Star-Light Explosion — solar explosion AoE at 90% Power; heals team for 15% HP",
+    crestReq:{ primary:"Care", secondary:"Hope" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PATAMON LINE — Holy Wind
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"patamon", name:"Patamon", stage:"Rookie", type:"Data", attr:"Light",
     hp:90, sp:55, atk:45, def:45, int:58, spd:50,
     role:"Support",
     passive:"Patch of Hope — boosts team INT by 10% at battle start",
     signature:"Boom Bubble — inflates and fires an air burst, small AoE poke",
     evolvesTo:["angemon"] },
 
-  { id:"angemon", name:"Angemon", stage:"Champion", type:"Vaccine", attr:"Holy",
+  { id:"angemon", name:"Angemon", stage:"Champion", type:"Vaccine", attr:"Light",
     hp:148, sp:88, atk:82, def:72, int:95, spd:78,
     role:"Guardian",
     passive:"Heaven's Knuckle — heals self for 10% HP on every kill",
@@ -299,7 +859,7 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Hope", secondary:"Courage" },
     evolvesTo:["magnaangemon"] },
 
-  { id:"magnaangemon", name:"MagnaAngemon", stage:"Ultimate", type:"Vaccine", attr:"Holy",
+  { id:"magnaangemon", name:"MagnaAngemon", stage:"Ultimate", type:"Vaccine", attr:"Light",
     hp:218, sp:118, atk:132, def:108, int:138, spd:102,
     role:"Guardian",
     passive:"Gate of Destiny — opens a portal, reducing all enemy stats by 15% for 2 turns",
@@ -307,7 +867,7 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Hope", secondary:"Light" },
     evolvesTo:["seraphimon"] },
 
-  { id:"seraphimon", name:"Seraphimon", stage:"Mega", type:"Vaccine", attr:"Holy",
+  { id:"seraphimon", name:"Seraphimon", stage:"Mega", type:"Vaccine", attr:"Light",
     hp:308, sp:152, atk:190, def:172, int:192, spd:148,
     role:"Guardian",
     passive:"Seven Heavens — Power +20% and team Guard +15% simultaneously",
@@ -315,15 +875,17 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Hope", secondary:"Light" },
     evolvesTo:[] },
 
-  // ── Salamon line (Holy Maiden) ────────────────────────────────────────────────
-  { id:"salamon", name:"Salamon", stage:"Rookie", type:"Vaccine", attr:"Holy",
+  // ════════════════════════════════════════════════════════════════════════════
+  // SALAMON LINE — Holy Maiden
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"salamon", name:"Salamon", stage:"Rookie", type:"Vaccine", attr:"Light",
     hp:85, sp:50, atk:42, def:48, int:52, spd:45,
     role:"Support",
     passive:"Holy Ring — reduces incoming damage by 8%",
     signature:"Pet Lure — distracts enemy, reducing their ATK by 15% for 2 turns",
     evolvesTo:["tailmon"] },
 
-  { id:"tailmon", name:"Tailmon", stage:"Champion", type:"Vaccine", attr:"Holy",
+  { id:"tailmon", name:"Tailmon", stage:"Champion", type:"Vaccine", attr:"Light",
     hp:145, sp:78, atk:80, def:72, int:85, spd:92,
     role:"Tactician",
     passive:"Cat's Eye — raises own Focus by 20% when HP drops below 50%",
@@ -331,7 +893,7 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Light", secondary:"Care" },
     evolvesTo:["angewomon"] },
 
-  { id:"angewomon", name:"Angewomon", stage:"Ultimate", type:"Vaccine", attr:"Holy",
+  { id:"angewomon", name:"Angewomon", stage:"Ultimate", type:"Vaccine", attr:"Light",
     hp:212, sp:112, atk:122, def:106, int:140, spd:112,
     role:"Tactician",
     passive:"Celestial Arrow — first attack each battle is a guaranteed Focus crit",
@@ -339,15 +901,15 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Light", secondary:"Sincerity" },
     evolvesTo:["magnadramon","ophanimon"] },
 
-  { id:"magnadramon", name:"Magnadramon", stage:"Mega", type:"Vaccine", attr:"Holy",
+  { id:"magnadramon", name:"Magnadramon", stage:"Mega", type:"Vaccine", attr:"Light",
     hp:292, sp:142, atk:188, def:165, int:162, spd:148,
     role:"Vanguard",
     passive:"Dragon Roar — lowers enemy Guard by 20% on entry",
     signature:"Fire Tornado — spinning fire AoE at 80% Power hitting all enemies",
     crestReq:{ primary:"Light", secondary:"Courage" },
-    evolvesTo:[], fusionOf:["angewomon"] },
+    evolvesTo:[] },
 
-  { id:"ophanimon", name:"Ophanimon", stage:"Mega", type:"Vaccine", attr:"Holy",
+  { id:"ophanimon", name:"Ophanimon", stage:"Mega", type:"Vaccine", attr:"Light",
     hp:312, sp:152, atk:182, def:178, int:198, spd:142,
     role:"Guardian",
     passive:"Eden's Javelin — boosts team INT by 20% for the entire battle",
@@ -355,7 +917,43 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Care", secondary:"Light" },
     evolvesTo:[] },
 
-  // ── Tentomon line (Insect Thunder) ───────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // LUNAMON / MOON LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"lunamon",   name:"Lunamon",   stage:"Rookie", type:"Data", attr:"Water",
+    hp:88, sp:56, atk:44, def:46, int:60, spd:48,
+    role:"Support",
+    passive:"Moonbeam — heals 6% HP per turn on even-numbered turns",
+    signature:"Tear Shot — water orb slowing target Momentum by 15%",
+    evolvesTo:["lekismon"] },
+
+  { id:"lekismon",  name:"Lekismon",  stage:"Champion", type:"Data", attr:"Water",
+    hp:145, sp:80, atk:78, def:76, int:92, spd:72,
+    role:"Support",
+    passive:"Moon Night Bomb — every 3rd turn launches a free 40% Power ice burst",
+    signature:"Tear Arrow — ice-tipped arrows; reduces enemy Guard 15% for 2 turns",
+    crestReq:{ primary:"Sincerity", secondary:"Knowledge" },
+    evolvesTo:["crescemon"] },
+
+  { id:"crescemon", name:"Crescemon", stage:"Ultimate", type:"Data", attr:"Water",
+    hp:212, sp:110, atk:128, def:106, int:140, spd:108,
+    role:"Tactician",
+    passive:"Ice Archery — Focus crits apply Freeze (target skips action) on 20% chance",
+    signature:"Lunatic Dance — graceful ice combo, 3 hits at 45% Power each + team Focus +10%",
+    crestReq:{ primary:"Sincerity", secondary:"Light" },
+    evolvesTo:["dianamon"] },
+
+  { id:"dianamon",  name:"Dianamon",  stage:"Mega", type:"Data", attr:"Water",
+    hp:295, sp:148, atk:180, def:165, int:192, spd:142,
+    role:"Tactician",
+    passive:"Crescent Harken — Focus attacks +30% crit chance; crits reduce enemy Momentum by 20%",
+    signature:"Crystal Glaze — massive ice-moon AoE that freezes all enemies for 1 turn",
+    crestReq:{ primary:"Sincerity", secondary:"Knowledge" },
+    evolvesTo:["gracenovamon"] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // TENTOMON LINE — Insect Thunder
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"tentomon", name:"Tentomon", stage:"Rookie", type:"Data", attr:"Thunder",
     hp:95, sp:52, atk:50, def:52, int:48, spd:42,
     role:"Balanced",
@@ -387,13 +985,23 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Knowledge", secondary:"Reliability" },
     evolvesTo:[] },
 
-  // ── Veemon line (Dragon Man) ──────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // VEEMON LINE — Dragon Man
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"veemon", name:"Veemon", stage:"Rookie", type:"Vaccine", attr:"Neutral",
     hp:105, sp:48, atk:60, def:42, int:38, spd:55,
     role:"Striker",
     passive:"V-Mon Head — bonus 15% Power on the first attack of each battle",
     signature:"Vee-Headbutt — charges head-first, small chance to stun for 1 turn",
-    evolvesTo:["exveemon"] },
+    evolvesTo:["exveemon","veedramon"] },
+
+  { id:"veedramon", name:"Veedramon", stage:"Champion", type:"Vaccine", attr:"Neutral",
+    hp:158, sp:70, atk:92, def:74, int:58, spd:78,
+    role:"Striker",
+    passive:"V-Nova — V-breath grants +15% Power to next attack",
+    signature:"V-Nova Blast — concentrated V-beam; ignores 12% Guard",
+    crestReq:{ primary:"Courage", secondary:"Friendship" },
+    evolvesTo:["aeroveedramon"] },
 
   { id:"exveemon", name:"ExVeemon", stage:"Champion", type:"Vaccine", attr:"Neutral",
     hp:162, sp:70, atk:100, def:72, int:60, spd:80,
@@ -401,7 +1009,7 @@ export const DIGIMON_DB = [
     passive:"V-Breath Arrow — fire-type Power attacks gain +12% damage bonus",
     signature:"V-Breath Arrow — piercing fire beam with 10% Guard bypass",
     crestReq:{ primary:"Courage", secondary:"Friendship" },
-    evolvesTo:["aeroveedramon"] },
+    evolvesTo:["paildramon"] },
 
   { id:"aeroveedramon", name:"AeroVeedramon", stage:"Ultimate", type:"Vaccine", attr:"Neutral",
     hp:228, sp:102, atk:142, def:106, int:92, spd:128,
@@ -419,23 +1027,100 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Courage", secondary:"Hope" },
     evolvesTo:[] },
 
-  // ── Lopmon line (Earth Guardian) ─────────────────────────────────────────────
+  // ── Paildramon / Imperialdramon line (DNA) ────────────────────────────────────
+  { id:"paildramon", name:"Paildramon", stage:"Ultimate", type:"Virus", attr:"Neutral",
+    hp:232, sp:100, atk:148, def:112, int:95, spd:118,
+    role:"Vanguard",
+    passive:"Dual Wings — Power +15%; attacks twice on the opening turn",
+    signature:"Desperado Blaster — twin energy blasts, each at 70% Power",
+    crestReq:{ primary:"Courage", secondary:"Friendship" },
+    evolvesTo:["imperialdramon_fm"], fusionOf:["exveemon","stingmon"] },
+
+  { id:"imperialdramon_fm", name:"Imperialdramon Fighter Mode", stage:"Mega", type:"Vaccine", attr:"Neutral",
+    hp:320, sp:135, atk:202, def:162, int:148, spd:158,
+    role:"Vanguard",
+    passive:"Fighter Mode — Power +20%; immune to all debuffs on entry for 2 turns",
+    signature:"Positron Laser — piercing energy beam dealing true damage to primary target",
+    crestReq:{ primary:"Courage", secondary:"Friendship" },
+    evolvesTo:["imperialdramon_pm"] },
+
+  { id:"imperialdramon_pm", name:"Imperialdramon Paladin Mode", stage:"Ultra", type:"Vaccine", attr:"Light",
+    hp:378, sp:168, atk:242, def:212, int:188, spd:182,
+    role:"Vanguard",
+    passive:"Paladin Mode — all stats +25% above Fighter Mode; team immune to instant-defeat effects",
+    signature:"Omni Sword — ultimate holy slash; true damage reducing all enemies to 50% HP (once per battle)",
+    crestReq:{ primary:"Courage", secondary:"Light" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // WORMMON / STINGMON LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"wormmon", name:"Wormmon", stage:"Rookie", type:"Data", attr:"Earth",
+    hp:90, sp:54, atk:45, def:52, int:48, spd:40,
+    role:"Support",
+    passive:"Silk Bind — 15% chance on each hit to bind enemy (Slow -20%) for 1 turn",
+    signature:"Sticky Net — AoE web that reduces all enemies' Momentum by 15%",
+    evolvesTo:["stingmon"] },
+
+  { id:"stingmon", name:"Stingmon", stage:"Champion", type:"Virus", attr:"Earth",
+    hp:152, sp:70, atk:92, def:72, int:62, spd:86,
+    role:"Striker",
+    passive:"Spike Buster — ignores 10% Guard; Power +15% vs Vaccine types",
+    signature:"Spiking Strike — hyper-speed stab, hits twice at 55% Power each",
+    crestReq:{ primary:"Friendship", secondary:"Reliability" },
+    evolvesTo:["jewelbeemon","paildramon"] },
+
+  { id:"jewelbeemon", name:"Jewelbeemon", stage:"Ultimate", type:"Virus", attr:"Earth",
+    hp:220, sp:98, atk:138, def:108, int:95, spd:118,
+    role:"Vanguard",
+    passive:"Royal Sting — Power +20%; 20% chance per hit to inject venom (DoT 8% HP/turn for 3 turns)",
+    signature:"Spike Blaster — energy beam AoE at 75% Power + Poison 15% chance",
+    crestReq:{ primary:"Friendship", secondary:"Courage" },
+    evolvesTo:["banchostingmon"] },
+
+  { id:"banchostingmon", name:"BanchoStingmon", stage:"Mega", type:"Virus", attr:"Earth",
+    hp:302, sp:128, atk:195, def:155, int:140, spd:165,
+    role:"Vanguard",
+    passive:"Bancho Code — Power +25%; allies' ATK +10% while BanchoStingmon is on the field",
+    signature:"Dual Spiking Strike — twin hyper-lance combo at 80% Power each; immune to counter-effects",
+    crestReq:{ primary:"Friendship", secondary:"Courage" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // LOPMON LINE — Earth Guardian
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"lopmon", name:"Lopmon", stage:"Rookie", type:"Data", attr:"Earth",
     hp:92, sp:54, atk:40, def:58, int:50, spd:44,
     role:"Guardian",
     passive:"Gentle Aura — team takes 8% less damage from all sources",
     signature:"Blazing Ice — cool breath attack that reduces enemy Momentum by 20%",
-    evolvesTo:["antylamon"] },
+    evolvesTo:["turuiemon"] },
 
-  { id:"antylamon", name:"Antylamon", stage:"Ultimate", type:"Data", attr:"Earth",
-    hp:222, sp:108, atk:132, def:130, int:112, spd:98,
+  { id:"turuiemon", name:"Turuiemon", stage:"Champion", type:"Data", attr:"Earth",
+    hp:155, sp:78, atk:84, def:82, int:68, spd:72,
     role:"Guardian",
-    passive:"Kunnoji — converts 20% of Guard into additional Power on attacks",
-    signature:"Bunny Blades — fast arm-blade combo, 2 hits at 65% Power each",
+    passive:"Martial Arts — counter-strike at 15% Power when taking a hit",
+    signature:"Thorn Whip — earth strike reducing enemy Guard by 20% for 2 turns",
     crestReq:{ primary:"Care", secondary:"Reliability" },
+    evolvesTo:["andiramon","andiramon_virus"] },
+
+  { id:"andiramon", name:"Andiramon", stage:"Ultimate", type:"Data", attr:"Light",
+    hp:220, sp:110, atk:128, def:122, int:112, spd:98,
+    role:"Guardian",
+    passive:"Dharani — team Guard +15%; heals 5% HP per turn",
+    signature:"Goodness Cudgel — holy staff AoE that heals team for 10% HP after hitting",
+    crestReq:{ primary:"Care", secondary:"Hope" },
     evolvesTo:["cherubimon"] },
 
-  { id:"cherubimon", name:"Cherubimon", stage:"Mega", type:"Data", attr:"Holy",
+  { id:"andiramon_virus", name:"Andiramon (Virus)", stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:228, sp:100, atk:142, def:112, int:98, spd:105,
+    role:"Vanguard",
+    passive:"Virus Code — Power +20%; immune to Charm and Confusion",
+    signature:"Bǎo Chuí — shadow-empowered sledgehammer strike ignoring 20% Guard",
+    crestReq:{ primary:"Sincerity", secondary:"Courage" },
+    evolvesTo:["cherubimon_vice"] },
+
+  { id:"cherubimon", name:"Cherubimon", stage:"Mega", type:"Data", attr:"Light",
     hp:332, sp:148, atk:202, def:188, int:178, spd:132,
     role:"Tactician",
     passive:"Lightning Spear — Focus attacks paralyze the target for 1 turn on a 25% chance",
@@ -443,7 +1128,17 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Care", secondary:"Hope" },
     evolvesTo:[] },
 
-  // ── Renamon line (Fox Mystic) ─────────────────────────────────────────────────
+  { id:"cherubimon_vice", name:"Cherubimon (Vice)", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:335, sp:140, atk:208, def:180, int:162, spd:140,
+    role:"Vanguard",
+    passive:"Lightning Spear Vice — Power +20%; paralysis chance increases to 35% on crits",
+    signature:"Dark Storm — corrupted thunder AoE at 85% Power; reduces all enemy Focus by 15%",
+    crestReq:{ primary:"Sincerity", secondary:"Courage" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RENAMON LINE — Fox Mystic
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"renamon", name:"Renamon", stage:"Rookie", type:"Data", attr:"Earth",
     hp:90, sp:58, atk:48, def:40, int:62, spd:62,
     role:"Tactician",
@@ -475,7 +1170,9 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Sincerity", secondary:"Light" },
     evolvesTo:[] },
 
-  // ── Terriermon line (Brave Heart) ─────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // TERRIERMON LINE — Brave Heart
+  // ════════════════════════════════════════════════════════════════════════════
   { id:"terriermon", name:"Terriermon", stage:"Rookie", type:"Vaccine", attr:"Neutral",
     hp:100, sp:52, atk:55, def:45, int:45, spd:58,
     role:"Balanced",
@@ -499,6 +1196,14 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Friendship", secondary:"Hope" },
     evolvesTo:["megagargomon"] },
 
+  { id:"rapidmon_armor", name:"Rapidmon (Armor)", stage:"Ultimate", type:"Vaccine", attr:"Light",
+    hp:215, sp:106, atk:135, def:112, int:108, spd:135,
+    role:"Vanguard",
+    passive:"Armor Plating — Guard +15%; Momentum bonus carries into armor-reinforced strikes",
+    signature:"Golden Triangle — three homing projectiles fire simultaneously at 60% Power each",
+    crestReq:{ primary:"Friendship", secondary:"Light" },
+    evolvesTo:[] },
+
   { id:"megagargomon", name:"MegaGargomon", stage:"Mega", type:"Vaccine", attr:"Neutral",
     hp:328, sp:140, atk:202, def:188, int:148, spd:118,
     role:"Vanguard",
@@ -507,31 +1212,587 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Friendship", secondary:"Reliability" },
     evolvesTo:[] },
 
-  // ── Neglect / Corruption branch ────────────────────────────────────────────────
-  // Sukamon: evolves from any neglected partner. Born from corrupted data.
-  { id:"sukamon", name:"Sukamon", stage:"Rookie", type:"Virus", attr:"Dark",
-    hp:95, sp:38, atk:62, def:30, int:22, spd:58,
-    role:"Striker",
-    passive:"Corruption Core — ignores 15% of enemy Guard; damage grows with each defeated foe",
-    signature:"Poop Toss — AoE chaos attack, 30% chance to inflict Virus (enemy ATK -10% for 2 turns)",
-    evolvesTo:["etemon"] },
+  // ════════════════════════════════════════════════════════════════════════════
+  // CHOROMON / MACHINE LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"kokuwamon",  name:"Kokuwamon",  stage:"Rookie", type:"Data", attr:"Thunder",
+    hp:92, sp:50, atk:50, def:52, int:44, spd:46,
+    role:"Balanced",
+    passive:"Circuit Boost — Power +5% for every consecutive turn without taking damage",
+    signature:"Scissor Claw — mechanical pincer strike; 15% chance to apply Slow",
+    evolvesTo:["guardromon","kuwagamon"] },
 
-  { id:"etemon", name:"Etemon", stage:"Champion", type:"Virus", attr:"Dark",
-    hp:175, sp:72, atk:112, def:68, int:58, spd:92,
+  { id:"commandramon",    name:"Commandramon",    stage:"Rookie", type:"Virus", attr:"Dark",
+    hp:95, sp:48, atk:56, def:44, int:38, spd:54,
+    role:"Striker",
+    passive:"Camouflage — 15% chance to dodge the first attack each battle",
+    signature:"M16 Assassin — rapid rifle burst; 3 hits at 30% Power each",
+    evolvesTo:["hi_commandramon","tankermon"] },
+
+  { id:"guardromon",      name:"Guardromon",      stage:"Champion", type:"Data", attr:"Neutral",
+    hp:162, sp:72, atk:86, def:92, int:58, spd:58,
+    role:"Guardian",
+    passive:"Iron Body — Guard +15%; immune to Confusion and Charm",
+    signature:"Warning Laser — beam that reduces enemy ATK by 20% for 2 turns",
+    crestReq:{ primary:"Reliability", secondary:"Knowledge" },
+    evolvesTo:["andromon"] },
+
+  { id:"kuwagamon",       name:"Kuwagamon",       stage:"Champion", type:"Virus", attr:"Earth",
+    hp:158, sp:65, atk:96, def:72, int:48, spd:80,
+    role:"Striker",
+    passive:"Scissor Force — Power +20%; deals bonus damage to Vaccine types",
+    signature:"Scissor Claw Kai — hyper-speed double-pincer at 55% Power each",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["okuwamon"] },
+
+  { id:"hi_commandramon", name:"Hi-Commandramon", stage:"Champion", type:"Virus", attr:"Dark",
+    hp:152, sp:68, atk:92, def:74, int:58, spd:82,
+    role:"Striker",
+    passive:"Stealth Ops — Power +15% when entering battle from reserve",
+    signature:"D-Burst — data-deletion strike ignoring 15% Guard",
+    crestReq:{ primary:"Courage", secondary:"Knowledge" },
+    evolvesTo:["cargodramon"] },
+
+  { id:"tankermon",       name:"Tankermon",       stage:"Champion", type:"Virus", attr:"Dark",
+    hp:165, sp:65, atk:88, def:88, int:52, spd:62,
+    role:"Guardian",
+    passive:"Siege Armor — Guard +15%; reduces AoE damage taken by 20%",
+    signature:"Cannon Blast — heavy artillery shot dealing 85% Power single-target",
+    crestReq:{ primary:"Reliability", secondary:"Knowledge" },
+    evolvesTo:["deckerdramon"] },
+
+  { id:"andromon",        name:"Andromon",        stage:"Ultimate", type:"Vaccine", attr:"Neutral",
+    hp:225, sp:102, atk:135, def:122, int:105, spd:98,
+    role:"Guardian",
+    passive:"Chrome Armor — Guard +20%; immune to Guard-break effects",
+    signature:"Lightning Blade — plasma-edged slash; AoE hitting all enemies at 65% Power",
+    crestReq:{ primary:"Reliability", secondary:"Knowledge" },
+    evolvesTo:["hiandromon"] },
+
+  { id:"okuwamon",        name:"Okuwamon",        stage:"Ultimate", type:"Virus", attr:"Earth",
+    hp:228, sp:96, atk:148, def:108, int:82, spd:108,
     role:"Vanguard",
-    passive:"Dark Network — all Virus-type attacks deal +20% damage; immunity to Charm",
-    signature:"Concert Crush — 3-hit dark-music barrage at 45% Power each; applies SPD debuff",
-    crestReq:{ primary:"Sincerity", secondary:"Courage" },
+    passive:"Double Scissor — every attack has a 20% chance to strike twice",
+    signature:"Power Scissor — massive pincer at 100% Power and shreds -15% Guard",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["grandiskuwagamon"] },
+
+  { id:"cargodramon",     name:"Cargodramon",     stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:225, sp:95, atk:140, def:115, int:88, spd:98,
+    role:"Vanguard",
+    passive:"Cargo Drop — battle starts with free AoE at 40% Power (explosive payload)",
+    signature:"Missile Carpet — cluster bombs AoE; 3 hits at 50% Power each",
+    crestReq:{ primary:"Courage", secondary:"Knowledge" },
+    evolvesTo:["brigadramon"] },
+
+  { id:"deckerdramon",    name:"Deckerdramon",    stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:230, sp:90, atk:138, def:122, int:85, spd:95,
+    role:"Guardian",
+    passive:"Fortress — Guard +20%; team Guard +10% while Deckerdramon is alive",
+    signature:"Deck Driver — charges forward ramming target; AoE at 75% Power",
+    crestReq:{ primary:"Reliability", secondary:"Knowledge" },
+    evolvesTo:["darkdramon"] },
+
+  { id:"hiandromon",      name:"HiAndromon",      stage:"Mega", type:"Vaccine", attr:"Neutral",
+    hp:308, sp:135, atk:192, def:178, int:152, spd:125,
+    role:"Guardian",
+    passive:"Atomic Upgrade — team Guard +20%; immune to all mechanical-type debuffs",
+    signature:"Atomic Ray — nuclear-level blast at 120% Power; bypasses all Guard",
+    crestReq:{ primary:"Reliability", secondary:"Knowledge" },
     evolvesTo:[] },
 
-  // Monzaemon: redemption path — available after completing the Reconnection Arc
-  { id:"monzaemon", name:"Monzaemon", stage:"Champion", type:"Vaccine", attr:"Neutral",
-    hp:185, sp:88, atk:92, def:105, int:82, spd:62,
+  { id:"grandiskuwagamon", name:"GrandisKuwagamon", stage:"Mega", type:"Virus", attr:"Earth",
+    hp:302, sp:128, atk:200, def:152, int:135, spd:160,
+    role:"Vanguard",
+    passive:"Grandis Scissors — Power +30%; ignores 20% of enemy Guard",
+    signature:"Grandis Gray — triple slash at 70% Power each, permanently stealing 5% enemy Guard",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:[] },
+
+  { id:"brigadramon",     name:"Brigadramon",     stage:"Mega", type:"Virus", attr:"Dark",
+    hp:308, sp:125, atk:195, def:162, int:140, spd:138,
+    role:"Vanguard",
+    passive:"Air Superiority — Power +25%; AoE attacks deal +15% bonus damage",
+    signature:"Dark Prominence — air-strike bombing run; massive AoE at 100% Power",
+    crestReq:{ primary:"Courage", secondary:"Knowledge" },
+    evolvesTo:[] },
+
+  { id:"darkdramon",      name:"Darkdramon",      stage:"Mega", type:"Virus", attr:"Dark",
+    hp:310, sp:122, atk:198, def:158, int:135, spd:145,
+    role:"Vanguard",
+    passive:"Dark Calibur — Power +30% vs Vaccine; attacks reduce enemy Guard by 5% per hit",
+    signature:"Gigastick Lance — devastating dark lance at 160% Power, pierces all Guard",
+    crestReq:{ primary:"Reliability", secondary:"Courage" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // LABRAMON / CERBERUS LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"labramon",  name:"Labramon",  stage:"Rookie", type:"Vaccine", attr:"Earth",
+    hp:90, sp:52, atk:45, def:52, int:46, spd:50,
+    role:"Support",
+    passive:"Retriever — heals nearest ally for 8% HP when a team member drops below 30% HP",
+    signature:"Doble Tomahawk — twin-axe paw strike; reduces enemy ATK by 10%",
+    evolvesTo:["dobermon","seasarmon"] },
+
+  { id:"dobermon",  name:"Dobermon",  stage:"Champion", type:"Vaccine", attr:"Earth",
+    hp:150, sp:72, atk:88, def:75, int:62, spd:80,
+    role:"Striker",
+    passive:"Schwarz Strahl — Power +15% vs Virus types; immunity to Charm",
+    signature:"Schwarz Strahl — dark-fire beam; applies Burn DoT 8% HP/turn for 2 turns",
+    crestReq:{ primary:"Reliability", secondary:"Care" },
+    evolvesTo:["cerberumon"] },
+
+  { id:"seasarmon", name:"Seasarmon", stage:"Champion", type:"Vaccine", attr:"Earth",
+    hp:152, sp:78, atk:82, def:82, int:70, spd:70,
     role:"Guardian",
-    passive:"Warm Heart — restores 8% max HP per turn; ally Guard +10% while present",
-    signature:"Hearts Attack — single target hit; inflicts Charmed (target skips next action)",
+    passive:"Holy Howling — team Guard +10%; immune to Fear and Slow",
+    signature:"Kahuna Waves — sacred sound wave AoE reducing all enemy Momentum by 20%",
+    crestReq:{ primary:"Care", secondary:"Reliability" },
+    evolvesTo:["cerberumon"] },
+
+  { id:"cerberumon", name:"Cerberumon", stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:228, sp:100, atk:145, def:115, int:95, spd:108,
+    role:"Vanguard",
+    passive:"Emerald Blaze — Power +20%; fire breath bypasses 15% Guard",
+    signature:"Inferno Gate — portal to the Dark Area; AoE at 80% Power + Burn to all",
+    crestReq:{ primary:"Reliability", secondary:"Courage" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // GOMAMON / SEA BEAST LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"gomamon",    name:"Gomamon",    stage:"Rookie", type:"Vaccine", attr:"Water",
+    hp:95, sp:52, atk:50, def:48, int:42, spd:52,
+    role:"Support",
+    passive:"Marching Fishes — once per battle, calls fish allies for a free 30% Power AoE",
+    signature:"Claw Attack — fast triple paw strike; 3 hits at 25% Power each",
+    evolvesTo:["ikkakumon","mojyamon"] },
+
+  { id:"shakomon",   name:"Shakomon",   stage:"Rookie", type:"Data", attr:"Water",
+    hp:90, sp:56, atk:44, def:55, int:48, spd:44,
+    role:"Guardian",
+    passive:"Shell Guard — Guard +12% vs physical attacks",
+    signature:"Clam Surge — water blast from shell; 20% chance to Slow enemy",
+    evolvesTo:["shellmon"] },
+
+  { id:"ikkakumon",  name:"Ikkakumon",  stage:"Champion", type:"Vaccine", attr:"Water",
+    hp:162, sp:74, atk:88, def:85, int:58, spd:65,
+    role:"Guardian",
+    passive:"Harpoon Torpedo — 20% chance to launch a free 40% Power missile on any hit",
+    signature:"Harpoon Torpedo — rocket-powered horn; ignores 10% Guard",
+    crestReq:{ primary:"Reliability", secondary:"Care" },
+    evolvesTo:["zudomon"] },
+
+  { id:"mojyamon",   name:"Mojyamon",   stage:"Champion", type:"Data", attr:"Earth",
+    hp:160, sp:70, atk:86, def:82, int:62, spd:60,
+    role:"Guardian",
+    passive:"Bone Boomerang — counter-attack at 20% Power when struck",
+    signature:"Bone Boomerang — thrown rib bone hits all enemies at 60% Power",
+    crestReq:{ primary:"Reliability", secondary:"Friendship" },
+    evolvesTo:["pixiemon"] },
+
+  { id:"shellmon",   name:"Shellmon",   stage:"Champion", type:"Vaccine", attr:"Water",
+    hp:165, sp:70, atk:82, def:92, int:58, spd:55,
+    role:"Guardian",
+    passive:"Hard Shell — Guard +15%; reduces damage from AoE attacks by 20%",
+    signature:"Hydro Pressure — water jet that reduces enemy Guard by 15% for 2 turns",
+    crestReq:{ primary:"Care", secondary:"Reliability" },
+    evolvesTo:["whamon"] },
+
+  { id:"zudomon",    name:"Zudomon",    stage:"Ultimate", type:"Vaccine", attr:"Water",
+    hp:232, sp:102, atk:140, def:125, int:90, spd:92,
+    role:"Guardian",
+    passive:"Thor Hammer — every 3rd attack is a guaranteed Power crit at +40% damage",
+    signature:"Vulcan's Hammer — thundering hammer strike AoE at 80% Power",
+    crestReq:{ primary:"Reliability", secondary:"Care" },
+    evolvesTo:["vikemon","plesiomon"] },
+
+  { id:"pixiemon",   name:"Pixiemon",   stage:"Ultimate", type:"Vaccine", attr:"Light",
+    hp:215, sp:115, atk:122, def:108, int:145, spd:118,
+    role:"Tactician",
+    passive:"Fairy Dust — on every kill, team Momentum +10% for 2 turns",
+    signature:"Pixy Magica — magic barrage hitting 3 random enemies at 55% Power each",
+    crestReq:{ primary:"Care", secondary:"Sincerity" },
+    evolvesTo:["jijimon"] },
+
+  { id:"whamon",     name:"Whamon",     stage:"Ultimate", type:"Vaccine", attr:"Water",
+    hp:242, sp:98, atk:132, def:128, int:88, spd:78,
+    role:"Guardian",
+    passive:"Tidal Wave — once per battle, AoE at 60% Power + Momentum debuff -20% for 2 turns",
+    signature:"Tidal Wave — tsunami slam hitting all enemies at 70% Power",
+    crestReq:{ primary:"Care", secondary:"Reliability" },
+    evolvesTo:["marinangemon"] },
+
+  { id:"vikemon",    name:"Vikemon",    stage:"Mega", type:"Vaccine", attr:"Water",
+    hp:318, sp:132, atk:198, def:185, int:142, spd:108,
+    role:"Guardian",
+    passive:"Arctic Blizzard — reduces all enemies' Momentum by 15% at battle start",
+    signature:"Mjolnir — thunderhammer from above; AoE at 90% Power + Slow",
+    crestReq:{ primary:"Reliability", secondary:"Care" },
+    evolvesTo:[] },
+
+  { id:"plesiomon",  name:"Plesiomon",  stage:"Mega", type:"Data", attr:"Water",
+    hp:300, sp:140, atk:185, def:165, int:158, spd:130,
+    role:"Support",
+    passive:"Sorrow Blue — heals team for 10% HP whenever an ally is defeated",
+    signature:"Sorrow Blue — healing wave; restores 25% HP to the lowest-HP ally",
+    crestReq:{ primary:"Care", secondary:"Sincerity" },
+    evolvesTo:["aegisdramon"] },
+
+  { id:"jijimon",    name:"Jijimon",    stage:"Mega", type:"Vaccine", attr:"Light",
+    hp:292, sp:148, atk:178, def:170, int:188, spd:112,
+    role:"Support",
+    passive:"Elder Wisdom — team INT +20%; each kill grants the whole team +5% Guard for the battle",
+    signature:"Scroll of Knowledge — AoE scroll buff; all allies Focus +25% + damages enemies at 60% Power",
+    crestReq:{ primary:"Care", secondary:"Knowledge" },
+    evolvesTo:[] },
+
+  { id:"marinangemon", name:"MarineAngemon", stage:"Mega", type:"Vaccine", attr:"Water",
+    hp:288, sp:152, atk:172, def:168, int:180, spd:132,
+    role:"Support",
+    passive:"Ocean Love — team heals 5% HP per turn; immune to all DoT effects",
+    signature:"Kahuna Waves — sacred ocean wave; heals team 20% HP + damages all enemies at 50% Power",
     crestReq:{ primary:"Care", secondary:"Friendship" },
     evolvesTo:[] },
+
+  { id:"aegisdramon", name:"Aegisdramon", stage:"Ultra", type:"Vaccine", attr:"Water",
+    hp:375, sp:165, atk:230, def:220, int:178, spd:155,
+    role:"Guardian",
+    passive:"Aegis Shield — immune to all debuffs; team Guard +25%",
+    signature:"Poseidon Trident — divine trident AoE; 2 hits at 70% Power each + all enemies ATK -20%",
+    crestReq:{ primary:"Reliability", secondary:"Light" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // HERISSMON / PULSE LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"herissmon", name:"Herissmon", stage:"Rookie", type:"Free", attr:"Neutral",
+    hp:98, sp:50, atk:54, def:45, int:40, spd:55,
+    role:"Balanced",
+    passive:"Quill Guard — 20% chance to reflect 10% Power back when struck",
+    signature:"Needle Hedgehog — rolls into target; 2 hits at 35% Power each + minor Slow",
+    evolvesTo:["filmon"] },
+
+  { id:"filmon",    name:"Filmon",    stage:"Champion", type:"Free", attr:"Neutral",
+    hp:155, sp:72, atk:90, def:75, int:65, spd:75,
+    role:"Balanced",
+    passive:"Fil Spin — on crit, automatically launches a follow-up at 30% Power",
+    signature:"Fil Slash — spinning blade attack; AoE at 65% Power",
+    crestReq:{ primary:"Reliability", secondary:"Friendship" },
+    evolvesTo:["stefilmon"] },
+
+  { id:"stefilmon", name:"Stefilmon", stage:"Ultimate", type:"Free", attr:"Neutral",
+    hp:222, sp:100, atk:138, def:112, int:100, spd:108,
+    role:"Vanguard",
+    passive:"Spin Drive — Momentum +20%; Power scales with Momentum (up to +15% bonus)",
+    signature:"Fil Stinger — multi-spin rush at 90% Power; Momentum fully consumed and converted to damage",
+    crestReq:{ primary:"Reliability", secondary:"Courage" },
+    evolvesTo:["rasenmon"] },
+
+  { id:"rasenmon",  name:"Rasenmon",  stage:"Mega", type:"Free", attr:"Neutral",
+    hp:302, sp:130, atk:192, def:158, int:148, spd:155,
+    role:"Vanguard",
+    passive:"Rage Mode — Power +25% when any ally is defeated; stacks up to 3×",
+    signature:"Rasenmon Burst — spiraling force strike at 150% Power (true damage); self HP -5%",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // DORUMON / ALPHAMON LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"dorumon",     name:"DORUmon",     stage:"Rookie", type:"Vaccine", attr:"Neutral",
+    hp:102, sp:50, atk:56, def:46, int:40, spd:52,
+    role:"Balanced",
+    passive:"X-Antibody — all debuffs last 1 turn shorter; immune to stat-break on entry",
+    signature:"Schwert — blade strike; 15% chance to reduce enemy Guard by 10%",
+    evolvesTo:["dorugamon","drimogemon"] },
+
+  { id:"dorugamon",   name:"DORUgamon",   stage:"Champion", type:"Vaccine", attr:"Fire",
+    hp:160, sp:72, atk:95, def:78, int:62, spd:72,
+    role:"Vanguard",
+    passive:"Bear Claw — Power +15% vs Data types; first attack each battle deals bonus Fire damage",
+    signature:"Power Metal — iron-fisted slam ignoring 12% Guard",
+    crestReq:{ primary:"Reliability", secondary:"Courage" },
+    evolvesTo:["doruguremon"] },
+
+  { id:"drimogemon",  name:"Drimogemon",  stage:"Champion", type:"Data", attr:"Earth",
+    hp:162, sp:68, atk:92, def:84, int:55, spd:65,
+    role:"Guardian",
+    passive:"Drill Spin — on every 3rd turn, auto-drills for 30% Power AoE",
+    signature:"Drill Spin — spinning drill AoE that reduces all enemies' Guard by 10%",
+    crestReq:{ primary:"Reliability", secondary:"Knowledge" },
+    evolvesTo:["giromon"] },
+
+  { id:"doruguremon", name:"DORUguremon", stage:"Ultimate", type:"Vaccine", attr:"Fire",
+    hp:232, sp:102, atk:148, def:118, int:92, spd:100,
+    role:"Vanguard",
+    passive:"Bloody Claw — every hit applies a bleed DoT (5% HP/turn for 2 turns)",
+    signature:"Bloody Tower — claw tower strike; 3 hits at 55% Power each + bleed",
+    crestReq:{ primary:"Reliability", secondary:"Courage" },
+    evolvesTo:["alphamon"] },
+
+  { id:"giromon",     name:"Giromon",     stage:"Ultimate", type:"Virus", attr:"Thunder",
+    hp:228, sp:98, atk:145, def:108, int:92, spd:105,
+    role:"Vanguard",
+    passive:"Chainsaw — Power +20%; AoE attacks apply a -10% Guard debuff to all targets",
+    signature:"Chainsaw — whirling mechanical saw that hits all enemies at 75% Power",
+    crestReq:{ primary:"Knowledge", secondary:"Reliability" },
+    evolvesTo:["hiandromon"] },
+
+  { id:"alphamon",    name:"Alphamon",    stage:"Mega", type:"Vaccine", attr:"Neutral",
+    hp:320, sp:140, atk:205, def:172, int:168, spd:158,
+    role:"Vanguard",
+    passive:"Soul Digitalize — on entry, erases one random enemy buff; Power +25%",
+    signature:"Digitalize of Soul — legendary obliteration strike; true damage at 180% Power (charges 1 turn)",
+    crestReq:{ primary:"Knowledge", secondary:"Reliability" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PULSEMON LINE — Thunder Pulse
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"pulsemon", name:"Pulsemon", stage:"Rookie", type:"Free", attr:"Thunder",
+    hp:98, sp:52, atk:56, def:42, int:44, spd:58,
+    role:"Striker",
+    passive:"Pulse Drive — Momentum +10%; Power increases by 5% for each consecutive attack",
+    signature:"Bulkmon Wave — electric punch that chains to adjacent enemy at 30% Power",
+    evolvesTo:["bulkmon"] },
+
+  { id:"bulkmon",  name:"Bulkmon",  stage:"Champion", type:"Free", attr:"Thunder",
+    hp:158, sp:72, atk:95, def:75, int:62, spd:78,
+    role:"Striker",
+    passive:"Surge — Power +20%; gains +5% Power for each hit received (max 3 stacks)",
+    signature:"Rolling Thunder — electric charge tackle; ignores 12% Guard",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["boutmon"] },
+
+  { id:"boutmon",  name:"Boutmon",  stage:"Ultimate", type:"Free", attr:"Thunder",
+    hp:225, sp:100, atk:145, def:108, int:95, spd:110,
+    role:"Vanguard",
+    passive:"Shock Pulse — every hit applies Shock (Momentum -10%) for 1 turn",
+    signature:"Fulgur — lightning spear that hits twice at 70% Power; Shock applied on both hits",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["kazuchimon"] },
+
+  { id:"kazuchimon", name:"Kazuchimon", stage:"Mega", type:"Free", attr:"Thunder",
+    hp:308, sp:130, atk:198, def:158, int:152, spd:158,
+    role:"Vanguard",
+    passive:"Thunder God — Power +30%; immune to Slow; team Momentum +10% at battle start",
+    signature:"Raijin Palms — twin thunder-fist AoE at 80% Power each; Shocks all enemies for 2 turns",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // MONODRAMON / CYBERDRAMON LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"monodramon",  name:"Monodramon",  stage:"Rookie", type:"Vaccine", attr:"Neutral",
+    hp:98, sp:50, atk:54, def:46, int:42, spd:52,
+    role:"Balanced",
+    passive:"Claw Counter — 15% chance to counter-attack at 30% Power when struck",
+    signature:"Beat Knuckle — rapid-fire punch; 3 hits at 28% Power each",
+    evolvesTo:["strikedramon"] },
+
+  { id:"strikedramon", name:"Strikedramon", stage:"Champion", type:"Vaccine", attr:"Neutral",
+    hp:155, sp:72, atk:92, def:78, int:62, spd:80,
+    role:"Striker",
+    passive:"Strike Mode — Power +15%; Power increases by 10% when below 50% HP",
+    signature:"Meteor Driver — dive-kick from above at 90% Power; cannot be blocked",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:["justimon"] },
+
+  { id:"justimon",    name:"Justimon",    stage:"Ultimate", type:"Vaccine", attr:"Neutral",
+    hp:225, sp:108, atk:142, def:115, int:108, spd:115,
+    role:"Vanguard",
+    passive:"Justice Kick — 30% chance to add a free kick at 40% Power after any attack",
+    signature:"Voltage Blade — electrified slash at 100% Power; ignores 20% Guard",
+    crestReq:{ primary:"Courage", secondary:"Reliability" },
+    evolvesTo:["cyberdramon"] },
+
+  { id:"cyberdramon", name:"Cyberdramon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:305, sp:128, atk:198, def:152, int:145, spd:152,
+    role:"Vanguard",
+    passive:"Erase Claw — each hit has 20% chance to permanently reduce target Guard by 5%",
+    signature:"Cyber Nail — reality-slashing attack at 160% Power; shatters all enemy Guard buffs",
+    crestReq:{ primary:"Courage", secondary:"Knowledge" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // GAMMAMON LINE
+  // ════════════════════════════════════════════════════════════════════════════
+  { id:"gammamon",      name:"Gammamon",      stage:"Rookie", type:"Data", attr:"Fire",
+    hp:102, sp:50, atk:56, def:44, int:46, spd:52,
+    role:"Balanced",
+    passive:"Guarding Light — Guard +8% when HP drops below 50%",
+    signature:"Gama Haundo — headbutt charge; 20% chance to Stun for 1 turn",
+    evolvesTo:["betelgammamon","kausgammamon","wezengammamon","gulusgammamon"] },
+
+  { id:"betelgammamon",  name:"BetelGammamon",  stage:"Champion", type:"Vaccine", attr:"Fire",
+    hp:158, sp:78, atk:90, def:80, int:72, spd:72,
+    role:"Guardian",
+    passive:"Beta Shield — Guard +15%; redirects 10% of damage dealt to Gammamon to self",
+    signature:"Betel Claw — tri-slash combo; 3 hits at 40% Power each, self-heals 5% HP",
+    crestReq:{ primary:"Care", secondary:"Reliability" },
+    evolvesTo:["canoweissmon"] },
+
+  { id:"kausgammamon",   name:"KausGammamon",   stage:"Champion", type:"Vaccine", attr:"Thunder",
+    hp:155, sp:76, atk:94, def:72, int:75, spd:80,
+    role:"Striker",
+    passive:"Electric Scales — Power +15%; every 3rd attack fires a chain lightning at 30% Power",
+    signature:"Kaus Burst — lightning burst; AoE at 65% Power + Shock for 1 turn",
+    crestReq:{ primary:"Courage", secondary:"Hope" },
+    evolvesTo:["canoweissmon"] },
+
+  { id:"wezengammamon",  name:"WezenGammamon",  stage:"Champion", type:"Data", attr:"Plant",
+    hp:158, sp:80, atk:85, def:78, int:78, spd:68,
+    role:"Tactician",
+    passive:"Wezen Vines — Focus attacks apply a -10% Guard DoT for 2 turns",
+    signature:"Wezen Shot — plant-infused projectile; Focus damage + Slow -15% for 2 turns",
+    crestReq:{ primary:"Sincerity", secondary:"Knowledge" },
+    evolvesTo:["canoweissmon"] },
+
+  { id:"gulusgammamon",  name:"GulusGammamon",  stage:"Champion", type:"Virus", attr:"Dark",
+    hp:162, sp:68, atk:102, def:65, int:58, spd:82,
+    role:"Striker",
+    passive:"Dark Instinct — Power +25%, Guard -10%; kills restore 8% HP",
+    signature:"Gillium Press — dark energy crusher at 100% Power, ignoring 15% Guard",
+    crestReq:{ primary:"Sincerity", secondary:"Courage" },
+    evolvesTo:["regulusmon"] },
+
+  { id:"canoweissmon",   name:"Canoweissmon",   stage:"Ultimate", type:"Vaccine", attr:"Light",
+    hp:225, sp:112, atk:135, def:118, int:115, spd:108,
+    role:"Guardian",
+    passive:"White Shield — team Guard +15%; once per battle, negates a Mega-tier attack",
+    signature:"Parsec Buster — holy cross-slash AoE at 80% Power + cleanses all team debuffs",
+    crestReq:{ primary:"Hope", secondary:"Light" },
+    evolvesTo:["siriusmon"] },
+
+  { id:"regulusmon",     name:"Regulusmon",     stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:232, sp:100, atk:152, def:108, int:98, spd:112,
+    role:"Vanguard",
+    passive:"Dark Lord — Power +25%; every kill boosts Power by +5% for the battle (max 3 stacks)",
+    signature:"Regulus Courage — dark energy slash at 120% Power; reduces enemy Guard by 20%",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:["arcturusmon"] },
+
+  { id:"siriusmon",      name:"Siriusmon",      stage:"Mega", type:"Vaccine", attr:"Light",
+    hp:315, sp:142, atk:195, def:168, int:168, spd:152,
+    role:"Guardian",
+    passive:"Sirius Prominence — team Guard +20% and Power +10% simultaneously",
+    signature:"Promineon — solar radiance AoE; 90% Power + heals team for 15% HP",
+    crestReq:{ primary:"Hope", secondary:"Light" },
+    evolvesTo:[] },
+
+  { id:"arcturusmon",    name:"Arcturusmon",    stage:"Mega", type:"Virus", attr:"Dark",
+    hp:318, sp:128, atk:208, def:155, int:152, spd:158,
+    role:"Vanguard",
+    passive:"Dark King — Power +35%; immune to Guard-break effects",
+    signature:"Liberator — dark implosion at 180% Power; removes all enemy buffs",
+    crestReq:{ primary:"Courage", secondary:"Sincerity" },
+    evolvesTo:[] },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // NEGLECT / CORRUPTION BRANCH
+  // Path selection: low Care/Friendship crests + low bond → Sukamon
+  //                 low Courage/Reliability crests → Numemon
+  // Redemption: complete the Reconnection Arc (3 tasks) to unlock higher evolutions
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Sukamon path (chaos / abandoned neglect) ──────────────────────────────────
+  { id:"sukamon", name:"Sukamon", stage:"Champion", type:"Virus", attr:"Dark",
+    hp:168, sp:65, atk:102, def:62, int:48, spd:88,
+    role:"Striker",
+    passive:"Corruption Core — ignores 15% enemy Guard; Power grows with each kill (+3% per kill, max 5 stacks)",
+    signature:"Poop Toss — chaotic AoE at 70% Power; 30% chance each target gets Virus debuff (ATK -10% for 2 turns)",
+    neglectOnly:true,
+    evolvesTo:["etemon","platinum_sukamon"] },
+
+  { id:"etemon", name:"Etemon", stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:228, sp:102, atk:148, def:98, int:108, spd:115,
+    role:"Vanguard",
+    passive:"Dark Network — all Virus-type attacks deal +25% damage; immunity to Charm and Confusion",
+    signature:"Concert Crush — 3-hit dark-music barrage at 50% Power each; applies Slow -20% SPD",
+    neglectOnly:true,
+    evolvesTo:["king_etemon","metal_etemon"] },
+
+  // Redemption Megas — Sukamon path
+  { id:"king_etemon",  name:"KingEtemon",  stage:"Mega", type:"Virus", attr:"Dark",
+    hp:308, sp:135, atk:198, def:150, int:160, spd:158,
+    role:"Vanguard",
+    passive:"Rock Network — Dark Network upgraded; Virus allies gain +25% all stats; immune to all passive-suppress",
+    signature:"Dark Spirits — dark energy pillars AoE; 3 hits at 40% Power each + Shock all enemies",
+    neglectOnly:true,
+    evolvesTo:[] },
+
+  { id:"metal_etemon", name:"MetalEtemon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:305, sp:132, atk:195, def:168, int:150, spd:152,
+    role:"Vanguard",
+    passive:"Metal Network — Dark Network + Chrome Digizoid body; Guard +20%, immune to armor-break",
+    signature:"Big Bang Punch — single target melee at 160% Power; 30% is true damage (ignores all Guard)",
+    neglectOnly:true,
+    evolvesTo:[] },
+
+  // Non-redemption — Sukamon path
+  { id:"platinum_sukamon", name:"PlatinumSukamon", stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:222, sp:96, atk:145, def:88, int:80, spd:108,
+    role:"Striker",
+    passive:"Golden Corruption — every attack steals 5% of enemy Guard as flat damage; Power +25%",
+    signature:"Platinum Waste — AoE chaos at 80% Power; all targets get -15% ATK for 2 turns",
+    neglectOnly:true,
+    evolvesTo:["king_sukamon"] },
+
+  { id:"king_sukamon", name:"Great King Scumon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:298, sp:128, atk:195, def:135, int:115, spd:148,
+    role:"Striker",
+    passive:"Absolute Filth — Power +35%; enemies with Guard above 50% take double damage",
+    signature:"Royal Waste Tsunami — sets all enemy Guard to 0 for 1 turn, then strikes for 100% Power",
+    neglectOnly:true,
+    evolvesTo:[] },
+
+  // ── Numemon path (burnout / withdrawal neglect) ───────────────────────────────
+  { id:"numemon", name:"Numemon", stage:"Champion", type:"Virus", attr:"Dark",
+    hp:172, sp:62, atk:95, def:62, int:52, spd:85,
+    role:"Striker",
+    passive:"Slimeball — any hit has 20% chance to inflict Slow (-20% Momentum) on attacker for 1 turn",
+    signature:"Nume Slime — AoE slime at 65% Power; reduces all enemies' Guard by 15% for 2 turns",
+    neglectOnly:true,
+    evolvesTo:["monzaemon","gold_numemon"] },
+
+  // Redemption — Numemon path (warmth returns, but can still slip further)
+  { id:"monzaemon", name:"Monzaemon", stage:"Ultimate", type:"Vaccine", attr:"Neutral",
+    hp:232, sp:110, atk:128, def:132, int:108, spd:80,
+    role:"Guardian",
+    passive:"Warm Heart — restores 8% max HP per turn; ally Guard +10% while present",
+    signature:"Hearts Attack — single target; inflicts Charmed (target skips next action) on 40% chance",
+    crestReq:{ primary:"Care", secondary:"Friendship" },
+    neglectOnly:true,
+    evolvesTo:["warumonzaemon"] },
+
+  { id:"warumonzaemon", name:"WaruMonzaemon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:302, sp:125, atk:192, def:158, int:138, spd:108,
+    role:"Guardian",
+    passive:"Dark Heart — Guard +20%; attacker takes 12% of their own Power as counter-damage on each hit",
+    signature:"Dark Love — corrupted hearts AoE; 80% Power + Charmed (30% chance) on all targets",
+    crestReq:{ primary:"Care", secondary:"Sincerity" },
+    neglectOnly:true,
+    evolvesTo:[] },
+
+  // Non-redemption — Numemon path
+  { id:"gold_numemon",     name:"GoldNumemon",     stage:"Ultimate", type:"Virus", attr:"Dark",
+    hp:218, sp:92, atk:138, def:98, int:88, spd:105,
+    role:"Striker",
+    passive:"Gold Rush — attacks have 25% chance to generate bonus Bits after battle; Power +20%",
+    signature:"Gold Slime Rain — AoE at 80% Power; all enemies suffer -25% Guard for 3 turns",
+    neglectOnly:true,
+    evolvesTo:["blackkingnumemon"] },
+
+  { id:"blackkingnumemon", name:"BlackKingNumemon", stage:"Mega", type:"Virus", attr:"Dark",
+    hp:295, sp:128, atk:190, def:148, int:122, spd:142,
+    role:"Tactician",
+    passive:"Dark Dominion — on entry, suppresses all enemy passives for 1 turn; Power +30%",
+    signature:"Final Slime Wave — massive dark AoE at 95% Power; leaves permanent -10% Guard debuff on all enemies",
+    neglectOnly:true,
+    evolvesTo:[] },
+
 ];
 
 // Fast lookup map

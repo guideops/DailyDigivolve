@@ -106,6 +106,20 @@ function PngFrames({ id, config, size, animate, mood }) {
     );
   }
 
+  // "gif" mode — animated GIF, browser handles animation natively
+  if (config.mode === "gif") {
+    return (
+      <img
+        src={"/sprites/" + spritePath + ".gif"}
+        width={size}
+        height={size}
+        draggable={false}
+        style={{ imageRendering:"pixelated", display:"block", objectFit:"contain", flexShrink:0 }}
+        alt={id}
+      />
+    );
+  }
+
   // "frames" mode — individual PNGs
   return (
     <img
@@ -260,9 +274,10 @@ export default function DigiSprite({ digimonId, mood, size, animate }) {
     if (!config) { setPngReady(false); return; }
     setPngReady(null);
     var spritePath = config.spriteId || digimonId;
-    // grid and sheet modes: single PNG file; frames mode: numbered files
-    var src = (config.mode === "sheet" || config.mode === "grid")
-      ? "/sprites/" + spritePath + ".png"
+    // gif mode: .gif file; grid/sheet: single .png; frames: numbered .png files
+    var ext = config.mode === "gif" ? "gif" : "png";
+    var src = (config.mode === "sheet" || config.mode === "grid" || config.mode === "gif")
+      ? "/sprites/" + spritePath + "." + ext
       : "/sprites/" + spritePath + "/0.png";
     var img = new window.Image();
     img.onload  = function() { setPngReady(true); };

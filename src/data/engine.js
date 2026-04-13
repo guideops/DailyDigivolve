@@ -198,6 +198,42 @@ export function stageIndex(stage) {
   return i >= 0 ? i : 2;
 }
 
+// ── Neglect path determination ────────────────────────────────────────────────
+// Returns "sukamon" or "numemon" based on the tamer's behavioral fingerprint.
+//
+// Sukamon path  → tamer abandoned their partner (low Care + low Friendship crests,
+//                 low bond). The Digimon felt ignored and went feral / chaotic.
+// Numemon path  → tamer burned themselves out (low Courage + low Reliability crests,
+//                 moderate bond). The Digimon withdrew and became reclusive.
+//
+// Score is 0–100.  > 50  → Sukamon;  ≤ 50 → Numemon.
+export function calcNeglectPath(crestProfile, bond) {
+  var pcts = (crestProfile && crestProfile.percentages) || {};
+  var bondVal = Math.max(0, Math.min(100, bond || 0));
+
+  // Abandonment indicators (push toward Sukamon)
+  var carePct       = pcts["Care"]       || 0;  // nurturing tasks
+  var friendshipPct = pcts["Friendship"] || 0;  // social engagement
+  var avgAbandon    = (carePct + friendshipPct) / 2;  // 0-100
+
+  // Burnout indicators (push toward Numemon)
+  var couragePct     = pcts["Courage"]     || 0;  // active challenges
+  var reliabilityPct = pcts["Reliability"] || 0;  // consistent maintenance
+  var avgBurnout     = (couragePct + reliabilityPct) / 2;  // 0-100
+
+  // Low abandonment scores and low bond → Sukamon (ignored)
+  // Low burnout scores with any bond → Numemon (withdrew)
+  // We convert into an "abandonment score": higher = more likely Sukamon
+  var abandonScore = (100 - avgAbandon) * 0.55   // low care/friendship → +score
+                   + (100 - bondVal)    * 0.45;  // low bond strongly indicates neglect/abandonment
+
+  var burnoutScore = (100 - avgBurnout) * 0.60   // low courage/reliability → +score
+                   + bondVal            * 0.40;  // retaining some bond → burnout not abandonment
+
+  // Whichever score is higher determines the path
+  return abandonScore >= burnoutScore ? "sukamon" : "numemon";
+}
+
 // ── Legacy shims (kept so existing code compiles) ─────────────────────────────
 export function calcStats(digi) {
   // Returns battle stats under old names for any code not yet updated

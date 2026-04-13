@@ -2,6 +2,7 @@
 import { supabase } from './lib/supabase.js';
 import { useState, useEffect, useMemo, useRef } from "react";
 import DigiSprite from "./components/DigiSprite.jsx";
+import OnboardingFlow from "./components/OnboardingFlow.jsx";
 import { Bar } from "./components/ui.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
 import { DIGIMON_MAP } from "./data/digimon.js";
@@ -9,11 +10,12 @@ import {
   STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
   CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
   STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP, EVO_REQUIREMENTS,
-  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT, NEGLECT_SPEECH,
+  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT, NEGLECT_SPEECH, NEGLECT_PATHS,
 } from "./data/constants.js";
 import {
   calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
   calcCrestGain, calcCrestProfile, checkEvoEligible, calcCurrentStamina, clampBond,
+  calcNeglectPath,
 } from "./data/engine.js";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -28,31 +30,43 @@ var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
 function px(c){ return { border:"2px solid "+(c||T.pixelBorder), boxShadow:"3px 3px 0 "+(c||T.pixelBorder) }; }
 
 // ── Nav ───────────────────────────────────────────────────────────────────────
-// PET = Personal Tamer Terminal (tamer productivity + alignment)
-// FILEHAVEN = where Digimon data lives (team, farm, dex)
-// DARK AREA = Digimon lore combat dimension (battle + raid)
+// FILEHAVEN = tamer productivity + alignment (tasks, week, crests)
+// P.E.T = where Digimon data lives (team, farm, dex)
+// CYBERSPACE = Digimon combat & social dimension (patch, breach, store, network)
 var NAV_GROUPS = [
-  { id:"pet",      label:"P.E.T",      icon:"📟",
+  { id:"filehaven",  label:"P.E.T",      icon:"📟",
     pages:[
-      { id:"tasks",    label:"TASKS",   icon:"☑" },
-      { id:"weekly",   label:"WEEK",    icon:"📅" },
-      { id:"crests",   label:"CRESTS",  icon:"💎" },
+      { id:"team",     label:"TEAM",      icon:"◈" },
+      { id:"digifarm", label:"FARM",      icon:"🌿" },
+      { id:"digidex",  label:"DIGIDEX",   icon:"📖" },
     ]
   },
-  { id:"filehaven", label:"FILEHAVEN", icon:"🗂",
+  { id:"pet",        label:"FILEHAVEN",   icon:"🗂",
     pages:[
-      { id:"team",     label:"TEAM",    icon:"◈" },
-      { id:"digifarm", label:"FARM",    icon:"🌿" },
-      { id:"digidex",  label:"DIGIDEX", icon:"📖" },
+      { id:"tasks",    label:"TASKS",     icon:"☑" },
+      { id:"weekly",   label:"WEEK",      icon:"📅" },
+      { id:"crests",   label:"CRESTS",    icon:"💎" },
     ]
   },
-  { id:"darkarea",  label:"DARK AREA", icon:"⚔",
+  { id:"cyberspace", label:"CYBERSPACE", icon:"🌐",
     pages:[
-      { id:"battle",   label:"BATTLE",  icon:"⚔" },
-      { id:"campaign", label:"RAID",    icon:"☠" },
+      { id:"battle",   label:"PATCH",     icon:"⚔" },
+      { id:"campaign", label:"BREACH",    icon:"☠" },
+      { id:"store",    label:"STORE",     icon:"🛒" },
+      { id:"network",  label:"NETWORK",   icon:"🔗" },
     ]
   },
 ];
+
+// ── Crest icon component — renders the actual crest image ────────────────────
+function CrestIcon({ ci, size }) {
+  if (!ci) return null;
+  var px = typeof size === "number" ? size : parseInt(size) || 20;
+  if (ci.img) {
+    return <img src={ci.img} alt="" style={{ width:px, height:px, objectFit:"contain", display:"inline-block", verticalAlign:"middle" }}/>;
+  }
+  return <span style={{ fontSize:px }}>{ci.icon}</span>;
+}
 
 // ── Crest-based tamer titles ──────────────────────────────────────────────────
 var CREST_TITLES = {
@@ -116,6 +130,8 @@ export default function App({ session }) {
   var [tasks,            setTasks]            = useState([]);
   var [weeklyDigimon,    setWeeklyDigimon]    = useState({});
   var [speech,           setSpeech]           = useState("finish your tasks!");
+  var [showSpeech,       setShowSpeech]       = useState(false);
+  var speechDismissTimer = useRef(null);
   var [actLog,           setActLog]           = useState([{ icon:"⭐", text:"DailyDigivolve started! Welcome, Tamer.", time:"JUST NOW" }]);
   var [toast,            setToast]            = useState(null);
   var [evoAnim,          setEvoAnim]          = useState(null);
@@ -153,13 +169,23 @@ export default function App({ session }) {
   var [showReconnectModal, setShowReconnectModal] = useState(false);
   var [showSukamonModal,   setShowSukamonModal]   = useState(false);
   var [openGroup,          setOpenGroup]          = useState(null); // id of open nav group dropdown
+  var [collapsedStages,    setCollapsedStages]    = useState({});   // stage → true when header is collapsed
   // sleepState: null | { phase:'countdown'|'sleeping', startedAt:ISO, wakeTime:"HH:MM", sleepDate:"YYYY-MM-DD" }
   var [sleepState,       setSleepState]       = useState(null);
   var [showRestModal,    setShowRestModal]    = useState(false);
   var [sleepLog,         setSleepLog]         = useState([]);
   var [wakeGreeting,     setWakeGreeting]     = useState(null); // shown once on wake
+  // Onboarding — true while the first-run wizard is active
+  var [showOnboarding,   setShowOnboarding]   = useState(null); // null = not yet determined
+  var [appReady,         setAppReady]         = useState(false);
+  // Midnight tick — updates so daily counters reset without a page reload
+  var [midnightTick,     setMidnightTick]     = useState(0);
+  // Quick-add task modal (launched from dashboard)
+  var [showQuickAdd,     setShowQuickAdd]     = useState(false);
+  var [quickAddForm,     setQuickAddForm]     = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
 
-  var dragIdx = useRef(null);
+  var dragIdx      = useRef(null);
+  var navCloseTimer = useRef(null); // delay before closing a nav dropdown on mouse-leave
   var userId  = session.user.id;
 
   // ── Load data ───────────────────────────────────────────────────────────────
@@ -225,6 +251,11 @@ export default function App({ session }) {
                         : "quiet";
           var isReturn  = daysSinceLogin >= 7 && lastLogin !== today;
           var wasInArc  = storedNeglect && storedNeglect.inArc;
+          // Determine neglect path from behavioral fingerprint
+          var neglCrestProfile = calcCrestProfile(profile.crest_history || []);
+          var neglPath = storedNeglect && storedNeglect.neglectPath
+            ? storedNeglect.neglectPath                           // keep path once set
+            : calcNeglectPath(neglCrestProfile, profile.bond || 0);
           var nd = {
             level:            neglLevel,
             daysAbsent:       daysSinceLogin > 0 ? daysSinceLogin : (storedNeglect ? storedNeglect.daysAbsent : 0),
@@ -232,6 +263,7 @@ export default function App({ session }) {
             arcStart:         wasInArc ? storedNeglect.arcStart : (isReturn ? today : null),
             arcTasksDone:     wasInArc ? (storedNeglect.arcTasksDone || 0) : 0,
             arcGoal:          3,
+            neglectPath:      neglPath,
             sukamonRisk:      (daysSinceLogin >= 14 || (storedNeglect && storedNeglect.sukamonRisk)) && (profile.bond || 0) < 40,
             sukamonOffered:   storedNeglect ? (storedNeglect.sukamonOffered || false) : false,
             sukamonAccepted:  storedNeglect ? (storedNeglect.sukamonAccepted || false) : false,
@@ -243,7 +275,8 @@ export default function App({ session }) {
           if (nd.sukamonRisk && !nd.sukamonOffered && !isReturn) setShowSukamonModal(true);
           // Neglect speech
           var nsp = NEGLECT_SPEECH[neglLevel] || NEGLECT_SPEECH.quiet;
-          setSpeech(nsp[Math.floor(Math.random() * nsp.length)]);
+          // Neglect speech always surfaces — partner has something to say on return
+          showSpeechBubble(nsp[Math.floor(Math.random() * nsp.length)]);
           await supabase.from('profiles').update({ neglect_state: nd }).eq('id', userId);
         } else if (storedNeglect && !storedNeglect.inArc) {
           // Previously neglected but arc done — clear
@@ -302,32 +335,70 @@ export default function App({ session }) {
         var allD = [...new Set(digimonData.flatMap(function(d){ return d.discovered || []; }))];
         setAllDisc(allD);
       } else {
-        var starter = newDigimon('agumon', {});
+        // No Digimon found — show onboarding if this user hasn't completed it yet
+        var onboardKey = 'dv_onboarding_' + userId;
+        if (!localStorage.getItem(onboardKey)) {
+          setShowOnboarding(true);
+          setAppReady(true);
+          return; // skip loading tasks/profile further — onboarding handles first starter
+        }
+        // Onboarding was completed but starter is missing (edge case) — create a botamon
+        var starter = newDigimon('botamon', {});
         var { data:newDigi } = await supabase.from('digimon').insert({
           user_id: userId, species_id: starter.speciesId, name: starter.name,
           level: 1, exp: 0, exp_needed: 100, abi: 0, personality: starter.personality,
-          bonus_stats: {}, discovered: ['agumon'], in_farm: false, sort_order: 0,
+          bonus_stats: {}, discovered: ['botamon'], in_farm: false, sort_order: 0,
         }).select().single();
         if (newDigi) setParty([Object.assign({}, starter, { uid:newDigi.id })]);
       }
 
       if (tasksData) {
-        var todayDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+        var todayDay  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+        var todayDate = new Date().toISOString().split('T')[0];
         setTasks(tasksData.filter(function(t) {
           if (t.type !== 'recurring') return true;
           if (!t.days_of_week || !t.days_of_week.length) return true;
           return t.days_of_week.includes(todayDay);
-        }).map(function(t) { return {
-          id: t.id, title: t.title,
-          template: t.category || 'Neutral', // category column stores template values
-          priority: t.priority, difficulty: t.difficulty, type: t.type,
-          notes: t.notes || '', done: t.done, streak: t.streak || 0,
-          daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
-        }; }));
+        }).map(function(t) {
+          // daily/recurring tasks completed on a previous day reset to pending
+          var stale = (t.type === 'daily' || t.type === 'recurring')
+            && t.done && t.last_completed_date !== todayDate;
+          return {
+            id: t.id, title: t.title,
+            template: t.category || 'Neutral',
+            priority: t.priority, difficulty: t.difficulty, type: t.type,
+            notes: t.notes || '', done: stale ? false : (t.done || false),
+            streak: t.streak || 0,
+            lastCompletedDate: t.last_completed_date || null,
+            daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
+          };
+        }));
       }
+      setShowOnboarding(false);
+      setAppReady(true);
     }
     load();
   }, [userId]);
+
+  // ── Midnight reset — re-tick so daily counters clear without a reload ────────
+  useEffect(function() {
+    var now = new Date();
+    var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+    var msLeft = midnight.getTime() - now.getTime();
+    var id = setTimeout(function() {
+      // Reset done flag for daily/recurring tasks so they appear pending again
+      setTasks(function(ts) {
+        return ts.map(function(t) {
+          if ((t.type === 'daily' || t.type === 'recurring') && t.done) {
+            return Object.assign({}, t, { done: false });
+          }
+          return t;
+        });
+      });
+      setMidnightTick(function(n) { return n + 1; });
+    }, msLeft);
+    return function() { clearTimeout(id); };
+  }, [midnightTick]);
 
   // ── Pomodoro countdown ───────────────────────────────────────────────────────
   useEffect(function() {
@@ -384,15 +455,31 @@ export default function App({ session }) {
     return function() { cancelled = true; clearTimeout(t); };
   }, []);
 
+  // ── Rotate queued speech every 5 min (bubble only shows on click, not auto) ─
+  var IDLE_LINES = [
+    "finish your tasks! 📋","you can do it! 💪","i believe in you ✨",
+    "getting stronger! ⚡","great job! 🔥","let's go, tamer! 🎮",
+    "don't forget to rest too 💤","one task at a time 🌟",
+  ];
+  useEffect(function() {
+    var t = setInterval(function() {
+      setSpeech(IDLE_LINES[Math.floor(Math.random() * IDLE_LINES.length)]);
+    }, 5 * 60 * 1000); // every 5 minutes, silently refresh the text
+    return function() { clearInterval(t); };
+  }, []);
+
   // ── Derived ─────────────────────────────────────────────────────────────────
   var activeDigi  = party[0];
   var activeInfo  = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
   var streak      = tasks.reduce(function(m,t){ return Math.max(m, t.streak||0); }, 0);
   var accent      = activeInfo ? (ATTR_COLOR[activeInfo.attr]||T.teal) : T.teal;
-  var pendTasks   = tasks.filter(function(t){ return !t.done; });
-  var doneTasks   = tasks.filter(function(t){ return  t.done; });
-  var xpToday     = doneTasks.reduce(function(s,t){ return s + calcXpReward(t, streak); }, 0);
-  var todayKey    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+  var pendTasks       = tasks.filter(function(t){ return !t.done; });
+  var todayStr        = new Date().toISOString().split('T')[0];
+  var doneToday       = tasks.filter(function(t){ return t.done && t.lastCompletedDate === todayStr; });
+  // Active task count = pending + completed today (excludes old once-off completions from previous days)
+  var activeTodayTotal = pendTasks.length + doneToday.length;
+  var xpToday         = doneToday.reduce(function(s,t){ return s + calcXpReward(t, streak); }, 0);
+  var todayKey        = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
 
   var crestProfile = useMemo(function() {
     return calcCrestProfile(crestHistory, 14);
@@ -400,7 +487,7 @@ export default function App({ session }) {
 
   var playUsedToday   = bondActionsToday.play  || 0;
   var taskBondToday   = bondActionsToday.tasks || 0;
-  var playAvailable   = doneTasks.length >= 3 && playUsedToday < 3;
+  var playAvailable   = doneToday.length >= 3 && playUsedToday < 3;
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   function addLog(icon, text) {
@@ -409,6 +496,13 @@ export default function App({ session }) {
   function toast_(msg, color) {
     setToast({ msg, color:color||T.green });
     setTimeout(function(){ setToast(null); }, 2800);
+  }
+  // Show speech bubble for 30 s then auto-hide
+  function showSpeechBubble(text) {
+    if (text) setSpeech(text);
+    setShowSpeech(true);
+    clearTimeout(speechDismissTimer.current);
+    speechDismissTimer.current = setTimeout(function(){ setShowSpeech(false); }, 30000);
   }
   function triggerJijimon(key) {
     if (jijimonSeen[key]) return;
@@ -433,12 +527,13 @@ export default function App({ session }) {
     setParty([]);
     setFarm([]);
     setAllDisc([]);
-    var newCreds = digitamaCredits + 1;
-    setDigitamaCredits(newCreds);
-    await supabase.from('profiles').update({ digitama_credits: newCreds }).eq('id', userId);
+    // Reset bond back to zero
+    setBond(0);
+    await supabase.from('profiles').update({ bond: 0 }).eq('id', userId);
+    // Clear onboarding flag so the Jijimon quiz + egg selection fires again
+    localStorage.removeItem('dv_onboarding_' + userId);
     setConfirmReset(false);
-    setShowDigitamaModal(true);
-    toast_("Choose your new partner! 🥚", "#FFD700");
+    setShowOnboarding(true);
   }
 
   async function hatchDigitama(eggId) {
@@ -503,7 +598,7 @@ export default function App({ session }) {
     };
     setSleepState(ss);
     setShowRestModal(false);
-    setSpeech(getSleepMsg(SLEEP_GOODNIGHT, "good night... 💤"));
+    showSpeechBubble(getSleepMsg(SLEEP_GOODNIGHT, "good night... 💤"));
     await supabase.from('profiles').update({ sleep_state: ss }).eq('id', userId);
     // After 2 minutes, transition to sleeping phase
     setTimeout(async function() {
@@ -530,7 +625,7 @@ export default function App({ session }) {
     var greeting = isManual
       ? (activeDigi ? "...yawn... good morning, Tamer 🌅" : "good morning! 🌅")
       : getSleepMsg(SLEEP_GOODMORNING, "good morning! time to shine! 🌅");
-    setSpeech(greeting);
+    showSpeechBubble(greeting);
     setWakeGreeting({ msg: greeting, duration: durationMins, entry });
     await supabase.from('profiles').update({
       sleep_state: null,
@@ -570,11 +665,12 @@ export default function App({ session }) {
 
   async function acceptSukamon() {
     var nd = Object.assign({}, neglectData, { sukamonAccepted: true, sukamonOffered: true });
+    var nPath = NEGLECT_PATHS[nd.neglectPath] || NEGLECT_PATHS.sukamon;
     setNeglectData(nd);
     setShowSukamonModal(false);
     await supabase.from('profiles').update({ neglect_state: nd }).eq('id', userId);
-    toast_("Corruption accepted. Sukamon evolution available.", "#9B59B6");
-    addLog("💀", "Dark path opened. Sukamon evolution available in TEAM.");
+    toast_("Dark path accepted. " + (DIGIMON_MAP[nPath.champion] ? DIGIMON_MAP[nPath.champion].name : "Neglect") + " evolution available.", "#9B59B6");
+    addLog("💀", "Dark path opened (" + nPath.label + "). Neglect evolution available in TEAM.");
   }
 
   async function rejectSukamon() {
@@ -635,12 +731,16 @@ export default function App({ session }) {
     var hasBoost   = dayDigiUid && activeDigi && dayDigiUid === activeDigi.uid;
     var baseXp     = calcXpReward(task, streak);
     var xp         = hasBoost ? Math.floor(baseXp * 1.5) : baseXp;
+    var today      = new Date().toISOString().split('T')[0];
+
+    // Silent daily cap — task completion still records but yields no stat gains above 300
+    var completedTodayCount = tasks.filter(function(t){ return t.done && t.lastCompletedDate === today; }).length;
+    var statGainAllowed = completedTodayCount < 300;
 
     // Crest gain
     var cg = calcCrestGain(task.template, task.difficulty);
-    var today = new Date().toISOString().split('T')[0];
     var newHistory = crestHistory;
-    if (cg) {
+    if (cg && statGainAllowed) {
       newHistory = crestHistory.concat([{
         date: today,
         primaryCrest:   cg.primaryCrest,
@@ -657,7 +757,7 @@ export default function App({ session }) {
     // Bond gain (max 5 task bonds/day)
     var newBond = bond;
     var newTaskBond = taskBondToday;
-    if (taskBondToday < 5) {
+    if (statGainAllowed && taskBondToday < 5) {
       newBond = clampBond(bond + 0.5);
       newTaskBond = taskBondToday + 1;
       setBond(newBond);
@@ -672,18 +772,21 @@ export default function App({ session }) {
       last_completed_date: today,
     }).eq('id', id);
     setTasks(function(ts){ return ts.map(function(t){
-      return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1}) : t;
+      return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1,lastCompletedDate:today}) : t;
     }); });
 
-    // XP to active Digimon
-    if (activeDigi) {
-      var result = applyXpGain(activeDigi, xp);
-      await supabase.from('digimon').update({
-        exp: result.exp, level: result.level, exp_needed: result.expNeeded,
-      }).eq('id', activeDigi.uid);
-      setParty(function(p){ return p.map(function(d,i){
-        return i===0 ? Object.assign({},d,result) : Object.assign({},d,applyXpGain(d,Math.floor(xp*0.3)));
-      }); });
+    // XP to all party members equally (farm Digimon excluded — not in party array)
+    if (activeDigi && statGainAllowed) {
+      var partyResults = party.map(function(d) {
+        return applyXpGain(d, xp);
+      });
+      await Promise.all(party.map(function(d, i) {
+        var r = partyResults[i];
+        return supabase.from('digimon').update({
+          exp: r.exp, level: r.level, exp_needed: r.expNeeded,
+        }).eq('id', d.uid);
+      }));
+      setParty(function(p){ return p.map(function(d, i){ return Object.assign({}, d, partyResults[i]); }); });
     }
 
     // Raid auto-contribution
@@ -712,7 +815,7 @@ export default function App({ session }) {
     if (newRaid) profileUpdate.raid_state = newRaid;
     await supabase.from('profiles').update(profileUpdate).eq('id', userId);
 
-    setSpeech("great job! +" + xp + " XP 🔥");
+    showSpeechBubble("great job! +" + xp + " XP 🔥");
     addLog("✅", '"' + task.title + '" +' + xp + " XP" + (hasBoost?" ⚡1.5x":"") + (cg?" ["+cg.primaryCrest+"]":"") + (contrib.damage>0?" ⚔+"+contrib.damage:""));
     toast_("Task done!  +" + xp + " EXP" + (hasBoost?" ⚡1.5x":"") + (cg?"  "+CREST_INFO[cg.primaryCrest].icon+" "+cg.primaryCrest:""));
 
@@ -775,7 +878,7 @@ export default function App({ session }) {
 
     setStamina(newStam); setBond(newBond); setBits(newBits);
     setFoodStaminaToday(newFoodCap); setShowFeedPanel(false);
-    setSpeech(food.type==="treat" ? "best tamer ever 🎉" : "nom nom nom 🍎");
+    showSpeechBubble(food.type==="treat" ? "best tamer ever 🎉" : "nom nom nom 🍎");
 
     await supabase.from('profiles').update({
       stamina: newStam, last_stamina_update: new Date().toISOString(),
@@ -794,7 +897,7 @@ export default function App({ session }) {
     var today = new Date().toISOString().split('T')[0];
     var newBAT = Object.assign({}, bondActionsToday, { play: playUsedToday + 1, date: today });
     setBond(newBond); setBondActionsToday(newBAT);
-    setSpeech("yay let's play! 🎮");
+    showSpeechBubble("yay let's play! 🎮");
     addLog("🎮", "Played with " + (activeDigi ? activeDigi.name : "partner") + " +1 Bond");
     toast_("+1 Bond 🎮  " + (2-playUsedToday) + " plays left today", T.teal);
     await supabase.from('profiles').update({
@@ -836,7 +939,7 @@ export default function App({ session }) {
       setParty(function(p){ return p.map(function(d,i){ return i===0?Object.assign({},d,result):d; }); });
     }
     await supabase.from('profiles').update({ bond:newBond, bits:newBits, crest_history:newHistory }).eq('id', userId);
-    setSpeech("training complete! 💪");
+    showSpeechBubble("training complete! 💪");
     addLog("⏱", "Focus session: " + template + "  +" + xpGain + " XP  +1💗" + (cg?"  "+CREST_INFO[cg.primaryCrest].icon:""));
     toast_("Session complete! +" + xpGain + " XP  +1 Bond  +75🪙", T.mint);
     setPomodoroState(null);
@@ -1010,7 +1113,7 @@ export default function App({ session }) {
     .nav-pill:hover,.nav-pill.active { background:${T.bgCard}; color:${T.text}; transform:translate(-1px,-1px); box-shadow:2px 2px 0 ${T.border}; }
     .nav-pill.active { border-color:var(--accent); color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
     .nav-pill.group-active { border-color:var(--accent); color:var(--accent); }
-    .nav-drop-item { font-family:'Press Start 2P',monospace; font-size:6px; padding:8px 12px; border:none; border-bottom:1px solid ${T.border}; background:${T.bgPanel}; cursor:pointer; color:${T.textMid}; text-align:left; width:100%; transition:background 0.1s; display:flex; align-items:center; gap:7px; }
+    .nav-drop-item { font-family:'Press Start 2P',monospace; font-size:8px; padding:10px 12px; border:none; border-bottom:1px solid ${T.border}; background:${T.bgPanel}; cursor:pointer; color:${T.textMid}; text-align:left; width:100%; transition:background 0.1s; display:flex; align-items:center; gap:7px; }
     .nav-drop-item:last-child { border-bottom:none; }
     .nav-drop-item:hover { background:${T.bgCard}; color:${T.text}; }
     .nav-drop-item.active { color:var(--accent); background:${T.bgCard}; }
@@ -1048,9 +1151,73 @@ export default function App({ session }) {
     .evo-banner { background:linear-gradient(90deg,#1a1f3a,#1f2a3a,#1a1f3a); background-size:200% auto; animation:shimmer 3s linear infinite; border:2px solid ${T.lavender}; box-shadow:3px 3px 0 ${T.lavender}; padding:10px 14px; display:flex; align-items:center; gap:10px; cursor:pointer; }
     .crest-bar-fill { height:100%; transition:width 0.8s ease; position:relative; }
     .crest-bar-fill::after { content:''; position:absolute; top:2px; left:3px; right:3px; height:3px; background:rgba(255,255,255,0.25); }
-    @media (max-width:1080px) { .right-col { display:none !important; } }
-    @media (max-width:700px)  { .left-col  { display:none !important; } .main-content { padding:12px; } }
+    .main-grid { display:grid; grid-template-columns:300px 1fr 260px; min-height:calc(100vh - 64px); position:relative; z-index:1; }
+    @media (max-width:1200px) { .main-grid { grid-template-columns:260px 1fr; } .right-col { display:none !important; } }
+    @media (max-width:768px)  { .main-grid { grid-template-columns:1fr; } .left-col { display:none !important; } .main-content { padding:12px !important; } }
+    @media (max-width:480px)  { .nav-pill { font-size:7px; padding:7px 9px; } .nav-drop-item { font-size:7px; } .px8 { font-size:8px; } .px12 { font-size:12px; } }
   `;
+
+  // ── Onboarding completion handler ────────────────────────────────────────────
+  // ids: array of up to 3 baby species IDs (e.g. ["botamon","jyarimon","pichimon"])
+  async function handleOnboardingComplete(ids) {
+    // Guard against double-insertion (e.g. refresh mid-onboarding)
+    var { data: alreadyOwned } = await supabase.from('digimon').select('id').eq('user_id', userId).limit(1);
+    if (alreadyOwned && alreadyOwned.length > 0) {
+      localStorage.setItem('dv_onboarding_' + userId, '1');
+      setShowOnboarding(false);
+      setPage('tasks');
+      return;
+    }
+    var idList = Array.isArray(ids) ? ids.filter(Boolean) : ids ? [ids] : [];
+    var newParty = [];
+    for (var i = 0; i < idList.length; i++) {
+      var sid = idList[i];
+      var d   = newDigimon(sid);
+      if (!d) continue;
+      var row = {
+        user_id: userId, species_id: d.speciesId, name: d.name,
+        level: 1, exp: 0, exp_needed: 100, abi: 0, personality: d.personality,
+        bonus_stats: {}, discovered: [sid], in_farm: false, sort_order: i,
+      };
+      var { data:saved } = await supabase.from('digimon').insert(row).select().single();
+      if (saved) newParty.push(Object.assign({}, d, { uid: saved.id, inFarm: false }));
+    }
+    // If nothing was created, fall back to botamon so the app isn't empty
+    if (newParty.length === 0) {
+      var fallback = newDigimon('botamon');
+      var { data:fb } = await supabase.from('digimon').insert({
+        user_id: userId, species_id: 'botamon', name: fallback.name,
+        level: 1, exp: 0, exp_needed: 100, abi: 0, personality: fallback.personality,
+        bonus_stats: {}, discovered: ['botamon'], in_farm: false, sort_order: 0,
+      }).select().single();
+      if (fb) newParty.push(Object.assign({}, fallback, { uid: fb.id }));
+    }
+    setParty(newParty);
+    setFarm([]);
+    // Seed discovered list so all 3 starters appear in the Digidex immediately
+    setAllDisc(idList.filter(Boolean));
+    localStorage.setItem('dv_onboarding_' + userId, '1');
+    setShowOnboarding(false);
+    setPage('tasks');
+  }
+
+  // ── Loading / onboarding gates ────────────────────────────────────────────────
+  if (!appReady) {
+    return (
+      <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center", justifyContent:"center", color:T.textMid, fontFamily:"'Nunito',sans-serif", fontSize:11, letterSpacing:2 }}>
+        LOADING...
+      </div>
+    );
+  }
+
+  if (showOnboarding) {
+    return (
+      <OnboardingFlow
+        tamerName={tamerName}
+        onComplete={handleOnboardingComplete}
+      />
+    );
+  }
 
   return (
     <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Nunito',sans-serif", "--accent":accent }}>
@@ -1062,6 +1229,39 @@ export default function App({ session }) {
           return <div key={i} className="particle" style={{ left:p.l, animationDuration:p.d, animationDelay:p.dd||"0s", background:p.c }}/>;
         })}
       </div>
+
+      {/* ── QUICK-ADD TASK MODAL ──────────────────────────────────────────── */}
+      {showQuickAdd && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px" }}
+          onClick={function(e){ if(e.target===e.currentTarget){ setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); } }}>
+          <div style={{ width:"100%",maxWidth:480 }}>
+            <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,padding:"16px 16px 0",marginBottom:0 }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                <div className="px12" style={{ color:accent }}>NEW TASK</div>
+                <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 4px" }}
+                  onClick={function(){ setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }}>×</button>
+              </div>
+            </div>
+            <TaskForm
+              form={quickAddForm}
+              setForm={setQuickAddForm}
+              accent={accent}
+              T={T}
+              label="ADD TASK"
+              onSubmit={function(){
+                if(!quickAddForm.title.trim()) return;
+                addTask(quickAddForm);
+                setShowQuickAdd(false);
+                setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""});
+              }}
+              onCancel={function(){
+                setShowQuickAdd(false);
+                setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""});
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── JIJIMON MODAL ─────────────────────────────────────────────────── */}
       {jijimonModal && (
@@ -1081,8 +1281,8 @@ export default function App({ session }) {
                 "{jijimonModal.msg}"
               </div>
               <div style={{ display:"flex",gap:10,alignItems:"center" }}>
-                <button className="px8" onClick={function(){ dismissJijimon(false); }} style={{ padding:"8px 18px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px",boxShadow:"2px 2px 0 "+T.gold }}>GOT IT</button>
-                <button className="px8" onClick={function(){ dismissJijimon(true); }} style={{ padding:"8px 14px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}>HIDE TIPS</button>
+                <button className="px8" onClick={function(){ dismissJijimon(false); }} style={{ padding:"8px 18px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"12px",boxShadow:"2px 2px 0 "+T.gold }}>GOT IT</button>
+                <button className="px8" onClick={function(){ dismissJijimon(true); }} style={{ padding:"8px 14px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}>HIDE TIPS</button>
               </div>
             </div>
           </div>
@@ -1107,14 +1307,14 @@ export default function App({ session }) {
                     <span style={{ fontSize:20 }}>{food.icon}</span>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:13,fontWeight:800 }}>{food.name}</div>
-                      <div className="px8" style={{ color:T.textMid,fontSize:"6px",marginTop:2 }}>+{food.stamina}⚡  +{food.bond}💗</div>
+                      <div className="px8" style={{ color:T.textMid,fontSize:"11px",marginTop:2 }}>+{food.stamina}⚡  +{food.bond}💗</div>
                     </div>
-                    <div className="px8" style={{ color:canAfford?T.gold:T.textDim,fontSize:"6px" }}>{food.cost}🪙</div>
+                    <div className="px8" style={{ color:canAfford?T.gold:T.textDim,fontSize:"11px" }}>{food.cost}🪙</div>
                   </div>
                 );
               })}
             </div>
-            <button className="px8" onClick={function(){ setShowFeedPanel(false); }} style={{ padding:"7px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"6px" }}>CLOSE</button>
+            <button className="px8" onClick={function(){ setShowFeedPanel(false); }} style={{ padding:"7px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"11px" }}>CLOSE</button>
           </div>
         </div>
       )}
@@ -1137,7 +1337,7 @@ export default function App({ session }) {
             {pomodoroState.phase === 'setup' && (
               <div style={{ padding:20,display:"flex",flexDirection:"column",gap:14 }}>
                 <div>
-                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>TRAINING TYPE</div>
+                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>TRAINING TYPE</div>
                   <div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
                     {["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge"].map(function(t){
                       var cg = calcCrestGain(t,'Medium');
@@ -1145,21 +1345,21 @@ export default function App({ session }) {
                       var sel = pomodoroState.template === t;
                       return (
                         <button key={t} className="px8" onClick={function(){ setPomodoroState(function(ps){ return Object.assign({},ps,{template:t}); }); }}
-                          style={{ padding:"5px 9px",border:"2px solid "+(sel?(ci?ci.color:T.mint):T.border),background:sel?(ci?ci.color+"22":T.mint+"22"):"transparent",color:sel?(ci?ci.color:T.mint):T.textMid,cursor:"pointer",fontSize:"6px" }}>
-                          {ci&&ci.icon} {t}
+                          style={{ padding:"5px 9px",border:"2px solid "+(sel?(ci?ci.color:T.mint):T.border),background:sel?(ci?ci.color+"22":T.mint+"22"):"transparent",color:sel?(ci?ci.color:T.mint):T.textMid,cursor:"pointer",fontSize:"11px" }}>
+                          {ci&&<><CrestIcon ci={ci} size={13}/>{" "}</>}{t}
                         </button>
                       );
                     })}
                   </div>
                 </div>
                 <div>
-                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>DURATION</div>
+                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>DURATION</div>
                   <div style={{ display:"flex",gap:8 }}>
                     {[15,25,50].map(function(d){
                       var sel = pomodoroState.duration === d;
                       return (
                         <button key={d} className="px8" onClick={function(){ setPomodoroState(function(ps){ return Object.assign({},ps,{duration:d}); }); }}
-                          style={{ flex:1,padding:"9px 0",border:"2px solid "+(sel?T.mint:T.border),background:sel?T.mint+"22":"transparent",color:sel?T.mint:T.textMid,cursor:"pointer",fontSize:"6px" }}>
+                          style={{ flex:1,padding:"9px 0",border:"2px solid "+(sel?T.mint:T.border),background:sel?T.mint+"22":"transparent",color:sel?T.mint:T.textMid,cursor:"pointer",fontSize:"11px" }}>
                           {d} MIN
                         </button>
                       );
@@ -1168,7 +1368,7 @@ export default function App({ session }) {
                 </div>
                 {/* Reward preview */}
                 <div style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"10px 12px" }}>
-                  <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"6px" }}>ON COMPLETION</div>
+                  <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"11px" }}>ON COMPLETION</div>
                   <div style={{ display:"flex",gap:12,flexWrap:"wrap" }}>
                     <span style={{ fontSize:12,fontWeight:700,color:T.gold }}>+{(pomodoroState.duration||25)*3} XP</span>
                     <span style={{ fontSize:12,fontWeight:700,color:T.pink }}>+1 Bond</span>
@@ -1177,11 +1377,11 @@ export default function App({ session }) {
                       var cg = calcCrestGain(pomodoroState.template,'Medium');
                       if (!cg) return null;
                       var ci = CREST_INFO[cg.primaryCrest];
-                      return <span style={{ fontSize:12,fontWeight:700,color:ci.color }}>{ci.icon} +{cg.primary} {cg.primaryCrest}</span>;
+                      return <span style={{ fontSize:12,fontWeight:700,color:ci.color,display:"inline-flex",alignItems:"center",gap:4 }}><CrestIcon ci={ci} size={13}/> +{cg.primary} {cg.primaryCrest}</span>;
                     })()}
                   </div>
                 </div>
-                <button className="px8" onClick={beginPomodoro} style={{ padding:"12px",background:T.mint,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"7px",fontWeight:900,boxShadow:"2px 2px 0 "+T.border }}>
+                <button className="px8" onClick={beginPomodoro} style={{ padding:"12px",background:T.mint,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"12px",fontWeight:900,boxShadow:"2px 2px 0 "+T.border }}>
                   START SESSION ⚡
                 </button>
               </div>
@@ -1203,7 +1403,7 @@ export default function App({ session }) {
                     <div className="px12" style={{ color:T.mint,letterSpacing:2 }}>
                       {String(Math.floor(pomodoroState.timeLeft/60)).padStart(2,'0')}:{String(pomodoroState.timeLeft%60).padStart(2,'0')}
                     </div>
-                    <div className="px8" style={{ color:T.textDim,marginTop:6,fontSize:"5px" }}>REMAINING</div>
+                    <div className="px8" style={{ color:T.textDim,marginTop:6,fontSize:"10px" }}>REMAINING</div>
                   </div>
                 </div>
                 <div style={{ fontSize:13,fontWeight:700,color:T.text,marginBottom:4 }}>{pomodoroState.template} Session</div>
@@ -1211,12 +1411,12 @@ export default function App({ session }) {
                   var cg = calcCrestGain(pomodoroState.template,'Medium');
                   if (!cg) return null;
                   var ci = CREST_INFO[cg.primaryCrest];
-                  return <div style={{ fontSize:11,color:ci.color,marginBottom:16 }}>{ci.icon} Building {cg.primaryCrest} crest</div>;
+                  return <div style={{ fontSize:11,color:ci.color,marginBottom:16,display:"flex",alignItems:"center",gap:4,justifyContent:"center" }}><CrestIcon ci={ci} size={13}/> Building {cg.primaryCrest} crest</div>;
                 })()}
                 {activeDigi && <div style={{ marginBottom:16 }}><DigiSprite digimonId={activeDigi.speciesId} size={52} mood="happy"/></div>}
                 <div style={{ fontSize:11,color:T.textDim,marginBottom:16,fontStyle:"italic" }}>Stay focused — your partner is counting on you.</div>
                 <button className="px8" onClick={function(){ setPomodoroState(null); }}
-                  style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"6px" }}>
+                  style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"11px" }}>
                   ABANDON SESSION
                 </button>
               </div>
@@ -1242,11 +1442,11 @@ export default function App({ session }) {
                     var cg = calcCrestGain(pomodoroState.template,'Medium');
                     if(!cg)return null;
                     var ci=CREST_INFO[cg.primaryCrest];
-                    return <div style={{ padding:"7px 12px",border:"2px solid "+ci.color,color:ci.color,background:ci.color+"18",fontWeight:900,fontSize:13 }}>{ci.icon} +{cg.primary}</div>;
+                    return <div style={{ padding:"7px 12px",border:"2px solid "+ci.color,color:ci.color,background:ci.color+"18",fontWeight:900,fontSize:13,display:"flex",alignItems:"center",gap:6 }}><CrestIcon ci={ci} size={16}/> +{cg.primary}</div>;
                   })()}
                 </div>
                 <button className="px8" onClick={claimPomodoroReward}
-                  style={{ padding:"11px 28px",background:T.mint,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"7px",boxShadow:"2px 2px 0 "+T.border }}>
+                  style={{ padding:"11px 28px",background:T.mint,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"12px",boxShadow:"2px 2px 0 "+T.border }}>
                   CLAIM REWARDS ★
                 </button>
               </div>
@@ -1279,7 +1479,7 @@ export default function App({ session }) {
                     <form style={{ display:"flex",gap:6,alignItems:"center" }} onSubmit={function(e){ e.preventDefault(); saveTamerName(e.target.elements.name.value); }}>
                       <input name="name" defaultValue={tamerName} maxLength={20} autoFocus
                         style={{ fontFamily:"'Press Start 2P',monospace",fontSize:11,color:T.text,background:T.bgPanel,border:"2px solid "+accent,padding:"4px 8px",outline:"none",width:130 }}/>
-                      <button type="submit" style={{ background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",padding:"4px 8px",fontFamily:"'Press Start 2P',monospace",fontSize:"6px" }}>✓</button>
+                      <button type="submit" style={{ background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",padding:"4px 8px",fontFamily:"'Press Start 2P',monospace",fontSize:"11px" }}>✓</button>
                       <button type="button" onClick={function(){ setEditingName(false); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:14 }}>×</button>
                     </form>
                   ) : (
@@ -1288,7 +1488,7 @@ export default function App({ session }) {
                       <button onClick={function(){ setEditingName(true); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:11,padding:0 }} title="Edit name">✏</button>
                     </div>
                   )}
-                  <div className="px8" style={{ color:accent,marginTop:3,fontSize:"6px" }}>
+                  <div className="px8" style={{ color:accent,marginTop:3,fontSize:"11px" }}>
                     {crestProfile.primary ? (CREST_TITLES[crestProfile.primary]||"DigiDestined") : "Novice DigiDestined"}
                   </div>
                   <div style={{ fontSize:11,color:T.textMid,marginTop:5 }}>
@@ -1304,12 +1504,12 @@ export default function App({ session }) {
                   { label:"PARTNER LEVEL",  val:activeDigi?"Lv."+activeDigi.level:"—",           color:T.gold },
                   { label:"BOND STRENGTH",  val:Math.round(bond)+"/100",                          color:T.pink },
                   { label:"LOGIN STREAK",   val:loginStreak+" days 🔥",                           color:T.coral },
-                  { label:"TODAY'S TASKS",  val:doneTasks.length+" completed",                   color:T.green },
+                  { label:"TODAY'S TASKS",  val:doneToday.length+" completed",                   color:T.green },
                   { label:"DIGIMON KNOWN",  val:allDisc.length+"/"+Object.keys(DIGIMON_MAP).length, color:T.lavender },
                 ].map(function(s){
                   return (
                     <div key={s.label} style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"10px 12px" }}>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:5 }}>{s.label}</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:5 }}>{s.label}</div>
                       <div style={{ fontSize:14,fontWeight:900,color:s.color }}>{s.val}</div>
                     </div>
                   );
@@ -1319,17 +1519,17 @@ export default function App({ session }) {
               {/* Crest identity block */}
               {crestProfile.primary && (
                 <div style={{ background:T.bgPanel,border:"1.5px solid "+(CREST_INFO[crestProfile.primary].color),padding:"12px 14px",display:"flex",gap:12,alignItems:"center",boxShadow:"2px 2px 0 "+(CREST_INFO[crestProfile.primary].color) }}>
-                  <div style={{ fontSize:36 }}>{CREST_INFO[crestProfile.primary].icon}</div>
+                  <div style={{ fontSize:36 }}><CrestIcon ci={CREST_INFO[crestProfile.primary]} size={44}/></div>
                   <div style={{ flex:1 }}>
-                    <div className="px8" style={{ color:T.textDim,fontSize:"6px",marginBottom:4 }}>PRIMARY CREST</div>
+                    <div className="px8" style={{ color:T.textDim,fontSize:"11px",marginBottom:4 }}>PRIMARY CREST</div>
                     <div style={{ fontSize:17,fontWeight:900,color:CREST_INFO[crestProfile.primary].color }}>{crestProfile.primary}</div>
                     <div style={{ fontSize:11,color:T.textMid,marginTop:3 }}>{CREST_INFO[crestProfile.primary].desc}</div>
                   </div>
                   {crestProfile.secondary&&<>
                     <div style={{ width:1,height:44,background:T.border,flexShrink:0 }}/>
                     <div style={{ textAlign:"center" }}>
-                      <div style={{ fontSize:26 }}>{CREST_INFO[crestProfile.secondary].icon}</div>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginTop:4 }}>SUPPORT</div>
+                      <div style={{ fontSize:26 }}><CrestIcon ci={CREST_INFO[crestProfile.secondary]} size={32}/></div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginTop:4 }}>SUPPORT</div>
                       <div style={{ fontSize:11,fontWeight:800,color:CREST_INFO[crestProfile.secondary].color,marginTop:2 }}>{crestProfile.secondary}</div>
                     </div>
                   </>}
@@ -1338,7 +1538,7 @@ export default function App({ session }) {
 
               {/* Radar chart */}
               <div>
-                <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"7px" }}>CREST RADAR</div>
+                <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>CREST RADAR</div>
                 <div style={{ display:"flex",justifyContent:"center" }}>
                   <RadarChart percentages={crestProfile.percentages||{}} T={T}/>
                 </div>
@@ -1347,14 +1547,14 @@ export default function App({ session }) {
               {/* DigiDestined journey */}
               {allDisc.length > 0 && (
                 <div>
-                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>DIGIVOLUTION JOURNEY</div>
+                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>DIGIVOLUTION JOURNEY</div>
                   <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                     {allDisc.map(function(id){
                       var di = DIGIMON_MAP[id]; if(!di) return null;
                       return (
                         <div key={id} title={di.name} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"6px 8px",border:"1.5px solid "+T.border,background:T.bgPanel }}>
                           <DigiSprite digimonId={id} size={28} animate mood="walk"/>
-                          <div className="px8" style={{ color:T.textMid,fontSize:"5px" }}>{di.name}</div>
+                          <div className="px8" style={{ color:T.textMid,fontSize:"10px" }}>{di.name}</div>
                         </div>
                       );
                     })}
@@ -1364,7 +1564,7 @@ export default function App({ session }) {
 
               {/* Lore flavour */}
               <div style={{ background:"linear-gradient(135deg,#1a1400,#1a1a00)",border:"1.5px solid "+T.gold+"44",padding:"12px 14px" }}>
-                <div className="px8" style={{ color:T.gold,marginBottom:6,fontSize:"6px" }}>✦ TAMER'S OATH</div>
+                <div className="px8" style={{ color:T.gold,marginBottom:6,fontSize:"11px" }}>✦ TAMER'S OATH</div>
                 <div style={{ fontSize:12,color:T.textMid,lineHeight:1.7,fontStyle:"italic" }}>
                   "I will complete my missions, nurture my partner, and face every challenge with courage. The Digital World grows alongside me."
                 </div>
@@ -1372,8 +1572,8 @@ export default function App({ session }) {
 
               {/* Danger zone */}
               <div style={{ borderTop:"1px solid "+T.coral+"44",paddingTop:12,marginTop:4 }}>
-                <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"5px" }}>DANGER ZONE</div>
-                <button className="px8" style={{ width:"100%",padding:"9px 12px",background:T.coral+"11",border:"1.5px solid "+T.coral+"88",color:T.coral,cursor:"pointer",fontSize:"6px",textAlign:"left" }}
+                <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"10px" }}>DANGER ZONE</div>
+                <button className="px8" style={{ width:"100%",padding:"9px 12px",background:T.coral+"11",border:"1.5px solid "+T.coral+"88",color:T.coral,cursor:"pointer",fontSize:"11px",textAlign:"left" }}
                   onClick={function(){ setShowTamerProfile(false); setConfirmReset(true); }}>
                   ⚠ RESET TEAM — Release all Digimon and start fresh
                 </button>
@@ -1393,9 +1593,9 @@ export default function App({ session }) {
               All current Digimon will be released. You will receive a Digitama to choose a new starting partner. This cannot be undone.
             </div>
             <div style={{ display:"flex",gap:10,justifyContent:"center" }}>
-              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"7px" }}
+              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"12px" }}
                 onClick={resetToStarters}>CONFIRM RESET</button>
-              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}
                 onClick={function(){ setConfirmReset(false); }}>CANCEL</button>
             </div>
           </div>
@@ -1424,7 +1624,7 @@ export default function App({ session }) {
                     :nlvl2==="dormant"?"PARTNER DORMANT"
                     :"PARTNER QUIET"}
                   </div>
-                  <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginTop:2 }}>{days2} days absent — reconnection arc begins</div>
+                  <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginTop:2 }}>{days2} days absent — reconnection arc begins</div>
                 </div>
               </div>
               {/* Partner portrait */}
@@ -1439,23 +1639,23 @@ export default function App({ session }) {
               </div>
               {/* Recovery info */}
               <div style={{ padding:"14px 20px",background:T.bgPanel,margin:"14px 20px",border:"1.5px solid "+T.border }}>
-                <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginBottom:8 }}>RECONNECTION ARC</div>
+                <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginBottom:8 }}>RECONNECTION ARC</div>
                 <div style={{ fontSize:11,color:T.textMid,lineHeight:1.6 }}>Complete <strong style={{ color:T.pink }}>3 tasks</strong> to restore the bond. Your partner survived alone — and changed. Guide them forward.</div>
                 <div style={{ display:"flex",gap:6,marginTop:10,flexWrap:"wrap" }}>
-                  <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.teal,color:T.teal,fontSize:"5px" }}>→ Bond restored +15</span>
-                  <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"5px" }}>→ Normal path continues</span>
+                  <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.teal,color:T.teal,fontSize:"10px" }}>→ Bond restored +15</span>
+                  <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"10px" }}>→ Normal path continues</span>
                 </div>
               </div>
               {neglectData.sukamonRisk && (
                 <div style={{ padding:"0 20px 14px" }}>
                   <div style={{ padding:"10px 12px",background:"#9B59B622",border:"2px solid #9B59B6" }}>
-                    <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:4 }}>⚠ CORRUPTION RISK DETECTED</div>
+                    <div className="px8" style={{ color:"#9B59B6",fontSize:"10px",marginBottom:4 }}>⚠ CORRUPTION RISK DETECTED</div>
                     <div style={{ fontSize:11,color:T.textMid,lineHeight:1.6 }}>Bond was low ({Math.round(bond)}/100) and absence was long. A darker evolution path is forming. You'll face a choice.</div>
                   </div>
                 </div>
               )}
               <div style={{ padding:"0 20px 20px" }}>
-                <button className="px8" style={{ width:"100%",padding:"10px",background:borderC+"22",border:"2px solid "+borderC,color:borderC,cursor:"pointer",fontSize:"7px" }}
+                <button className="px8" style={{ width:"100%",padding:"10px",background:borderC+"22",border:"2px solid "+borderC,color:borderC,cursor:"pointer",fontSize:"12px" }}
                   onClick={function(){
                     setShowReconnectModal(false);
                     if (neglectData && neglectData.sukamonRisk && !neglectData.sukamonOffered) {
@@ -1470,41 +1670,54 @@ export default function App({ session }) {
         );
       })()}
 
-      {/* ── SUKAMON RISK MODAL ────────────────────────────────────────────── */}
-      {showSukamonModal && neglectData && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:641,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
-          <div style={{ background:T.bgCard,border:"2px solid #9B59B6",boxShadow:"4px 4px 0 #9B59B6",maxWidth:400,width:"100%",padding:0,overflow:"hidden",animation:"jijiIn 0.3s ease" }}>
-            <div style={{ background:"linear-gradient(135deg,#100010,#180018,#100010)",borderBottom:"2px solid #9B59B644",padding:"20px",textAlign:"center" }}>
-              <div style={{ fontSize:48,marginBottom:8 }}>💀</div>
-              <div className="px10" style={{ color:"#9B59B6",letterSpacing:2 }}>A DARKER PATH OPENS</div>
-            </div>
-            <div style={{ padding:"20px" }}>
-              <div style={{ display:"flex",justifyContent:"center",marginBottom:14 }}>
-                <DigiSprite digimonId="sukamon" size={56} animate mood="angry"/>
+      {/* ── NEGLECT PATH MODAL (Sukamon or Numemon) ───────────────────────── */}
+      {showSukamonModal && neglectData && (function(){
+        var nPath    = NEGLECT_PATHS[neglectData.neglectPath] || NEGLECT_PATHS.sukamon;
+        var isSuka   = neglectData.neglectPath !== "numemon";
+        var spriteId = nPath.champion;  // sukamon or numemon
+        var darkMsg  = isSuka
+          ? "Your partner's data grew chaotic during the long absence. It felt abandoned — and something darker answered. You can embrace this path, or fight your way back."
+          : "Your partner withdrew into itself during your absence. The routines slipped away and a reclusive form took hold. Choose to accept this path, or rebuild what was lost.";
+        var embraceLabel = isSuka ? "EMBRACE THE DARK" : "ACCEPT WITHDRAWAL";
+        var embraceDesc  = isSuka
+          ? "Sukamon path unlocked. High Power, chaotic nature. Redemption arc still possible."
+          : "Numemon path unlocked. Reclusive but resilient. Redemption arc still possible.";
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:641,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+            <div style={{ background:T.bgCard,border:"2px solid #9B59B6",boxShadow:"4px 4px 0 #9B59B6",maxWidth:400,width:"100%",padding:0,overflow:"hidden",animation:"jijiIn 0.3s ease" }}>
+              <div style={{ background:"linear-gradient(135deg,#100010,#180018,#100010)",borderBottom:"2px solid #9B59B644",padding:"20px",textAlign:"center" }}>
+                <div style={{ fontSize:48,marginBottom:8 }}>{isSuka ? "💀" : "🌑"}</div>
+                <div className="px10" style={{ color:"#9B59B6",letterSpacing:2 }}>A DARKER PATH OPENS</div>
+                <div style={{ fontSize:10,color:T.textMid,marginTop:4 }}>{nPath.label}</div>
               </div>
-              <div style={{ fontSize:12,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:14 }}>
-                Your partner's data has shifted during the long absence. The corruption has taken hold and Sukamon's form calls from the dark. You can embrace this path — or fight it.
-              </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14 }}>
-                <div style={{ padding:"10px 12px",background:"#9B59B622",border:"1.5px solid #9B59B6" }}>
-                  <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:4 }}>EMBRACE THE DARK</div>
-                  <div style={{ fontSize:10,color:T.textMid,lineHeight:1.5 }}>Sukamon evolution unlocked. Unique dark-type path. High Power, chaotic nature.</div>
+              <div style={{ padding:"20px" }}>
+                <div style={{ display:"flex",justifyContent:"center",marginBottom:14 }}>
+                  <DigiSprite digimonId={spriteId} size={56} animate mood="angry"/>
                 </div>
-                <div style={{ padding:"10px 12px",background:T.pink+"22",border:"1.5px solid "+T.pink }}>
-                  <div className="px8" style={{ color:T.pink,fontSize:"5px",marginBottom:4 }}>REBUILD THE BOND</div>
-                  <div style={{ fontSize:10,color:T.textMid,lineHeight:1.5 }}>Fight the corruption. Complete the arc. Normal path continues + Bond +15.</div>
+                <div style={{ fontSize:12,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:14 }}>
+                  {darkMsg}
                 </div>
-              </div>
-              <div style={{ display:"flex",gap:10 }}>
-                <button className="px8" style={{ flex:1,padding:"9px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"6px" }}
-                  onClick={acceptSukamon}>EMBRACE IT 💀</button>
-                <button className="px8" style={{ flex:1,padding:"9px",background:T.pink+"22",border:"2px solid "+T.pink,color:T.pink,cursor:"pointer",fontSize:"6px" }}
-                  onClick={rejectSukamon}>FIGHT IT 💗</button>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14 }}>
+                  <div style={{ padding:"10px 12px",background:"#9B59B622",border:"1.5px solid #9B59B6" }}>
+                    <div className="px8" style={{ color:"#9B59B6",fontSize:"10px",marginBottom:4 }}>{embraceLabel}</div>
+                    <div style={{ fontSize:10,color:T.textMid,lineHeight:1.5 }}>{embraceDesc}</div>
+                  </div>
+                  <div style={{ padding:"10px 12px",background:T.pink+"22",border:"1.5px solid "+T.pink }}>
+                    <div className="px8" style={{ color:T.pink,fontSize:"10px",marginBottom:4 }}>REBUILD THE BOND</div>
+                    <div style={{ fontSize:10,color:T.textMid,lineHeight:1.5 }}>Fight the corruption. Complete the Reconnection Arc. Normal path continues + Bond +15.</div>
+                  </div>
+                </div>
+                <div style={{ display:"flex",gap:10 }}>
+                  <button className="px8" style={{ flex:1,padding:"9px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"11px" }}
+                    onClick={acceptSukamon}>{isSuka ? "EMBRACE IT 💀" : "ACCEPT IT 🌑"}</button>
+                  <button className="px8" style={{ flex:1,padding:"9px",background:T.pink+"22",border:"2px solid "+T.pink,color:T.pink,cursor:"pointer",fontSize:"11px" }}
+                    onClick={rejectSukamon}>FIGHT IT 💗</button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── DEDIGIVOLVE CONFIRM ──────────────────────────────────────────── */}
       {dedigivolveConfirm && (
@@ -1528,9 +1741,9 @@ export default function App({ session }) {
               <span style={{ color:T.coral }}>This cannot be undone.</span> Use this to switch digivolution branches.
             </div>
             <div style={{ display:"flex",gap:10,justifyContent:"center" }}>
-              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"7px" }}
+              <button className="px8" style={{ padding:"8px 16px",background:T.coral+"22",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"12px" }}
                 onClick={confirmDedigivolve}>CONFIRM</button>
-              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+              <button className="px8" style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}
                 onClick={function(){ setDedigivolveConfirm(null); }}>CANCEL</button>
             </div>
           </div>
@@ -1561,20 +1774,20 @@ export default function App({ session }) {
                     <ellipse cx="17" cy="22" rx="5" ry="8"  fill="rgba(255,255,255,0.3)"/>
                     <ellipse cx="24" cy="32" rx="18" ry="23" fill="none" stroke={egg.shimmer} strokeWidth="1.5" opacity="0.7"/>
                   </svg>
-                  <div style={{ fontSize:"6px",color:egg.color,fontWeight:900 }}>{egg.label}</div>
-                  <div style={{ fontSize:"5px",color:T.textMid,textAlign:"center" }}>{egg.desc}</div>
+                  <div style={{ fontSize:"11px",color:egg.color,fontWeight:900 }}>{egg.label}</div>
+                  <div style={{ fontSize:"10px",color:T.textMid,textAlign:"center" }}>{egg.desc}</div>
                 </button>
               );
             })}
           </div>
           {party.length > 0 && (
-            <button className="px8" style={{ padding:"8px 20px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+            <button className="px8" style={{ padding:"8px 20px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}
               onClick={function(){ setShowDigitamaModal(false); }}>SAVE FOR LATER</button>
           )}
           {party.length === 0 && (
-            <div className="px8" style={{ color:T.coral,marginTop:4,fontSize:"6px" }}>You must choose a partner to continue</div>
+            <div className="px8" style={{ color:T.coral,marginTop:4,fontSize:"11px" }}>You must choose a partner to continue</div>
           )}
-          {digitamaCredits > 1 && <div className="px8" style={{ color:T.gold,marginTop:8,fontSize:"6px" }}>×{digitamaCredits} eggs available — each pick uses 1</div>}
+          {digitamaCredits > 1 && <div className="px8" style={{ color:T.gold,marginTop:8,fontSize:"11px" }}>×{digitamaCredits} eggs available — each pick uses 1</div>}
         </div>
       )}
 
@@ -1612,27 +1825,27 @@ export default function App({ session }) {
             </div>
             <div style={{ display:"flex",gap:16,justifyContent:"center",background:T.bgPanel,padding:"10px 14px",border:"1px solid "+T.border }}>
               <div style={{ textAlign:"center" }}>
-                <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:3 }}>SLEEP TIME</div>
+                <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:3 }}>SLEEP TIME</div>
                 <div style={{ fontSize:13,fontWeight:900,color:T.lavender }}>
                   {Math.floor(wakeGreeting.duration/60)}h {wakeGreeting.duration%60}m
                 </div>
               </div>
               <div style={{ width:1,background:T.border }}/>
               <div style={{ textAlign:"center" }}>
-                <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:3 }}>BEDTIME</div>
+                <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:3 }}>BEDTIME</div>
                 <div style={{ fontSize:13,fontWeight:900,color:T.teal }}>
                   {wakeGreeting.entry&&wakeGreeting.entry.bedtime}
                 </div>
               </div>
               <div style={{ width:1,background:T.border }}/>
               <div style={{ textAlign:"center" }}>
-                <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginBottom:3 }}>WAKE</div>
+                <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:3 }}>WAKE</div>
                 <div style={{ fontSize:13,fontWeight:900,color:T.gold }}>
                   {wakeGreeting.entry&&wakeGreeting.entry.waketime}
                 </div>
               </div>
             </div>
-            <button className="px8" style={{ padding:"8px 20px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"7px" }}
+            <button className="px8" style={{ padding:"8px 20px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"12px" }}
               onClick={function(){ setWakeGreeting(null); }}>
               START THE DAY ✦
             </button>
@@ -1659,14 +1872,14 @@ export default function App({ session }) {
 
               {/* Header */}
               <div style={{ background:stCol+"18",borderBottom:"2px solid "+stCol+"44",padding:"18px 20px",display:"flex",alignItems:"center",gap:16 }}>
-                <DigiSprite digimonId={digidexEntry} size={72} animate={known} mood="walk"/>
+                <DigiSprite digimonId={digidexEntry} size={72} animate={false} mood="walk"/>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:18,fontWeight:900,color:known?T.text:T.textDim,marginBottom:4 }}>{d.name}</div>
                   <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
-                    <span className="px8" style={{ padding:"2px 8px",background:stCol+"33",border:"1.5px solid "+stCol,color:stCol,fontSize:"5px" }}>{d.stage}</span>
-                    <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.border,color:T.textMid,fontSize:"5px" }}>{d.type}</span>
-                    <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+(ATTR_COLOR[d.attr]||T.border),color:ATTR_COLOR[d.attr]||T.textMid,fontSize:"5px" }}>{d.attr}</span>
-                    {known&&<span className="px8" style={{ padding:"2px 8px",background:role.color+"22",border:"1.5px solid "+role.color,color:role.color,fontSize:"5px" }}>{role.icon} {d.role}</span>}
+                    <span className="px8" style={{ padding:"2px 8px",background:stCol+"33",border:"1.5px solid "+stCol,color:stCol,fontSize:"10px" }}>{d.stage}</span>
+                    <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+T.border,color:T.textMid,fontSize:"10px" }}>{d.type}</span>
+                    <span className="px8" style={{ padding:"2px 8px",border:"1.5px solid "+(ATTR_COLOR[d.attr]||T.border),color:ATTR_COLOR[d.attr]||T.textMid,fontSize:"10px" }}>{d.attr}</span>
+                    {known&&<span className="px8" style={{ padding:"2px 8px",background:role.color+"22",border:"1.5px solid "+role.color,color:role.color,fontSize:"10px" }}>{role.icon} {d.role}</span>}
                   </div>
                 </div>
                 <button onClick={function(){ setDigidexEntry(null); }}
@@ -1678,12 +1891,12 @@ export default function App({ session }) {
 
                   {/* Battle Stats */}
                   <div>
-                    <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"5px" }}>BATTLE STATS</div>
+                    <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"10px" }}>BATTLE STATS</div>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
                       {[["HP",d.hp,T.coral],["SP",d.sp,T.teal],["ATK",d.atk,T.gold],["DEF",d.def,T.lavender],["INT",d.int,"#88BBFF"],["SPD",d.spd,T.mint]].map(function(s){
                         return (
                           <div key={s[0]} style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"6px 8px",textAlign:"center" }}>
-                            <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:3 }}>{s[0]}</div>
+                            <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:3 }}>{s[0]}</div>
                             <div style={{ fontSize:13,fontWeight:900,color:s[2] }}>{s[1]}</div>
                           </div>
                         );
@@ -1694,11 +1907,11 @@ export default function App({ session }) {
                   {/* Passive & Signature */}
                   <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
                     <div style={{ padding:"10px 12px",background:T.bgPanel,border:"1.5px solid "+T.border }}>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:4 }}>PASSIVE</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:4 }}>PASSIVE</div>
                       <div style={{ fontSize:11,fontWeight:700,color:T.text,lineHeight:1.5 }}>{d.passive}</div>
                     </div>
                     <div style={{ padding:"10px 12px",background:T.bgPanel,border:"1.5px solid "+T.border }}>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:4 }}>SIGNATURE MOVE</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:4 }}>SIGNATURE MOVE</div>
                       <div style={{ fontSize:11,fontWeight:700,color:T.gold,lineHeight:1.5 }}>{d.signature}</div>
                     </div>
                   </div>
@@ -1706,15 +1919,15 @@ export default function App({ session }) {
                   {/* Crest Requirement (for THIS form) */}
                   {d.crestReq && (
                     <div style={{ padding:"10px 12px",background:T.bgPanel,border:"1.5px solid "+T.border }}>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:8 }}>IDEAL CREST ALIGNMENT</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:8 }}>IDEAL CREST ALIGNMENT</div>
                       <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
                         {[["Primary",d.crestReq.primary],d.crestReq.secondary?["Secondary",d.crestReq.secondary]:null].filter(Boolean).map(function(cr){
                           var ci = CREST_INFO[cr[1]];
                           return (
                             <div key={cr[0]} style={{ display:"flex",alignItems:"center",gap:6,padding:"5px 10px",border:"1.5px solid "+(ci?ci.color:T.border),background:(ci?ci.color:"#888")+"18" }}>
-                              {ci&&<span style={{ fontSize:16 }}>{ci.icon}</span>}
+                              {ci&&<CrestIcon ci={ci} size={18}/>}
                               <div>
-                                <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{cr[0]}</div>
+                                <div className="px8" style={{ color:T.textDim,fontSize:"9px" }}>{cr[0]}</div>
                                 <div style={{ fontSize:11,fontWeight:800,color:ci?ci.color:T.textMid }}>{cr[1]}</div>
                               </div>
                             </div>
@@ -1726,12 +1939,12 @@ export default function App({ session }) {
 
                   {/* Digivolution Chain */}
                   <div>
-                    <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"5px" }}>DIGIVOLUTION CHAIN</div>
+                    <div className="px8" style={{ color:T.textDim,marginBottom:8,fontSize:"10px" }}>DIGIVOLUTION CHAIN</div>
 
                     {/* Evolves From */}
                     {prevIds.length > 0 && (
                       <div style={{ marginBottom:10 }}>
-                        <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:6 }}>EVOLVES FROM</div>
+                        <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:6 }}>EVOLVES FROM</div>
                         <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
                           {prevIds.map(function(pid){
                             var pi = DIGIMON_MAP[pid];
@@ -1740,10 +1953,10 @@ export default function App({ session }) {
                             return (
                               <div key={pid} onClick={function(e){ e.stopPropagation(); setDigidexEntry(pid); }}
                                 style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:T.bgPanel,border:"1.5px solid "+(pKnown?STAGE_COLOR[pi.stage]+"66":T.border),cursor:"pointer",opacity:pKnown?1:0.5 }}>
-                                <DigiSprite digimonId={pid} size={32} animate={pKnown} mood="walk"/>
+                                <DigiSprite digimonId={pid} size={32} animate={false} mood="walk"/>
                                 <div>
                                   <div style={{ fontSize:10,fontWeight:800,color:pKnown?T.text:T.textDim }}>{pi.name}</div>
-                                  <div className="px8" style={{ color:STAGE_COLOR[pi.stage]||"#aaa",fontSize:"4px" }}>{pi.stage}</div>
+                                  <div className="px8" style={{ color:STAGE_COLOR[pi.stage]||"#aaa",fontSize:"9px" }}>{pi.stage}</div>
                                 </div>
                               </div>
                             );
@@ -1759,19 +1972,19 @@ export default function App({ session }) {
 
                     {/* Current */}
                     <div style={{ display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:stCol+"18",border:"2px solid "+stCol,marginBottom:nextIds.length>0?10:0 }}>
-                      <DigiSprite digimonId={digidexEntry} size={40} animate={true} mood="walk"/>
+                      <DigiSprite digimonId={digidexEntry} size={40} animate={false} mood="walk"/>
                       <div>
                         <div style={{ fontSize:12,fontWeight:900,color:T.text }}>{d.name}</div>
-                        <div className="px8" style={{ color:stCol,fontSize:"4px" }}>{d.stage} • {d.type} • {d.attr}</div>
+                        <div className="px8" style={{ color:stCol,fontSize:"9px" }}>{d.stage} • {d.type} • {d.attr}</div>
                       </div>
-                      <span className="px8" style={{ marginLeft:"auto",padding:"2px 6px",background:role.color+"22",border:"1.5px solid "+role.color,color:role.color,fontSize:"4px" }}>{role.icon} {d.role}</span>
+                      <span className="px8" style={{ marginLeft:"auto",padding:"2px 6px",background:role.color+"22",border:"1.5px solid "+role.color,color:role.color,fontSize:"9px" }}>{role.icon} {d.role}</span>
                     </div>
 
                     {/* Evolves To */}
                     {nextIds.length > 0 && (
                       <div>
                         <div style={{ textAlign:"center",color:T.textDim,fontSize:14,marginBottom:8 }}>↓</div>
-                        <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:6 }}>EVOLVES INTO</div>
+                        <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:6 }}>EVOLVES INTO</div>
                         <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
                           {nextIds.map(function(nid){
                             var ni = DIGIMON_MAP[nid];
@@ -1783,14 +1996,14 @@ export default function App({ session }) {
                             return (
                               <div key={nid} onClick={function(e){ e.stopPropagation(); setDigidexEntry(nid); }}
                                 style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.bgPanel,border:"1.5px solid "+(nKnown?nStCol+"66":T.border),cursor:"pointer",opacity:nKnown?1:0.55 }}>
-                                <DigiSprite digimonId={nid} size={40} animate={nKnown} mood="walk"/>
+                                <DigiSprite digimonId={nid} size={40} animate={false} mood="walk"/>
                                 <div style={{ flex:1 }}>
                                   <div style={{ fontSize:11,fontWeight:800,color:nKnown?T.text:T.textDim }}>{ni.name}</div>
-                                  <div className="px8" style={{ color:nStCol,fontSize:"4px",marginBottom:4 }}>{ni.stage}</div>
+                                  <div className="px8" style={{ color:nStCol,fontSize:"9px",marginBottom:4 }}>{ni.stage}</div>
                                   <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
-                                    {nReq.level&&<span className="px8" style={{ color:T.textMid,fontSize:"4px" }}>Lv.{nReq.level}</span>}
-                                    {nReq.bond&&<span className="px8" style={{ color:T.teal,fontSize:"4px" }}>Bond {nReq.bond}</span>}
-                                    {nReq.crestMatch&&cr&&<span className="px8" style={{ color:CREST_INFO[cr.primary]?CREST_INFO[cr.primary].color:T.textMid,fontSize:"4px" }}>{Math.round(nReq.crestMatch*100)}% {cr.primary}</span>}
+                                    {nReq.level&&<span className="px8" style={{ color:T.textMid,fontSize:"9px" }}>Lv.{nReq.level}</span>}
+                                    {nReq.bond&&<span className="px8" style={{ color:T.teal,fontSize:"9px" }}>Bond {nReq.bond}</span>}
+                                    {nReq.crestMatch&&cr&&<span className="px8" style={{ color:CREST_INFO[cr.primary]?CREST_INFO[cr.primary].color:T.textMid,fontSize:"9px" }}>{Math.round(nReq.crestMatch*100)}% {cr.primary}</span>}
                                   </div>
                                 </div>
                                 <div style={{ color:nStCol,fontSize:12 }}>›</div>
@@ -1807,7 +2020,7 @@ export default function App({ session }) {
                 /* Undiscovered */
                 <div style={{ padding:"32px 20px",textAlign:"center",color:T.textDim }}>
                   <div style={{ fontSize:48,marginBottom:12 }}>?</div>
-                  <div className="px8" style={{ fontSize:"7px",marginBottom:6 }}>UNIDENTIFIED DIGIMON</div>
+                  <div className="px8" style={{ fontSize:"12px",marginBottom:6 }}>UNIDENTIFIED DIGIMON</div>
                   <div style={{ fontSize:11,lineHeight:1.6,color:T.textDim }}>This Digimon has not yet been discovered. Digivolve your partner or explore to encounter new species.</div>
                 </div>
               )}
@@ -1835,8 +2048,8 @@ export default function App({ session }) {
         </div>
       )}
 
-      {/* Click-outside overlay to close nav dropdowns */}
-      {openGroup && <div style={{ position:"fixed",inset:0,zIndex:399 }} onClick={function(){ setOpenGroup(null); }}/>}
+      {/* Click-outside overlay to close nav dropdowns — must sit BELOW nav z-index (200) so dropdown at z:400 inside nav stays clickable */}
+      {openGroup && <div style={{ position:"fixed",inset:0,zIndex:190 }} onClick={function(){ setOpenGroup(null); }}/>}
 
       {/* ── TOP NAV ───────────────────────────────────────────────────────── */}
       <nav style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",background:T.bgPanel,borderBottom:"2px solid "+T.border,boxShadow:"0 2px 0 "+T.border,position:"sticky",top:0,zIndex:200,gap:12,flexWrap:"wrap" }}>
@@ -1845,27 +2058,23 @@ export default function App({ session }) {
           DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
         <div style={{ display:"flex",gap:4,alignItems:"center" }}>
-          {/* HOME — standalone */}
-          <button className={"nav-pill"+(page==="dashboard"?" active":"")}
-            onClick={function(){ setPage("dashboard"); setOpenGroup(null); }}>
-            ⌂ HOME
-          </button>
-
           {/* Grouped dropdowns */}
           {NAV_GROUPS.map(function(g){
             var isOpen    = openGroup === g.id;
             var hasActive = g.pages.some(function(p){ return p.id === page; });
             var activeLabel = hasActive ? g.pages.find(function(p){ return p.id===page; }).label : null;
             return (
-              <div key={g.id} style={{ position:"relative" }}>
+              <div key={g.id} style={{ position:"relative" }}
+                onMouseEnter={function(){ clearTimeout(navCloseTimer.current); setOpenGroup(g.id); }}
+                onMouseLeave={function(){ navCloseTimer.current = setTimeout(function(){ setOpenGroup(null); }, 150); }}>
                 <button
                   className={"nav-pill"+(hasActive?" group-active":"")+(isOpen?" active":"")}
                   onClick={function(){ setOpenGroup(isOpen ? null : g.id); }}>
                   {g.icon} {activeLabel ? g.label+" · "+activeLabel : g.label}
-                  <span style={{ marginLeft:5,fontSize:"5px",opacity:0.6 }}>{isOpen?"▲":"▼"}</span>
+                  <span style={{ marginLeft:5,fontSize:"8px",opacity:0.6 }}>{isOpen?"▲":"▼"}</span>
                 </button>
                 {isOpen && (
-                  <div style={{ position:"absolute",top:"calc(100% + 3px)",left:0,zIndex:400,border:"2px solid "+T.pixelBorder,boxShadow:"3px 3px 0 "+T.pixelBorder,minWidth:130,overflow:"hidden" }}>
+                  <div style={{ position:"absolute",top:"100%",left:0,zIndex:400,border:"2px solid "+T.pixelBorder,boxShadow:"3px 3px 0 "+T.pixelBorder,minWidth:130,overflow:"hidden" }}>
                     {g.pages.map(function(p){
                       return (
                         <button key={p.id} className={"nav-drop-item"+(page===p.id?" active":"")}
@@ -1881,14 +2090,16 @@ export default function App({ session }) {
             );
           })}
 
-          {/* CHAT + STORE — standalone */}
+          {/* CHAT — standalone */}
           <button className={"nav-pill"+(page==="chat"?" active":"")}
             onClick={function(){ setPage("chat"); setOpenGroup(null); }}>
             💬 CHAT
           </button>
-          <button className={"nav-pill"+(page==="store"?" active":"")}
-            onClick={function(){ setPage("store"); setOpenGroup(null); }}>
-            🛒 STORE
+
+          {/* HOME — standalone */}
+          <button className={"nav-pill"+(page==="dashboard"?" active":"")}
+            onClick={function(){ setPage("dashboard"); setOpenGroup(null); }}>
+            ⌂ HOME
           </button>
         </div>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
@@ -1899,12 +2110,12 @@ export default function App({ session }) {
           <span style={{ fontWeight:800,fontSize:13,cursor:"pointer",borderBottom:"1px dashed "+T.textDim }} onClick={function(){ setShowTamerProfile(true); }}>{tamerName}</span>
           <div className="px8" style={{ color:T.gold }}>🪙{bits}</div>
           <div className="px8" style={{ color:"#4ECDC4" }}>⚡{stamina}</div>
-          <button onClick={function(){ supabase.auth.signOut(); }} style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"6px",padding:"5px 9px",background:"transparent",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.35)",cursor:"pointer" }}>SIGN OUT</button>
+          <button onClick={function(){ supabase.auth.signOut(); }} style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"11px",padding:"5px 9px",background:"transparent",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.35)",cursor:"pointer" }}>SIGN OUT</button>
         </div>
       </nav>
 
       {/* ── THREE COLUMN LAYOUT ───────────────────────────────────────────── */}
-      <div style={{ display:"grid",gridTemplateColumns:"300px 1fr 260px",minHeight:"calc(100vh - 64px)",position:"relative",zIndex:1 }}>
+      <div className="main-grid">
 
         {/* ═══ LEFT — PET PANEL ══════════════════════════════════════════ */}
         <aside className="left-col" style={{ background:T.bgPanel,borderRight:"2px solid "+T.border,padding:"24px 20px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto" }}>
@@ -1958,18 +2169,21 @@ export default function App({ session }) {
                     })}
                   </div>
                 )}
-                {/* Speech bubble */}
-                <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+(isSleeping?T.lavender:accent),boxShadow:"2px 2px 0 "+(isSleeping?T.lavender:accent),padding:"5px 10px",zIndex:4,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)",maxWidth:220,whiteSpace:"normal",textAlign:"center" }}>
-                  <span className="px8" style={{ color:isSleeping?T.lavender:accent,fontSize:"6px" }}>{speech}</span>
-                  <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+(isSleeping?T.lavender:accent) }}/>
-                </div>
+                {/* Speech bubble — appears on click, auto-hides after 30 s */}
+                {showSpeech && (
+                  <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+(isSleeping?T.lavender:accent),boxShadow:"2px 2px 0 "+(isSleeping?T.lavender:accent),padding:"5px 10px",zIndex:4,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)",maxWidth:220,whiteSpace:"normal",textAlign:"center",cursor:"pointer" }}
+                    onClick={function(){ setShowSpeech(false); clearTimeout(speechDismissTimer.current); }}>
+                    <span className="px8" style={{ color:isSleeping?T.lavender:accent,fontSize:"11px" }}>{speech}</span>
+                    <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+(isSleeping?T.lavender:accent) }}/>
+                  </div>
+                )}
                 {/* Raid hit flash — pops above the sprite when a task is completed */}
                 {raidHit && (function(){
                   var sc = { power:"#FF6B35",guard:"#7EB8F7",focus:"#B8A0E8",momentum:"#FFD700" }[raidHit.stat]||"#FF6B35";
                   var si = { power:"⚔",guard:"🛡",focus:"🎯",momentum:"⚡" }[raidHit.stat]||"⚔";
                   return (
                     <div style={{ position:"absolute",top:54,right:8,zIndex:5,background:"rgba(0,0,0,0.88)",border:"2px solid "+sc,boxShadow:"2px 2px 0 "+sc,padding:"4px 9px",animation:"slideUp 0.2s ease",pointerEvents:"none" }}>
-                      <div className="px8" style={{ color:sc,fontSize:"6px",whiteSpace:"nowrap" }}>{si} -{raidHit.damage} VenomMyotismon</div>
+                      <div className="px8" style={{ color:sc,fontSize:"11px",whiteSpace:"nowrap" }}>{si} -{raidHit.damage} VenomMyotismon</div>
                     </div>
                   );
                 })()}
@@ -1986,7 +2200,7 @@ export default function App({ session }) {
                   }}
                   onClick={function(){
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
-                    setSpeech(["you can do it! 💪","finish your tasks!","i believe in you ✨","getting stronger! ⚡","great job! 🔥"][Math.floor(Math.random()*5)]);
+                    showSpeechBubble(null); // show current speech for 30 s
                   }}>
                   {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84}
                     mood={isSleeping||isCountdown?"sleepy"
@@ -2001,7 +2215,7 @@ export default function App({ session }) {
                 {/* Wake hint when sleeping */}
                 {isSleeping && (
                   <div style={{ position:"absolute",bottom:42,left:0,right:0,textAlign:"center",zIndex:3 }}>
-                    <span className="px8" style={{ color:T.lavender,fontSize:"5px",opacity:0.7 }}>tap to wake early</span>
+                    <span className="px8" style={{ color:T.lavender,fontSize:"10px",opacity:0.7 }}>tap to wake early</span>
                   </div>
                 )}
               </div>
@@ -2024,8 +2238,8 @@ export default function App({ session }) {
               return (
                 <div key={s.label} style={{ display:"flex",flexDirection:"column",gap:4 }}>
                   <div style={{ display:"flex",justifyContent:"space-between" }}>
-                    <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>{s.label}</span>
-                    <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>{Math.round(s.val)}/{s.max}</span>
+                    <span className="px8" style={{ color:T.textMid }}>{s.label}</span>
+                    <span className="px8" style={{ color:T.textMid }}>{Math.round(s.val)}/{s.max}</span>
                   </div>
                   <div style={{ height:10,background:T.bgCard,border:"2px solid "+T.border,overflow:"hidden" }}>
                     <div className="crest-bar-fill" style={{ width:Math.min((s.val/s.max)*100,100)+"%",background:s.color }}/>
@@ -2046,13 +2260,13 @@ export default function App({ session }) {
               <div style={{ background:"linear-gradient(135deg,#0d0010,#110014)",border:"2px solid #9B59B6",padding:"10px 12px",cursor:"pointer" }}
                 onClick={function(){ setPage("campaign"); }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-                  <div className="px8" style={{ color:"#9B59B6",fontSize:"5px" }}>☠ RAID: {CURRENT_RAID.name}</div>
-                  <div className="px8" style={{ color:phase2.color,fontSize:"5px" }}>{phase2.name}</div>
+                  <div className="px8" style={{ color:"#9B59B6",fontSize:"10px" }}>☠ BREACH</div>
+                  <div className="px8" style={{ color:phase2.color,fontSize:"10px" }}>{phase2.name}</div>
                 </div>
                 <div style={{ height:6,background:T.bgCard,border:"1.5px solid #9B59B6",overflow:"hidden",marginBottom:4 }}>
                   <div style={{ width:(frac2*100)+"%",height:"100%",background:"linear-gradient(90deg,#9B59B6,#cc0000)",transition:"width 0.4s ease" }}/>
                 </div>
-                <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{(rs2.totalDamage||0).toLocaleString()} / {CURRENT_RAID.bossHp.toLocaleString()} dmg dealt — tap to view</div>
+                <div className="px8" style={{ color:T.textDim,fontSize:"9px" }}>{(rs2.totalDamage||0).toLocaleString()} / {CURRENT_RAID.bossHp.toLocaleString()} dmg dealt — tap to view</div>
               </div>
             );
           })()}
@@ -2061,14 +2275,14 @@ export default function App({ session }) {
           {neglectData && (
             <div style={{ background:neglectData.level==="critical"?"linear-gradient(135deg,#1a0005,#150010)":neglectData.level==="unstable"?"linear-gradient(135deg,#0d0015,#110010)":"linear-gradient(135deg,#0d0d0d,#111118)", border:"2px solid "+(neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textDim), padding:"10px 12px" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-                <div className="px8" style={{ color:neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textMid, fontSize:"5px" }}>
+                <div className="px8" style={{ color:neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textMid, fontSize:"10px" }}>
                   {neglectData.level==="critical"?"⚠ CORRUPTION RISK"
                   :neglectData.level==="unstable"?"💀 PARTNER UNSTABLE"
                   :neglectData.level==="dormant"?"😶 PARTNER DORMANT"
                   :"... PARTNER QUIET"}
                 </div>
                 {neglectData.inArc && (
-                  <div className="px8" style={{ color:T.pink,fontSize:"5px" }}>RECONNECTION ARC</div>
+                  <div className="px8" style={{ color:T.pink,fontSize:"10px" }}>RECONNECTION ARC</div>
                 )}
               </div>
               {neglectData.inArc ? (
@@ -2076,32 +2290,32 @@ export default function App({ session }) {
                   <div style={{ height:6,background:T.bgCard,border:"1.5px solid "+T.pink,overflow:"hidden",marginBottom:4 }}>
                     <div style={{ width:((neglectData.arcTasksDone/neglectData.arcGoal)*100)+"%",height:"100%",background:T.pink,transition:"width 0.4s ease" }}/>
                   </div>
-                  <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{neglectData.arcTasksDone}/{neglectData.arcGoal} tasks — complete to restore bond</div>
+                  <div className="px8" style={{ color:T.textDim,fontSize:"9px" }}>{neglectData.arcTasksDone}/{neglectData.arcGoal} tasks — complete to restore bond</div>
                 </div>
               ) : (
-                <div className="px8" style={{ color:T.textDim,fontSize:"4px" }}>{neglectData.daysAbsent} days absent — complete tasks to reconnect</div>
+                <div className="px8" style={{ color:T.textDim,fontSize:"9px" }}>{neglectData.daysAbsent} days absent — complete tasks to reconnect</div>
               )}
               {neglectData.sukamonRisk && neglectData.sukamonAccepted && (
-                <div className="px8" style={{ color:"#9B59B6",fontSize:"4px",marginTop:4 }}>💀 Sukamon evo available in TEAM page</div>
+                <div className="px8" style={{ color:"#9B59B6",fontSize:"9px",marginTop:4 }}>💀 Sukamon evo available in TEAM page</div>
               )}
             </div>
           )}
 
           {/* Crest alignment mini */}
           <div style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 12px" }}>
-            <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>CREST ALIGNMENT</div>
+            <div className="px8" style={{ color:T.textMid,marginBottom:8 }}>CREST ALIGNMENT</div>
             {crestProfile.primary ? (
               <div>
                 <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:4 }}>
-                  <span style={{ fontSize:14 }}>{CREST_INFO[crestProfile.primary].icon}</span>
-                  <span style={{ fontSize:12,fontWeight:800,color:CREST_INFO[crestProfile.primary].color }}>{crestProfile.primary}</span>
-                  <span className="px8" style={{ color:T.textDim,fontSize:"6px",marginLeft:"auto" }}>PRIMARY</span>
+                  <CrestIcon ci={CREST_INFO[crestProfile.primary]} size={14}/>
+                  <span style={{ fontSize:10,fontWeight:800,color:CREST_INFO[crestProfile.primary].color }}>{crestProfile.primary}</span>
+                  <span className="px8" style={{ color:T.textDim,marginLeft:"auto" }}>PRIMARY</span>
                 </div>
                 {crestProfile.secondary && (
                   <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                    <span style={{ fontSize:12 }}>{CREST_INFO[crestProfile.secondary].icon}</span>
-                    <span style={{ fontSize:11,fontWeight:700,color:CREST_INFO[crestProfile.secondary].color }}>{crestProfile.secondary}</span>
-                    <span className="px8" style={{ color:T.textDim,fontSize:"6px",marginLeft:"auto" }}>SUPPORT</span>
+                    <CrestIcon ci={CREST_INFO[crestProfile.secondary]} size={12}/>
+                    <span style={{ fontSize:10,fontWeight:700,color:CREST_INFO[crestProfile.secondary].color }}>{crestProfile.secondary}</span>
+                    <span className="px8" style={{ color:T.textDim,marginLeft:"auto" }}>SUPPORT</span>
                   </div>
                 )}
               </div>
@@ -2128,9 +2342,9 @@ export default function App({ session }) {
               ⏱ TRAIN
             </button>
           </div>
-          {!playAvailable && doneTasks.length < 3 && (
+          {!playAvailable && doneToday.length < 3 && (
             <div style={{ fontSize:11,color:T.textDim,textAlign:"center",fontStyle:"italic" }}>
-              Complete {3-doneTasks.length} more task{3-doneTasks.length!==1?"s":""} to unlock Play
+              Complete {3-doneToday.length} more task{3-doneToday.length!==1?"s":""} to unlock Play
             </div>
           )}
 
@@ -2177,7 +2391,7 @@ export default function App({ session }) {
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
                   {[
                     { icon:"🔥", val:streak,                              label:"day streak" },
-                    { icon:"✅", val:doneTasks.length+"/"+tasks.length,   label:"done today" },
+                    { icon:"✅", val:doneToday.length+"/"+activeTodayTotal, label:"done today" },
                     { icon:"⭐", val:"+"+xpToday,                         label:"XP today"   },
                   ].map(function(s){
                     return (
@@ -2196,7 +2410,7 @@ export default function App({ session }) {
                 <div className="pcard" style={{ padding:16 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
                     <div className="px9">CREST ALIGNMENT</div>
-                    <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}>14-day window</div>
+                    <div className="px8" style={{ color:T.textMid }}>14-day window</div>
                   </div>
                   {crestProfile.primary ? (
                     <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
@@ -2205,16 +2419,16 @@ export default function App({ session }) {
                         .map(function([name, pct]){
                           var ci = CREST_INFO[name];
                           return (
-                            <div key={name} style={{ display:"flex",alignItems:"center",gap:8 }}>
-                              <span style={{ fontSize:14,width:20,textAlign:"center",flexShrink:0 }}>{ci.icon}</span>
-                              <span style={{ fontSize:11,fontWeight:700,width:90,color:ci.color,flexShrink:0 }}>{name}</span>
-                              <div style={{ flex:1,height:8,background:T.bgPanel,border:"1px solid "+T.border,overflow:"hidden" }}>
+                            <div key={name} style={{ display:"flex",alignItems:"center",gap:6 }}>
+                              <span style={{ width:16,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={ci} size={14}/></span>
+                              <span style={{ fontSize:10,fontWeight:700,width:80,color:ci.color,flexShrink:0,lineHeight:1 }}>{name}</span>
+                              <div style={{ flex:1,height:7,background:T.bgPanel,border:"1px solid "+T.border,overflow:"hidden" }}>
                                 <div className="crest-bar-fill" style={{ width:pct+"%",background:ci.color }}/>
                               </div>
-                              <span className="px8" style={{ color:T.textMid,fontSize:"6px",width:32,textAlign:"right",flexShrink:0 }}>{pct}%</span>
+                              <span className="px8" style={{ color:T.textMid,width:28,textAlign:"right",flexShrink:0 }}>{pct}%</span>
                               {(name===crestProfile.primary||name===crestProfile.secondary)&&(
-                                <span className="px8" style={{ fontSize:"5px",color:name===crestProfile.primary?T.gold:T.textMid,width:30,flexShrink:0 }}>
-                                  {name===crestProfile.primary?"★ PRI":"◆ SEC"}
+                                <span className="px8" style={{ color:name===crestProfile.primary?T.gold:T.textMid,width:28,flexShrink:0,textAlign:"center" }}>
+                                  {name===crestProfile.primary?"★PRI":"◆SEC"}
                                 </span>
                               )}
                             </div>
@@ -2234,7 +2448,7 @@ export default function App({ session }) {
                     <div className="px12">TODAY'S QUESTS</div>
                     <div style={{ fontSize:13,fontWeight:700,color:T.textMid,marginTop:4 }}>{pendTasks.length} remaining</div>
                   </div>
-                  <button className="px8" onClick={function(){ setPage("tasks"); }} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>+ NEW TASK</button>
+                  <button className="px8" onClick={function(){ setShowQuickAdd(true); }} style={{ padding:"9px 14px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer" }}>+ NEW TASK</button>
                 </div>
 
                 {/* Priority task list */}
@@ -2257,9 +2471,9 @@ export default function App({ session }) {
                             <div style={{ flex:1 }}>
                               <div style={{ fontSize:14,fontWeight:800 }}>{t.title}</div>
                               <div style={{ display:"flex",gap:6,marginTop:5,flexWrap:"wrap",alignItems:"center" }}>
-                                {cg&&<span style={{ fontSize:12 }}>{CREST_INFO[cg.primaryCrest]?.icon}</span>}
-                                <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.template}</span>
-                                <span className="px8" style={{ padding:"2px 6px",background:"#2a2000",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
+                                {cg&&<span style={{ display:"inline-flex",alignItems:"center" }}><CrestIcon ci={CREST_INFO[cg.primaryCrest]} size={14}/></span>}
+                                <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"11px" }}>{t.template}</span>
+                                <span className="px8" style={{ padding:"2px 6px",background:"#2a2000",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"11px" }}>+{xp} XP</span>
                                 <span style={{ fontSize:11,fontWeight:700,color:t.type==="daily"?T.teal:T.textDim }}>{t.type}</span>
                               </div>
                             </div>
@@ -2273,20 +2487,25 @@ export default function App({ session }) {
                   );
                 })}
 
-                {doneTasks.length>0&&(
+                {doneToday.length>0&&(
                   <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
                     <div className="sec-label">✓ COMPLETED</div>
-                    {doneTasks.map(function(t){
+                    {doneToday.slice(0,5).map(function(t){
                       return (
                         <div key={t.id} className="task-card done tc-low">
                           <div className="task-check checked"><span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span></div>
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:14,fontWeight:800,color:T.textMid,textDecoration:"line-through" }}>{t.title}</div>
                           </div>
-                          <span className="px8" style={{ fontSize:"6px",color:T.green }}>DONE</span>
+                          <span className="px8" style={{ fontSize:"11px",color:T.green }}>DONE</span>
                         </div>
                       );
                     })}
+                    {doneToday.length>5&&(
+                      <div className="px8" style={{ textAlign:"center",color:T.textDim,fontSize:"11px",padding:"6px 0" }}>
+                        +{doneToday.length-5} more — view all in FILEHAVEN → TASKS
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2337,14 +2556,14 @@ export default function App({ session }) {
                           {/* Name + badges */}
                           <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4 }}>
                             <div className="px10">{digi.name}</div>
-                            <div className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"6px" }}>{inf2&&inf2.stage}</div>
-                            {pers&&<div className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+pers.color,color:pers.color,fontSize:"6px" }}>{pers.label}</div>}
+                            <div className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"9px" }}>{inf2&&inf2.stage}</div>
+                            {pers&&<div className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+pers.color,color:pers.color,fontSize:"9px" }}>{pers.label}</div>}
                           </div>
-                          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"6px" }}>Lv.{digi.level} · Bond {Math.round(bond)} · {inf2&&inf2.type}</div>
+                          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"9px" }}>Lv.{digi.level} · Bond {Math.round(bond)} · {inf2&&inf2.type}</div>
 
                           {/* Role */}
                           <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
-                            <div className="px8" style={{ padding:"3px 8px",border:"2px solid "+role.color,color:role.color,background:role.color+"18",fontSize:"6px" }}>{role.icon} {inf2&&inf2.role||"Balanced"}</div>
+                            <div className="px8" style={{ padding:"3px 8px",border:"2px solid "+role.color,color:role.color,background:role.color+"18",fontSize:"9px" }}>{role.icon} {inf2&&inf2.role||"Balanced"}</div>
                           </div>
 
                           {/* Battle stats: Power / Guard / Focus / Momentum */}
@@ -2353,7 +2572,7 @@ export default function App({ session }) {
                               return (
                                 <div key={s[0]} style={{ textAlign:"center",background:T.bgPanel,border:"1px solid "+T.border,padding:"6px 4px" }}>
                                   <div style={{ fontSize:18,fontWeight:900,color:s[2] }}>{s[1]}</div>
-                                  <div className="px8" style={{ color:T.textMid,fontSize:"5px",marginTop:2 }}>{s[0]}</div>
+                                  <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginTop:2 }}>{s[0]}</div>
                                 </div>
                               );
                             })}
@@ -2374,8 +2593,8 @@ export default function App({ session }) {
                           {/* XP bar */}
                           <div style={{ marginBottom:10 }}>
                             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
-                              <span className="px8" style={{ color:T.textMid,fontSize:"6px" }}>⭐ XP</span>
-                              <span className="px8" style={{ color:T.textMid,fontSize:"6px" }}>{digi.exp}/{digi.expNeeded}</span>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"11px" }}>⭐ XP</span>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"11px" }}>{digi.exp}/{digi.expNeeded}</span>
                             </div>
                             <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={8}/>
                           </div>
@@ -2383,14 +2602,14 @@ export default function App({ session }) {
                           {/* Sukamon special corruption evolution */}
                           {neglectData && neglectData.sukamonRisk && neglectData.sukamonAccepted && DIGIMON_MAP[digi.speciesId] && (DIGIMON_MAP[digi.speciesId].stage==="In-Training"||DIGIMON_MAP[digi.speciesId].stage==="Rookie") && (
                             <div style={{ marginBottom:8,padding:"8px 10px",background:"linear-gradient(135deg,#100010,#180010)",border:"2px solid #9B59B6" }}>
-                              <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:6 }}>💀 CORRUPTION EVOLUTION</div>
+                              <div className="px8" style={{ color:"#9B59B6",fontSize:"10px",marginBottom:6 }}>💀 CORRUPTION EVOLUTION</div>
                               <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
                                 <DigiSprite digimonId="sukamon" size={28} animate mood="walk"/>
                                 <div style={{ flex:1 }}>
                                   <div style={{ fontSize:12,fontWeight:900,color:"#9B59B6" }}>Sukamon</div>
-                                  <div className="px8" style={{ color:T.textDim,fontSize:"5px" }}>Rookie · Virus · Dark</div>
+                                  <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>Rookie · Virus · Dark</div>
                                 </div>
-                                <button className="px8" style={{ padding:"5px 10px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"6px" }}
+                                <button className="px8" style={{ padding:"5px 10px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"11px" }}
                                   onClick={function(){ evolve(digi.uid,"sukamon"); }}>
                                   CORRUPT →
                                 </button>
@@ -2402,7 +2621,7 @@ export default function App({ session }) {
                           {/* Evolutions */}
                           {evoList.length > 0 && (
                             <div style={{ marginBottom:8 }}>
-                              <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"5px" }}>DIGIVOLUTION</div>
+                              <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"10px" }}>DIGIVOLUTION</div>
                               <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
                                 {evoList.map(function(evo){
                                   var canEvo  = evo.eligible;
@@ -2417,11 +2636,11 @@ export default function App({ session }) {
                                         <DigiSprite digimonId={evo.id} size={28} animate mood="walk"/>
                                         <div>
                                           <div style={{ fontSize:12,fontWeight:900,color:btnCol }}>{evo.info.name}</div>
-                                          <div className="px8" style={{ color:STAGE_COLOR[evo.info.stage]||"#aaa",fontSize:"5px" }}>{evo.info.stage} · {evo.info.type}</div>
+                                          <div className="px8" style={{ color:STAGE_COLOR[evo.info.stage]||"#aaa",fontSize:"10px" }}>{evo.info.stage} · {evo.info.type}</div>
                                         </div>
                                         {(canEvo||canVow)&&(
                                           <button className="px8"
-                                            style={{ marginLeft:"auto",padding:"5px 10px",background:btnCol+"22",border:"2px solid "+btnCol,color:btnCol,cursor:"pointer",fontSize:"6px" }}
+                                            style={{ marginLeft:"auto",padding:"5px 10px",background:btnCol+"22",border:"2px solid "+btnCol,color:btnCol,cursor:"pointer",fontSize:"11px" }}
                                             onClick={function(){ evolve(digi.uid,evo.id); }}>
                                             {canVow&&!canEvo?"VOW →":"DIGIVOLVE →"}
                                           </button>
@@ -2429,16 +2648,16 @@ export default function App({ session }) {
                                       </div>
                                       {/* Requirements row */}
                                       <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                                        <span className="px8" style={{ fontSize:"5px",color:digi.level>=req.level?T.green:T.coral }}>
+                                        <span className="px8" style={{ fontSize:"10px",color:digi.level>=req.level?T.green:T.coral }}>
                                           Lv.{req.level} {digi.level>=req.level?"✓":"✗ ("+digi.level+")"}
                                         </span>
-                                        {req.bond>0&&<span className="px8" style={{ fontSize:"5px",color:bond>=req.bond?T.green:T.coral }}>
+                                        {req.bond>0&&<span className="px8" style={{ fontSize:"10px",color:bond>=req.bond?T.green:T.coral }}>
                                           Bond {req.bond} {bond>=req.bond?"✓":"✗ ("+Math.round(bond)+")"}
                                         </span>}
-                                        {ci&&<span className="px8" style={{ fontSize:"5px",color:T.textMid }}>
-                                          {ci.icon}{ci2?" + "+ci2.icon:""} Crest {req.crestMatch?Math.round(req.crestMatch*100)+"%":""} {evo.matchPct!=null?(evo.matchPct+"% ✓"):""}
+                                        {ci&&<span className="px8" style={{ fontSize:"10px",color:T.textMid,display:"inline-flex",alignItems:"center",gap:3 }}>
+                                          <CrestIcon ci={ci} size={11}/>{ci2&&<><span>+</span><CrestIcon ci={ci2} size={11}/></>} Crest {req.crestMatch?Math.round(req.crestMatch*100)+"%":""} {evo.matchPct!=null?(evo.matchPct+"% ✓"):""}
                                         </span>}
-                                        {!canEvo&&evo.reason&&<span className="px8" style={{ fontSize:"5px",color:T.coral }}>{evo.reason}</span>}
+                                        {!canEvo&&evo.reason&&<span className="px8" style={{ fontSize:"10px",color:T.coral }}>{evo.reason}</span>}
                                       </div>
                                     </div>
                                   );
@@ -2449,15 +2668,15 @@ export default function App({ session }) {
 
                           {/* Party controls */}
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                            {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){ setLeader(digi.uid); }}>★ SET LEADER</button>}
-                            {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"6px" }} onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</button>}
+                            {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"11px" }} onClick={function(){ setLeader(digi.uid); }}>★ SET LEADER</button>}
+                            {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"11px" }} onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</button>}
                             {(function(){
                               var allDigi2 = Object.values(DIGIMON_MAP);
                               var prevIds2 = allDigi2.filter(function(x){ return x.evolvesTo && x.evolvesTo.includes(digi.speciesId); }).map(function(x){ return x.id; });
                               if (prevIds2.length === 0) return null;
                               var prevId2 = prevIds2[0];
                               return (
-                                <button className="px8" style={{ padding:"6px 10px",background:T.coral+"18",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"6px" }}
+                                <button className="px8" style={{ padding:"6px 10px",background:T.coral+"18",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"11px" }}
                                   onClick={function(){ setDedigivolveConfirm({ uid:digi.uid, prevId:prevId2, digiName:digi.name, prevName:(DIGIMON_MAP[prevId2]&&DIGIMON_MAP[prevId2].name)||prevId2 }); }}>
                                   ↩ DEDIGIVOLVE
                                 </button>
@@ -2488,9 +2707,9 @@ export default function App({ session }) {
                         <DigiSprite digimonId={d.speciesId} size={54} animate mood="walk"/>
                         <div style={{ flex:1 }}>
                           <div style={{ fontWeight:800,fontSize:14 }}>{d.name}</div>
-                          <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>Lv.{d.level} · {fi&&fi.stage} · {fi&&fi.role}</div>
+                          <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"11px" }}>Lv.{d.level} · {fi&&fi.stage} · {fi&&fi.role}</div>
                         </div>
-                        <button className="px8" style={{ padding:"7px 12px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={function(){ recallFromFarm(d.uid); }}>RECALL</button>
+                        <button className="px8" style={{ padding:"7px 12px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"11px" }} onClick={function(){ recallFromFarm(d.uid); }}>RECALL</button>
                       </div>
                     );
                   })
@@ -2498,11 +2717,11 @@ export default function App({ session }) {
               </div>
             )}
 
-            {/* ── BATTLE ───────────────────────────────────────────────── */}
+            {/* ── PATCH ────────────────────────────────────────────────── */}
             {page==="battle"&&(
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div className="px12">BATTLE ARENA</div>
+                  <div className="px12">PATCH ARENA</div>
                   <div className="px8" style={{ color:"#4ECDC4" }}>⚡ Stamina: {stamina}/{STAMINA_MAX}</div>
                 </div>
                 {!battleState?(
@@ -2517,7 +2736,7 @@ export default function App({ session }) {
                           <div className="px10" style={{ color:c,marginBottom:8 }}>{diff.toUpperCase()}</div>
                           <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginBottom:4 }}>Win {r.win}🪙</div>
                           <div style={{ fontSize:11,fontWeight:700,color:T.textDim,marginBottom:8 }}>Loss {r.loss}🪙</div>
-                          <div className="px8" style={{ color:"#4ECDC4",fontSize:"6px" }}>Costs {cost} ⚡</div>
+                          <div className="px8" style={{ color:"#4ECDC4",fontSize:"11px" }}>Costs {cost} ⚡</div>
                         </div>
                       );
                     })}
@@ -2531,11 +2750,11 @@ export default function App({ session }) {
                         return (
                           <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){ battleAttack(i); }}>
                             <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0} />
-                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{e.name}</div>
+                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"11px" }}>{e.name}</div>
                             <Bar value={e.currentHp} max={e.maxHp} color={T.coral} h={6}/>
                             <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
                               {[["PWR",ebs.Power,"#FF6B35"],["GRD",ebs.Guard,"#7EB8F7"]].map(function(s){
-                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:12,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"5px",color:T.textDim }}>{s[0]}</div></div>;
+                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:12,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"10px",color:T.textDim }}>{s[0]}</div></div>;
                               })}
                             </div>
                           </div>
@@ -2552,14 +2771,14 @@ export default function App({ session }) {
                         return (
                           <div key={i} className={"battle-tile player"+(isAct?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){ setBattleState(function(bs){ return Object.assign({},bs,{selected:i}); }); }}>
                             <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isAct?"attack":"walk"} animate={isAct&&p.currentHp>0}/>
-                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"6px" }}>{p.name}</div>
+                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"11px" }}>{p.name}</div>
                             <Bar value={p.currentHp} max={p.maxHp} color={T.green} h={6}/>
                             <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
                               {[["PWR",pbs.Power,"#FF6B35"],["GRD",pbs.Guard,"#7EB8F7"],["FOC",pbs.Focus,"#B8A0E8"],["MTM",pbs.Momentum,"#FFD700"]].map(function(s){
-                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:11,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"5px",color:T.textDim }}>{s[0]}</div></div>;
+                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:11,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"10px",color:T.textDim }}>{s[0]}</div></div>;
                               })}
                             </div>
-                            {isAct&&<div className="px8" style={{ color:accent,marginTop:4,fontSize:"6px" }}>★ ATTACKER</div>}
+                            {isAct&&<div className="px8" style={{ color:accent,marginTop:4,fontSize:"11px" }}>★ ATTACKER</div>}
                             {isAct&&pInfo&&pInfo.passive&&<div style={{ fontSize:9,color:T.mint,marginTop:2,fontStyle:"italic",lineHeight:1.3 }}>{pInfo.passive.split('—')[0]}</div>}
                           </div>
                         );
@@ -2577,7 +2796,7 @@ export default function App({ session }) {
                     <div style={{ fontSize:42,marginBottom:12 }}>{battleState.phase==="won"?"🏆":"💀"}</div>
                     <div className="px12" style={{ color:battleState.phase==="won"?T.green:T.coral,marginBottom:8 }}>{battleState.phase==="won"?"VICTORY!":"DEFEATED"}</div>
                     <div style={{ fontSize:12,color:T.textMid,marginBottom:20 }}>{battleState.log[0]}</div>
-                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"7px" }} onClick={function(){ setBattleState(null); }}>RETURN</button>
+                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"12px" }} onClick={function(){ setBattleState(null); }}>RETURN</button>
                   </div>
                 )}
               </div>
@@ -2595,7 +2814,7 @@ export default function App({ session }) {
                   <div className="px12">JIJIMON'S SHOP</div>
                   <div className="px8" style={{ color:T.gold }}>🪙 {bits} BITS</div>
                 </div>
-                <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>Earn bits by winning Arena battles and completing tasks.</div>
+                <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>Earn bits by winning Patch Arena battles and completing tasks.</div>
 
                 {/* Food section */}
                 <div>
@@ -2608,9 +2827,9 @@ export default function App({ session }) {
                           <span style={{ fontSize:24,flexShrink:0 }}>{food.icon}</span>
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:14,fontWeight:800 }}>{food.name}</div>
-                            <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>+{food.stamina}⚡ Stamina  ·  +{food.bond}💗 Bond  ·  {food.desc}</div>
+                            <div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"11px" }}>+{food.stamina}⚡ Stamina  ·  +{food.bond}💗 Bond  ·  {food.desc}</div>
                           </div>
-                          <button className="px8" style={{ padding:"7px 12px",background:ok?T.pink+"22":"transparent",border:"2px solid "+(ok?T.pink:T.textDim),color:ok?T.pink:T.textDim,cursor:ok?"pointer":"not-allowed",fontSize:"6px",boxShadow:ok?"2px 2px 0 "+T.pink:"none" }}
+                          <button className="px8" style={{ padding:"7px 12px",background:ok?T.pink+"22":"transparent",border:"2px solid "+(ok?T.pink:T.textDim),color:ok?T.pink:T.textDim,cursor:ok?"pointer":"not-allowed",fontSize:"11px",boxShadow:ok?"2px 2px 0 "+T.pink:"none" }}
                             onClick={function(){ if(ok) feedFood(food); }}>
                             {food.cost}🪙
                           </button>
@@ -2632,9 +2851,9 @@ export default function App({ session }) {
                           <span style={{ fontSize:24,flexShrink:0 }}>{item.icon}</span>
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:14,fontWeight:800 }}>{item.name}</div>
-                            {item.desc&&<div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"6px" }}>{item.desc}</div>}
+                            {item.desc&&<div className="px8" style={{ color:T.textMid,marginTop:3,fontSize:"11px" }}>{item.desc}</div>}
                           </div>
-                          <button className="px8" style={{ padding:"7px 12px",background:ok?T.gold+"22":"transparent",border:"2px solid "+(ok?T.gold:T.textDim),color:ok?T.gold:T.textDim,cursor:ok?"pointer":"not-allowed",fontSize:"6px",boxShadow:ok?"2px 2px 0 "+T.gold:"none" }}
+                          <button className="px8" style={{ padding:"7px 12px",background:ok?T.gold+"22":"transparent",border:"2px solid "+(ok?T.gold:T.textDim),color:ok?T.gold:T.textDim,cursor:ok?"pointer":"not-allowed",fontSize:"11px",boxShadow:ok?"2px 2px 0 "+T.gold:"none" }}
                             onClick={function(){ if(ok) buyShopItem(item); }}>
                             {item.cost}🪙
                           </button>
@@ -2646,7 +2865,7 @@ export default function App({ session }) {
               </div>
             )}
 
-            {/* ── CAMPAIGN / RAID ──────────────────────────────────────── */}
+            {/* ── BREACH ───────────────────────────────────────────────── */}
             {page==="campaign"&&(function(){
               var raid     = CURRENT_RAID;
               var rs       = raidState || { totalDamage: 0, raidLog: [] };
@@ -2709,16 +2928,16 @@ export default function App({ session }) {
                         {!defeated && <div style={{ position:"absolute",top:-4,right:-4,width:10,height:10,background:"#cc0000",borderRadius:"50%",animation:"blink 0.8s step-end infinite" }}/>}
                       </div>
                       <div style={{ flex:1 }}>
-                        <div className="px8" style={{ color:"#9B59B6",fontSize:"5px",marginBottom:4 }}>COMMUNITY RAID BOSS — {raid.type} / {raid.attr}</div>
+                        <div className="px8" style={{ color:"#9B59B6",fontSize:"10px",marginBottom:4 }}>COMMUNITY BREACH BOSS — {raid.type} / {raid.attr}</div>
                         <div style={{ fontSize:22,fontWeight:900,color:T.text,letterSpacing:1,marginBottom:4 }}>{raid.name}</div>
                         <div style={{ fontSize:12,fontWeight:700,color:"#9B59B6",fontStyle:"italic",marginBottom:10 }}>"{raid.title}"</div>
                         <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
                           {defeated
-                            ? <span className="px8" style={{ padding:"3px 10px",background:"#FFD70033",border:"2px solid #FFD700",color:"#FFD700",fontSize:"6px" }}>★ DEFEATED</span>
-                            : <span className="px8" style={{ padding:"3px 10px",background:"#cc000033",border:"2px solid #cc0000",color:"#cc0000",fontSize:"6px" }}>⚡ ACTIVE RAID</span>
+                            ? <span className="px8" style={{ padding:"3px 10px",background:"#FFD70033",border:"2px solid #FFD700",color:"#FFD700",fontSize:"11px" }}>★ DEFEATED</span>
+                            : <span className="px8" style={{ padding:"3px 10px",background:"#cc000033",border:"2px solid #cc0000",color:"#cc0000",fontSize:"11px" }}>⚡ ACTIVE BREACH</span>
                           }
-                          <span className="px8" style={{ color:T.textMid,fontSize:"6px" }}>{daysLeft > 0 ? daysLeft+" days remaining" : "Event ended"}</span>
-                          <span className="px8" style={{ color:T.textDim,fontSize:"6px" }}>{raid.startDate} — {raid.endDate}</span>
+                          <span className="px8" style={{ color:T.textMid,fontSize:"11px" }}>{daysLeft > 0 ? daysLeft+" days remaining" : "Event ended"}</span>
+                          <span className="px8" style={{ color:T.textDim,fontSize:"11px" }}>{raid.startDate} — {raid.endDate}</span>
                         </div>
                       </div>
                     </div>
@@ -2727,8 +2946,8 @@ export default function App({ session }) {
                   {/* Boss HP bar */}
                   <div className="pcard" style={{ padding:16 }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
-                      <div className="px8" style={{ fontSize:"6px",color:T.textMid }}>COMMUNITY BOSS HP</div>
-                      <div className="px8" style={{ color:defeated?"#FFD700":T.coral,fontSize:"7px" }}>{dmg.toLocaleString()} / {bossHp.toLocaleString()}</div>
+                      <div className="px8" style={{ fontSize:"11px",color:T.textMid }}>COMMUNITY BOSS HP</div>
+                      <div className="px8" style={{ color:defeated?"#FFD700":T.coral,fontSize:"12px" }}>{dmg.toLocaleString()} / {bossHp.toLocaleString()}</div>
                     </div>
                     {/* Phase markers */}
                     <div style={{ position:"relative",height:20,background:T.bgPanel,border:"2px solid "+T.border,overflow:"hidden",marginBottom:6 }}>
@@ -2748,7 +2967,7 @@ export default function App({ session }) {
                         var isActive = i === phaseIdx && !defeated;
                         return (
                           <div key={i} style={{ textAlign:"center",opacity:isActive?1:0.4 }}>
-                            <div className="px8" style={{ color:isActive?p.color:T.textDim,fontSize:"4px",fontWeight:isActive?900:400 }}>{p.name.toUpperCase()}</div>
+                            <div className="px8" style={{ color:isActive?p.color:T.textDim,fontSize:"9px",fontWeight:isActive?900:400 }}>{p.name.toUpperCase()}</div>
                           </div>
                         );
                       })}
@@ -2759,7 +2978,7 @@ export default function App({ session }) {
                       <div style={{ padding:"10px 14px",background:phase.color+"18",border:"2px solid "+phase.color,display:"flex",gap:10,alignItems:"center" }}>
                         <div style={{ fontSize:18,color:phase.color,flexShrink:0 }}>{STAT_ICONS[phase.dominant]}</div>
                         <div>
-                          <div className="px8" style={{ color:phase.color,fontSize:"6px",marginBottom:3 }}>PHASE: {phase.name.toUpperCase()} — {STAT_LABELS[phase.dominant].toUpperCase()} ADVANTAGE</div>
+                          <div className="px8" style={{ color:phase.color,fontSize:"11px",marginBottom:3 }}>PHASE: {phase.name.toUpperCase()} — {STAT_LABELS[phase.dominant].toUpperCase()} ADVANTAGE</div>
                           <div style={{ fontSize:11,color:T.textMid,lineHeight:1.5 }}>{phase.desc}</div>
                         </div>
                       </div>
@@ -2773,7 +2992,7 @@ export default function App({ session }) {
                           <div style={{ fontSize:32 }}>🥚</div>
                           <div>
                             <div style={{ fontWeight:800,fontSize:13 }}>{raid.reward.name}</div>
-                            <div className="px8" style={{ color:T.textDim,fontSize:"5px" }}>REWARD UNLOCKED</div>
+                            <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>REWARD UNLOCKED</div>
                           </div>
                         </div>
                       </div>
@@ -2783,12 +3002,12 @@ export default function App({ session }) {
                   {/* Partner contribution stats */}
                   {activeDigi && bs && (
                     <div className="pcard" style={{ padding:16 }}>
-                      <div className="px8" style={{ color:T.textDim,marginBottom:12,fontSize:"5px" }}>YOUR PARTNER'S RAID CONTRIBUTION</div>
+                      <div className="px8" style={{ color:T.textDim,marginBottom:12,fontSize:"10px" }}>YOUR PARTNER'S RAID CONTRIBUTION</div>
                       <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
                         <DigiSprite digimonId={activeDigi.speciesId} size={44} animate mood="walk"/>
                         <div>
                           <div style={{ fontSize:13,fontWeight:800 }}>{activeDigi.name}</div>
-                          <div className="px8" style={{ color:T.textMid,fontSize:"6px" }}>Lv.{activeDigi.level} · Active Partner</div>
+                          <div className="px8" style={{ color:T.textMid,fontSize:"11px" }}>Lv.{activeDigi.level} · Active Partner</div>
                         </div>
                       </div>
                       <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
@@ -2798,18 +3017,18 @@ export default function App({ session }) {
                           var isDominant = !defeated && phase && phase.dominant === s;
                           return (
                             <div key={s} style={{ padding:"10px",background:isDominant?STAT_COLORS[s]+"22":T.bgPanel,border:"2px solid "+(isDominant?STAT_COLORS[s]:T.border),position:"relative" }}>
-                              {isDominant && <div className="px8" style={{ position:"absolute",top:4,right:4,color:STAT_COLORS[s],fontSize:"4px" }}>★ ACTIVE</div>}
+                              {isDominant && <div className="px8" style={{ position:"absolute",top:4,right:4,color:STAT_COLORS[s],fontSize:"9px" }}>★ ACTIVE</div>}
                               <div style={{ fontSize:22,marginBottom:4 }}>{STAT_ICONS[s]}</div>
                               <div style={{ fontSize:20,fontWeight:900,color:STAT_COLORS[s] }}>{val}</div>
-                              <div className="px8" style={{ color:T.textDim,fontSize:"5px",marginTop:2 }}>{STAT_LABELS[s].toUpperCase()}</div>
-                              {isDominant && <div className="px8" style={{ color:STAT_COLORS[s],fontSize:"4px",marginTop:3 }}>+50% phase bonus</div>}
+                              <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginTop:2 }}>{STAT_LABELS[s].toUpperCase()}</div>
+                              {isDominant && <div className="px8" style={{ color:STAT_COLORS[s],fontSize:"9px",marginTop:3 }}>+50% phase bonus</div>}
                             </div>
                           );
                         })}
                       </div>
                       {/* Task type guide */}
                       <div style={{ marginTop:12,padding:"10px 12px",background:T.bgPanel,border:"1px solid "+T.border }}>
-                        <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginBottom:8 }}>TASK → RAID STAT GUIDE</div>
+                        <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:8 }}>TASK → RAID STAT GUIDE</div>
                         <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
                           {[
                             ["Workout / Challenge","power"],
@@ -2822,7 +3041,7 @@ export default function App({ session }) {
                               <div key={row[0]} style={{ display:"flex",alignItems:"center",gap:8,opacity:isDom?1:0.6 }}>
                                 <span style={{ fontSize:12,color:STAT_COLORS[row[1]] }}>{STAT_ICONS[row[1]]}</span>
                                 <span style={{ fontSize:10,fontWeight:700,color:isDom?T.text:T.textMid }}>{row[0]}</span>
-                                <span className="px8" style={{ marginLeft:"auto",color:STAT_COLORS[row[1]],fontSize:"5px" }}>{STAT_LABELS[row[1]]}{ isDom?" ★":""}</span>
+                                <span className="px8" style={{ marginLeft:"auto",color:STAT_COLORS[row[1]],fontSize:"10px" }}>{STAT_LABELS[row[1]]}{ isDom?" ★":""}</span>
                               </div>
                             );
                           })}
@@ -2834,7 +3053,7 @@ export default function App({ session }) {
                   {/* Raid log */}
                   {rs.raidLog && rs.raidLog.length > 0 && (
                     <div className="pcard" style={{ padding:16 }}>
-                      <div className="px8" style={{ color:T.textDim,marginBottom:10,fontSize:"5px" }}>YOUR RAID LOG</div>
+                      <div className="px8" style={{ color:T.textDim,marginBottom:10,fontSize:"10px" }}>YOUR RAID LOG</div>
                       <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
                         {rs.raidLog.slice(0,15).map(function(entry,i){
                           var sc = STAT_COLORS[entry.stat] || "#aaa";
@@ -2843,7 +3062,7 @@ export default function App({ session }) {
                               <div style={{ fontSize:14,color:sc,flexShrink:0 }}>{STAT_ICONS[entry.stat]||"⚔"}</div>
                               <div style={{ flex:1 }}>
                                 <div style={{ fontSize:11,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{entry.taskTitle}</div>
-                                {entry.phase && <div className="px8" style={{ color:T.textDim,fontSize:"4px",marginTop:1 }}>{entry.phase} · {entry.date}</div>}
+                                {entry.phase && <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginTop:1 }}>{entry.phase} · {entry.date}</div>}
                               </div>
                               <div style={{ fontSize:13,fontWeight:900,color:sc,flexShrink:0 }}>+{entry.damage}</div>
                             </div>
@@ -2859,7 +3078,7 @@ export default function App({ session }) {
 
             {/* ── DIGIDEX ──────────────────────────────────────────────── */}
             {page==="digidex"&&(function(){
-              var stages = ["In-Training","Rookie","Champion","Ultimate","Mega"];
+              var stages = ["Baby","In-Training","Rookie","Champion","Ultimate","Mega","Ultra"];
               var allDigi = Object.values(DIGIMON_MAP);
               var byStage = {};
               stages.forEach(function(s){ byStage[s]=[]; });
@@ -2874,35 +3093,49 @@ export default function App({ session }) {
                   {stages.map(function(stage){
                     var group = byStage[stage];
                     if (!group||group.length===0) return null;
+                    var stCol     = STAGE_COLOR[stage]||"#aaa";
+                    var collapsed = !!collapsedStages[stage];
+                    var discovered = group.filter(function(d){return allDisc.includes(d.id);}).length;
                     return (
                       <div key={stage}>
-                        <div className="px8" style={{ color:STAGE_COLOR[stage]||"#aaa",marginBottom:10,fontSize:"7px",borderBottom:"1px solid "+T.border,paddingBottom:6 }}>
-                          {stage.toUpperCase()} — {group.filter(function(d){return allDisc.includes(d.id);}).length}/{group.length}
+                        <div
+                          onClick={function(){ setCollapsedStages(function(prev){ var n=Object.assign({},prev); n[stage]=!prev[stage]; return n; }); }}
+                          className="px8"
+                          style={{ color:stCol,marginBottom:collapsed?0:10,fontSize:"12px",borderBottom:"1px solid "+T.border,paddingBottom:6,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",userSelect:"none" }}>
+                          <span>{stage.toUpperCase()} — {discovered}/{group.length}</span>
+                          <span style={{ fontSize:"9px",opacity:0.7,marginLeft:8 }}>{collapsed?"▶":"▼"}</span>
                         </div>
-                        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8 }}>
-                          {group.map(function(d){
-                            var known = allDisc.includes(d.id);
-                            var role  = ROLES[d.role]||ROLES.Balanced;
-                            var stCol = STAGE_COLOR[d.stage]||"#aaa";
-                            return (
-                              <div key={d.id} onClick={function(){ setDigidexEntry(d.id); }}
-                                style={{ padding:10,textAlign:"center",background:T.bgCard,border:"1.5px solid "+(known?stCol+"66":T.border),cursor:"pointer",transition:"border-color 0.15s",opacity:known?1:0.45 }}>
-                                <div style={{ display:"flex",justifyContent:"center",marginBottom:5,height:48,alignItems:"flex-end" }}>
-                                  <DigiSprite digimonId={d.id} size={44} animate={known}/>
+                        {!collapsed && (
+                          <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8,marginTop:10 }}>
+                            {group.map(function(d){
+                              var known = allDisc.includes(d.id);
+                              var role  = ROLES[d.role]||ROLES.Balanced;
+                              var dCol  = STAGE_COLOR[d.stage]||"#aaa";
+                              return (
+                                <div key={d.id} onClick={function(e){ e.stopPropagation(); setDigidexEntry(d.id); }}
+                                  style={{ padding:10,textAlign:"center",background:T.bgCard,border:"1.5px solid "+(known?dCol+"66":T.border),cursor:"pointer",transition:"border-color 0.15s",opacity:known?1:0.45 }}>
+                                  <div style={{ display:"flex",justifyContent:"center",marginBottom:5,height:48,alignItems:"flex-end" }}>
+                                    <DigiSprite digimonId={d.id} size={44} animate={false} mood="walk"/>
+                                  </div>
+                                  <div style={{ fontSize:9,fontWeight:800,color:known?T.text:T.textDim,marginBottom:2 }}>{d.name}</div>
+                                  <div className="px8" style={{ color:dCol,fontSize:"10px" }}>{d.stage}</div>
+                                  {known&&<div className="px8" style={{ color:role.color,marginTop:2,fontSize:"10px" }}>{role.icon} {d.role}</div>}
                                 </div>
-                                <div style={{ fontSize:9,fontWeight:800,color:known?T.text:T.textDim,marginBottom:2 }}>{d.name}</div>
-                                <div className="px8" style={{ color:stCol,fontSize:"5px" }}>{d.stage}</div>
-                                {known&&<div className="px8" style={{ color:role.color,marginTop:2,fontSize:"5px" }}>{role.icon} {d.role}</div>}
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
               );
             })()}
+
+            {/* ── NETWORK ──────────────────────────────────────────────── */}
+            {page==="network"&&(
+              <NetworkPage userId={userId} accent={accent} T={T}/>
+            )}
 
           </div>
         </main>
@@ -2918,9 +3151,9 @@ export default function App({ session }) {
               <div style={{ fontSize:12,fontWeight:700,color:T.textMid,marginBottom:10,lineHeight:1.5 }}>Complete 5 tasks to earn a Rare Treat!</div>
               <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                 <div style={{ flex:1,height:10,background:T.bgCard,border:"1.5px solid "+T.border,overflow:"hidden" }}>
-                  <div style={{ width:Math.min((doneTasks.length/5)*100,100)+"%",height:"100%",background:T.coral }}/>
+                  <div style={{ width:Math.min((doneToday.length/5)*100,100)+"%",height:"100%",background:T.coral }}/>
                 </div>
-                <div className="px8" style={{ color:T.gold,fontSize:"6px" }}>{doneTasks.length}/5</div>
+                <div className="px8" style={{ color:T.gold,fontSize:"11px" }}>{doneToday.length}/5</div>
               </div>
             </div>
           </div>
@@ -2935,7 +3168,7 @@ export default function App({ session }) {
                     <div style={{ width:24,height:24,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:12,flexShrink:0,background:T.bgCard }}>{entry.icon}</div>
                     <div>
                       <div style={{ fontSize:11,fontWeight:700,color:T.textMid,lineHeight:1.5 }}>{entry.text}</div>
-                      <div className="px8" style={{ color:T.textDim,marginTop:2,fontSize:"5px" }}>{entry.time}</div>
+                      <div className="px8" style={{ color:T.textDim,marginTop:2,fontSize:"10px" }}>{entry.time}</div>
                     </div>
                   </div>
                 );
@@ -2958,9 +3191,9 @@ export default function App({ session }) {
                     <DigiSprite digimonId={d.speciesId} size={32} animate mood="walk"/>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12,fontWeight:800 }}>{d.name}</div>
-                      <div className="px8" style={{ color:role.color,fontSize:"5px",marginTop:2 }}>{role.icon} {inf2&&inf2.role}</div>
+                      <div className="px8" style={{ color:role.color,fontSize:"9px",marginTop:2 }}>{role.icon} {inf2&&inf2.role}</div>
                     </div>
-                    {i===0&&<span className="px8" style={{ color:accent,fontSize:"6px" }}>★</span>}
+                    {i===0&&<span className="px8" style={{ color:accent,fontSize:"11px" }}>★</span>}
                   </div>
                 );
               })}
@@ -3008,13 +3241,12 @@ function RadarChart({ percentages, T }) {
       {/* Labels */}
       {outerPoints.map(function(p,i){
         var ci = CREST_INFO[CRESTS[i]];
-        var lx = (cx + (r+18) * Math.cos((i/n)*2*Math.PI - Math.PI/2)).toFixed(1);
-        var ly = (cy + (r+18) * Math.sin((i/n)*2*Math.PI - Math.PI/2)).toFixed(1);
-        return (
-          <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill={ci.color}>
-            {ci.icon}
-          </text>
-        );
+        var lx = parseFloat((cx + (r+18) * Math.cos((i/n)*2*Math.PI - Math.PI/2)).toFixed(1));
+        var ly = parseFloat((cy + (r+18) * Math.sin((i/n)*2*Math.PI - Math.PI/2)).toFixed(1));
+        var sz = 16;
+        return ci.img
+          ? <image key={i} href={ci.img} x={lx-sz/2} y={ly-sz/2} width={sz} height={sz}/>
+          : <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill={ci.color}>{ci.icon}</text>;
       })}
     </svg>
   );
@@ -3025,9 +3257,16 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
   var windowDays = 14;
   var today = new Date().toISOString().split('T')[0];
   var todayEntries = crestHistory.filter(function(e){ return e.date===today; });
-  var todayCounts = {};
+  var todayCounts = {}; // { crestName: { primary: n, secondary: n } }
   todayEntries.forEach(function(e){
-    if (e.primaryCrest) todayCounts[e.primaryCrest] = (todayCounts[e.primaryCrest]||0) + e.primary;
+    if (e.primaryCrest) {
+      if (!todayCounts[e.primaryCrest]) todayCounts[e.primaryCrest] = { primary:0, secondary:0 };
+      todayCounts[e.primaryCrest].primary += e.primary||0;
+    }
+    if (e.secondaryCrest && (e.secondary||0) > 0) {
+      if (!todayCounts[e.secondaryCrest]) todayCounts[e.secondaryCrest] = { primary:0, secondary:0 };
+      todayCounts[e.secondaryCrest].secondary += e.secondary||0;
+    }
   });
 
   return (
@@ -3043,10 +3282,10 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
           var ci = slot.key ? CREST_INFO[slot.key] : null;
           return (
             <div key={slot.role} className="pcard" style={{ padding:16,borderColor:ci?ci.color:T.border,boxShadow:"3px 3px 0 "+(ci?ci.color:T.border) }}>
-              <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"7px" }}>{slot.role.toUpperCase()}</div>
+              <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>{slot.role.toUpperCase()}</div>
               {ci ? (
                 <div>
-                  <div style={{ fontSize:32,marginBottom:6 }}>{ci.icon}</div>
+                  <div style={{ marginBottom:8 }}><CrestIcon ci={ci} size={48}/></div>
                   <div style={{ fontSize:18,fontWeight:900,color:ci.color }}>{slot.key}</div>
                   <div style={{ fontSize:11,color:T.textMid,marginTop:4 }}>{ci.desc}</div>
                 </div>
@@ -3073,11 +3312,11 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
             return (
               <div key={name} style={{ marginBottom:10 }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
-                  <span style={{ fontSize:16,width:22,textAlign:"center",flexShrink:0 }}>{ci.icon}</span>
+                  <span style={{ width:22,textAlign:"center",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={ci} size={18}/></span>
                   <span style={{ fontSize:12,fontWeight:800,color:ci.color,width:100,flexShrink:0 }}>{name}</span>
-                  {isPrim&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"5px" }}>★ PRIMARY</span>}
-                  {isSec&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.textMid,color:T.textMid,fontSize:"5px" }}>◆ SUPPORT</span>}
-                  <span className="px8" style={{ color:T.textMid,fontSize:"6px",marginLeft:"auto" }}>{pct}%</span>
+                  {isPrim&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"10px" }}>★ PRIMARY</span>}
+                  {isSec&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.textMid,color:T.textMid,fontSize:"10px" }}>◆ SUPPORT</span>}
+                  <span className="px8" style={{ color:T.textMid,fontSize:"11px",marginLeft:"auto" }}>{pct}%</span>
                 </div>
                 <div style={{ height:10,background:T.bgPanel,border:"2px solid "+T.border,overflow:"hidden" }}>
                   <div style={{ width:pct+"%",height:"100%",background:ci.color,transition:"width 0.8s ease",position:"relative" }}>
@@ -3093,16 +3332,27 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
 
       {/* Today's crest activity */}
       <div className="pcard" style={{ padding:14 }}>
-        <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"7px" }}>TODAY'S CREST ACTIVITY</div>
+        <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>TODAY'S CREST ACTIVITY</div>
         {Object.keys(todayCounts).length > 0 ? (
           <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
-            {Object.entries(todayCounts).map(function([name,pts]){
+            {Object.entries(todayCounts).map(function([name,counts]){
               var ci = CREST_INFO[name];
+              var hasPrimary   = counts.primary > 0;
+              var hasSecondary = counts.secondary > 0;
               return (
                 <div key={name} style={{ display:"flex",alignItems:"center",gap:6,padding:"6px 10px",border:"1.5px solid "+ci.color,background:ci.color+"18" }}>
-                  <span style={{ fontSize:14 }}>{ci.icon}</span>
-                  <span style={{ fontSize:12,fontWeight:800,color:ci.color }}>{name}</span>
-                  <span className="px8" style={{ color:ci.color,fontSize:"7px" }}>+{pts}</span>
+                  <CrestIcon ci={ci} size={16}/>
+                  <div style={{ display:"flex",flexDirection:"column",gap:1 }}>
+                    <span style={{ fontSize:11,fontWeight:800,color:ci.color,lineHeight:1 }}>{name}</span>
+                    <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                      {hasPrimary&&<span className="px8" style={{ color:ci.color }}>+{counts.primary}</span>}
+                      {hasSecondary&&(
+                        <span className="px8" style={{ color:ci.color,opacity:0.65 }}>
+                          {hasPrimary?"+"+counts.secondary+" sec":"+"+counts.secondary+" sec"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -3115,7 +3365,7 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
       {/* Evolution path hint */}
       {activeInfo&&activeInfo.evolvesTo&&activeInfo.evolvesTo.length>0&&(
         <div className="pcard" style={{ padding:14 }}>
-          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"7px" }}>EVOLUTION PATHS FROM {(activeDigi&&activeDigi.name)||"PARTNER"}</div>
+          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>EVOLUTION PATHS FROM {(activeDigi&&activeDigi.name)||"PARTNER"}</div>
           <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
             {activeInfo.evolvesTo.map(function(id){
               var ti = DIGIMON_MAP[id];
@@ -3133,29 +3383,29 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
                     <DigiSprite digimonId={id} size={36} animate mood="walk"/>
                     <div>
                       <div style={{ fontSize:13,fontWeight:800 }}>{ti.name}</div>
-                      <div className="px8" style={{ color:CREST_INFO[cr.primary].color,fontSize:"6px",marginTop:2 }}>{pci.icon} {cr.primary}{sci?" + "+sci.icon+" "+cr.secondary:""}</div>
+                      <div className="px8" style={{ color:CREST_INFO[cr.primary].color,fontSize:"11px",marginTop:2,display:"flex",alignItems:"center",gap:4 }}><CrestIcon ci={pci} size={12}/> {cr.primary}{sci&&<><span> +</span><CrestIcon ci={sci} size={12}/><span> {cr.secondary}</span></>}</div>
                     </div>
                     <div style={{ marginLeft:"auto",textAlign:"right" }}>
                       <div style={{ fontSize:18,fontWeight:900,color:matchScore>=70?T.green:matchScore>=40?T.gold:T.coral }}>{matchScore}%</div>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"5px" }}>MATCH</div>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>MATCH</div>
                     </div>
                   </div>
                   {/* Mini bars */}
                   <div style={{ display:"flex",flexDirection:"column",gap:3 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                      <span style={{ fontSize:10,width:16 }}>{pci.icon}</span>
+                      <span style={{ width:16,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={pci} size={12}/></span>
                       <div style={{ flex:1,height:6,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden" }}>
                         <div style={{ width:pPct+"%",height:"100%",background:pci.color,transition:"width 0.6s ease" }}/>
                       </div>
-                      <span className="px8" style={{ color:T.textMid,fontSize:"5px",width:24,textAlign:"right" }}>{pPct}%</span>
+                      <span className="px8" style={{ color:T.textMid,fontSize:"10px",width:24,textAlign:"right" }}>{pPct}%</span>
                     </div>
                     {sci&&(
                       <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <span style={{ fontSize:10,width:16 }}>{sci.icon}</span>
+                        <span style={{ width:16,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={sci} size={12}/></span>
                         <div style={{ flex:1,height:6,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden" }}>
                           <div style={{ width:sPct+"%",height:"100%",background:sci.color,transition:"width 0.6s ease" }}/>
                         </div>
-                        <span className="px8" style={{ color:T.textMid,fontSize:"5px",width:24,textAlign:"right" }}>{sPct}%</span>
+                        <span className="px8" style={{ color:T.textMid,fontSize:"10px",width:24,textAlign:"right" }}>{sPct}%</span>
                       </div>
                     )}
                   </div>
@@ -3163,7 +3413,7 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
               );
             })}
           </div>
-          <button className="px8" style={{ marginTop:12,padding:"8px 14px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"6px" }} onClick={onGoTeam}>
+          <button className="px8" style={{ marginTop:12,padding:"8px 14px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"11px" }} onClick={onGoTeam}>
             GO TO TEAM →
           </button>
         </div>
@@ -3172,12 +3422,221 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
   );
 }
 
+// ── NetworkPage ───────────────────────────────────────────────────────────────
+function NetworkPage({ userId, accent, T }) {
+  var [tab,         setTab]         = useState("friends");   // "friends" | "pvp"
+  var [searchId,    setSearchId]    = useState("");
+  var [searchResult,setSearchResult]= useState(null);  // null | "loading" | { found, profile } | "error"
+  var [friends,     setFriends]     = useState([]);
+  var [loadedOnce,  setLoadedOnce]  = useState(false);
+  var [pvpInvites,  setPvpInvites]  = useState([]);    // placeholder for future invite system
+
+  // supabase is imported at the top of this module — accessible directly
+  var sb = supabase;
+
+  useEffect(function() {
+    if (!userId || loadedOnce) return;
+    setLoadedOnce(true);
+    loadFriends();
+  }, [userId]);
+
+  async function loadFriends() {
+    if (!sb) return;
+    var { data } = await sb.from('friends')
+      .select('friend_id, profiles:friend_id(display_name, login_streak, bond)')
+      .eq('user_id', userId);
+    if (data) setFriends(data.map(function(r) {
+      return { id: r.friend_id, name: r.profiles?.display_name || "Tamer", streak: r.profiles?.login_streak || 0, bond: r.profiles?.bond || 0 };
+    }));
+  }
+
+  async function searchUser() {
+    var q = searchId.trim();
+    if (!q || !sb) return;
+    setSearchResult("loading");
+    // search by user UUID or display_name
+    var { data } = await sb.from('profiles')
+      .select('id, display_name, login_streak')
+      .or('id.eq.' + q + ',display_name.ilike.' + q)
+      .neq('id', userId)
+      .limit(1)
+      .single();
+    if (data) {
+      // check if already friends
+      var { data: existing } = await sb.from('friends').select('id').eq('user_id', userId).eq('friend_id', data.id).single();
+      setSearchResult({ found: true, profile: data, alreadyFriend: !!existing });
+    } else {
+      setSearchResult({ found: false });
+    }
+  }
+
+  async function addFriend(profile) {
+    if (!sb) return;
+    await sb.from('friends').upsert({ user_id: userId, friend_id: profile.id });
+    setFriends(function(f) { return f.concat([{ id: profile.id, name: profile.display_name || "Tamer", streak: profile.login_streak || 0, bond: 0 }]); });
+    setSearchResult(Object.assign({}, searchResult, { alreadyFriend: true }));
+  }
+
+  async function removeFriend(friendId) {
+    if (!sb) return;
+    await sb.from('friends').delete().eq('user_id', userId).eq('friend_id', friendId);
+    setFriends(function(f) { return f.filter(function(x) { return x.id !== friendId; }); });
+  }
+
+  var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",fontFamily:"'Nunito',sans-serif",boxSizing:"border-box" };
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+        <div className="px12">🔗 NETWORK</div>
+        <div className="px8" style={{ color:T.textMid }}>{friends.length} connections</div>
+      </div>
+
+      {/* Tab switcher */}
+      <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,width:"fit-content" }}>
+        {[["friends","CONNECTIONS"],["pvp","FRIENDLY PVP"]].map(function(pair){
+          var active = tab === pair[0];
+          return (
+            <button key={pair[0]} className="task-tab"
+              style={{ background:active?T.bg:T.bgCard,color:active?accent:T.textMid }}
+              onClick={function(){ setTab(pair[0]); }}>{pair[1]}</button>
+          );
+        })}
+      </div>
+
+      {/* ── CONNECTIONS tab ── */}
+      {tab==="friends"&&(
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+
+          {/* Search */}
+          <div className="pcard" style={{ padding:14 }}>
+            <div className="px8" style={{ color:accent,marginBottom:10,fontSize:"11px" }}>ADD BY USER ID OR NAME</div>
+            <div style={{ display:"flex",gap:8 }}>
+              <input
+                value={searchId}
+                onChange={function(e){ setSearchId(e.target.value); setSearchResult(null); }}
+                onKeyDown={function(e){ if(e.key==="Enter") searchUser(); }}
+                placeholder="Enter user ID or display name…"
+                style={Object.assign({},inputSt,{flex:1})}
+              />
+              <button className="px8"
+                style={{ padding:"9px 16px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontWeight:800,fontSize:"12px",flexShrink:0 }}
+                onClick={searchUser}>SEARCH</button>
+            </div>
+
+            {/* Search result */}
+            {searchResult==="loading"&&(
+              <div style={{ marginTop:10,fontSize:12,color:T.textMid }}>Searching…</div>
+            )}
+            {searchResult&&searchResult!=="loading"&&!searchResult.found&&(
+              <div style={{ marginTop:10,fontSize:12,color:T.coral }}>No tamer found with that ID or name.</div>
+            )}
+            {searchResult&&searchResult.found&&(
+              <div style={{ marginTop:10,display:"flex",alignItems:"center",gap:12,background:T.bgCard,border:"2px solid "+T.border,padding:"10px 14px" }}>
+                <div style={{ width:36,height:36,background:accent+"22",border:"2px solid "+accent,display:"grid",placeItems:"center",fontSize:18,flexShrink:0 }}>🧑</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13,fontWeight:800 }}>{searchResult.profile.display_name||"Tamer"}</div>
+                  <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginTop:2 }}>🔥 {searchResult.profile.login_streak||0} day streak</div>
+                </div>
+                {searchResult.alreadyFriend
+                  ? <span className="px8" style={{ color:T.mint,fontSize:"11px" }}>✓ CONNECTED</span>
+                  : <button className="px8"
+                      style={{ padding:"7px 14px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"11px",fontWeight:800 }}
+                      onClick={function(){ addFriend(searchResult.profile); }}>+ CONNECT</button>
+                }
+              </div>
+            )}
+          </div>
+
+          {/* Friends list */}
+          {friends.length===0
+            ? <div className="pcard" style={{ padding:32,textAlign:"center",color:T.textMid }}>Your network is empty. Search for tamers to connect.</div>
+            : friends.map(function(f){
+                return (
+                  <div key={f.id} className="pcard" style={{ padding:"12px 14px",display:"flex",alignItems:"center",gap:12 }}>
+                    <div style={{ width:38,height:38,background:T.bgPanel,border:"2px solid "+T.border,display:"grid",placeItems:"center",fontSize:18,flexShrink:0 }}>🧑</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13,fontWeight:800 }}>{f.name}</div>
+                      <div style={{ display:"flex",gap:10,marginTop:4 }}>
+                        <span className="px8" style={{ color:T.coral,fontSize:"10px" }}>🔥 {f.streak}d streak</span>
+                        <span className="px8" style={{ color:T.pink,fontSize:"10px" }}>💗 Bond {Math.round(f.bond)}</span>
+                      </div>
+                    </div>
+                    <div style={{ display:"flex",gap:6,flexShrink:0 }}>
+                      <button className="px8"
+                        style={{ padding:"6px 12px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"11px" }}
+                        onClick={function(){ setTab("pvp"); }}>⚔ CHALLENGE</button>
+                      <button
+                        style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:16,padding:"4px 6px",lineHeight:1 }}
+                        onClick={function(){ removeFriend(f.id); }} title="Remove">×</button>
+                    </div>
+                  </div>
+                );
+              })
+          }
+        </div>
+      )}
+
+      {/* ── FRIENDLY PVP tab ── */}
+      {tab==="pvp"&&(
+        <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+          <div className="pcard" style={{ padding:20,textAlign:"center" }}>
+            <div style={{ fontSize:32,marginBottom:10 }}>⚔</div>
+            <div className="px12" style={{ color:accent,marginBottom:8 }}>FRIENDLY PVP</div>
+            <div style={{ fontSize:12,fontWeight:700,color:T.textMid,lineHeight:1.7,maxWidth:380,margin:"0 auto" }}>
+              Challenge friends from your Network to a Patch battle. Your team's real-world stats — built from tasks you've completed — determine your power.
+            </div>
+            <div style={{ marginTop:18,display:"flex",flexDirection:"column",gap:10 }}>
+              {friends.length===0
+                ? <div style={{ fontSize:12,color:T.textDim }}>Add connections first to issue a challenge.</div>
+                : friends.map(function(f){
+                    return (
+                      <div key={f.id} style={{ display:"flex",alignItems:"center",gap:12,background:T.bgCard,border:"2px solid "+T.border,padding:"10px 14px" }}>
+                        <div style={{ fontSize:18,flexShrink:0 }}>🧑</div>
+                        <div style={{ flex:1,textAlign:"left" }}>
+                          <div style={{ fontSize:13,fontWeight:800 }}>{f.name}</div>
+                          <div className="px8" style={{ color:T.coral,fontSize:"10px",marginTop:2 }}>🔥 {f.streak}d streak</div>
+                        </div>
+                        <button className="px8"
+                          style={{ padding:"7px 14px",background:T.coral,border:"2px solid "+T.border,color:"white",cursor:"pointer",fontSize:"11px",fontWeight:800 }}>
+                          ⚔ SEND CHALLENGE
+                        </button>
+                      </div>
+                    );
+                  })
+              }
+            </div>
+            {pvpInvites.length>0&&(
+              <div style={{ marginTop:16,borderTop:"2px solid "+T.border,paddingTop:14 }}>
+                <div className="px8" style={{ color:T.gold,marginBottom:10 }}>INCOMING CHALLENGES</div>
+                {pvpInvites.map(function(inv,i){
+                  return (
+                    <div key={i} style={{ display:"flex",alignItems:"center",gap:10,background:T.bgCard,border:"2px solid "+T.gold,padding:"10px 14px",marginBottom:8 }}>
+                      <div style={{ flex:1,fontSize:12,fontWeight:700 }}>{inv.from} challenged you!</div>
+                      <button className="px8" style={{ padding:"6px 12px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontSize:"11px" }}>ACCEPT</button>
+                      <button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"11px" }}>DECLINE</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ marginTop:20,fontSize:11,color:T.textDim,fontStyle:"italic" }}>
+              Live PvP matchmaking coming soon — invites and async challenge mode are next.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TasksPage ─────────────────────────────────────────────────────────────────
 function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, accent, streak, T }) {
-  var [filterTpl,  setFilterTpl]  = useState("All");
-  var [filterType, setFilterType] = useState("All");
-  var [showAdd,    setShowAdd]    = useState(false);
-  var [editId,     setEditId]     = useState(null);
+  var [filterTpl,      setFilterTpl]      = useState("All");
+  var [filterType,     setFilterType]     = useState("All");
+  var [showAdd,        setShowAdd]        = useState(false);
+  var [editId,         setEditId]         = useState(null);
+  var [visibleDone,    setVisibleDone]    = useState(5);
   var [form, setForm] = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
 
   function reset(){ setForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }
@@ -3186,9 +3645,10 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
   function startEdit(t){ setEditId(t.id); setForm({title:t.title,template:t.template||"Neutral",priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
 
   var typeColor = { once:T.lavender, daily:T.teal, recurring:T.mint };
-  var visible = tasks
-    .filter(function(t){ return (filterTpl==="All"||t.template===filterTpl)&&(filterType==="All"||t.type===filterType); })
-    .sort(function(a,b){ return (a.done===b.done)?0:a.done?1:-1; });
+  var filtered  = tasks.filter(function(t){ return (filterTpl==="All"||t.template===filterTpl)&&(filterType==="All"||t.type===filterType); });
+  var pendTasks = filtered.filter(function(t){ return !t.done; });
+  var compTasks = filtered.filter(function(t){ return  t.done; });
+  var MAX_DONE  = 15;
 
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
@@ -3196,24 +3656,24 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
       <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,width:"fit-content",flexWrap:"wrap" }}>
         {["All"].concat(["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"]).map(function(c){
           var a=filterTpl===c;
-          return <button key={c} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterTpl(c); }}>{c.toUpperCase()}</button>;
+          return <button key={c} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterTpl(c); setVisibleDone(5); }}>{c.toUpperCase()}</button>;
         })}
       </div>
       <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,width:"fit-content" }}>
         {["All","once","daily","recurring"].map(function(t){
           var a=filterType===t;
-          return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(t); }}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
+          return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(t); setVisibleDone(5); }}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
         })}
       </div>
 
       {showAdd&&!editId&&<TaskForm form={form} setForm={setForm} onSubmit={submitAdd} onCancel={function(){setShowAdd(false);reset();}} label="ADD TASK" accent={accent} T={T}/>}
       {!showAdd&&!editId&&(
-        <button className="px8" style={{ padding:"11px 18px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer",textAlign:"left",fontSize:"7px" }} onClick={function(){setShowAdd(true);}}>+ NEW TASK</button>
+        <button className="px8" style={{ padding:"11px 18px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer",textAlign:"left",fontSize:"12px" }} onClick={function(){setShowAdd(true);}}>+ NEW TASK</button>
       )}
 
-      {visible.length===0&&<div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No tasks found.</div>}
+      {filtered.length===0&&<div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No tasks found.</div>}
 
-      {visible.map(function(t){
+      {pendTasks.map(function(t){
         var xp    = calcXpReward(t,streak);
         var cg    = calcCrestGain(t.template, t.difficulty);
         var stars = t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
@@ -3222,23 +3682,21 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
             {editId===t.id
               ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){setEditId(null);reset();}} label="SAVE" accent={accent} T={T}/>
               : (
-                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()+(t.done?" done":"")}>
-                  <div className={"task-check"+(t.done?" checked":"")} onClick={function(){if(!t.done)onComplete(t.id);}}>
-                    {t.done&&<span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span>}
+                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()}>
+                  <div className="task-check" onClick={function(){ onComplete(t.id); }}>
                   </div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:14,fontWeight:800,textDecoration:t.done?"line-through":"none" }}>{t.title}</div>
+                    <div style={{ fontSize:14,fontWeight:800 }}>{t.title}</div>
                     {t.notes&&<div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.notes}</div>}
                     <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center" }}>
-                      {/* Template badge with crest icon */}
-                      {cg&&<span style={{ fontSize:12 }}>{CREST_INFO[cg.primaryCrest]?.icon}</span>}
-                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"6px" }}>{t.template}</span>
-                      <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"6px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
-                      <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"6px" }}>+{xp} XP</span>
-                      {cg&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(CREST_INFO[cg.primaryCrest]?.color||T.border),color:CREST_INFO[cg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"6px" }}>+{cg.primary} {cg.primaryCrest}</span>}
-                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"6px" }}>{t.priority.toUpperCase()}</span>
-                      {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"6px" }}>🔥 {t.streak}D</span>}
-                      {t.dueDate&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"6px" }}>📅 {t.dueDate}</span>}
+                      {cg&&<span style={{ display:"inline-flex",alignItems:"center" }}><CrestIcon ci={CREST_INFO[cg.primaryCrest]} size={14}/></span>}
+                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"11px" }}>{t.template}</span>
+                      <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"11px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
+                      <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"11px" }}>+{xp} XP</span>
+                      {cg&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(CREST_INFO[cg.primaryCrest]?.color||T.border),color:CREST_INFO[cg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"11px" }}>+{cg.primary} {cg.primaryCrest}</span>}
+                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"11px" }}>{t.priority.toUpperCase()}</span>
+                      {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px" }}>🔥 {t.streak}D</span>}
+                      {t.dueDate&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"11px" }}>📅 {t.dueDate}</span>}
                     </div>
                   </div>
                   <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
@@ -3254,6 +3712,40 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
           </div>
         );
       })}
+
+      {/* ── Completed tasks (paginated, max 15) ─────────────────────────── */}
+      {compTasks.length>0&&(
+        <div style={{ display:"flex",flexDirection:"column",gap:8,marginTop:4 }}>
+          <div className="sec-label">✓ COMPLETED ({compTasks.length})</div>
+          {compTasks.slice(0, visibleDone).map(function(t){
+            var stars = t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
+            return (
+              <div key={t.id} className="task-card done tc-low">
+                <div className="task-check checked"><span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span></div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14,fontWeight:800,color:T.textMid,textDecoration:"line-through" }}>{t.title}</div>
+                  {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px",marginTop:2,display:"block" }}>🔥 {t.streak}D streak</span>}
+                </div>
+                <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
+                  <div style={{ display:"flex",gap:2 }}>{[1,2,3,4].map(function(n){return <span key={n} style={{ fontSize:11,color:n<=stars?T.gold:T.textDim }}>★</span>;})}</div>
+                  <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }} onClick={function(){onDelete(t.id);}}>×</button>
+                </div>
+              </div>
+            );
+          })}
+          {visibleDone < Math.min(compTasks.length, MAX_DONE) && (
+            <button className="px8" style={{ padding:"9px 16px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"11px",alignSelf:"center" }}
+              onClick={function(){ setVisibleDone(function(n){ return Math.min(n+5, MAX_DONE); }); }}>
+              LOAD MORE ({Math.min(compTasks.length, MAX_DONE) - visibleDone} remaining)
+            </button>
+          )}
+          {compTasks.length > MAX_DONE && visibleDone >= MAX_DONE && (
+            <div className="px8" style={{ textAlign:"center",color:T.textDim,fontSize:"11px",padding:"4px 0" }}>
+              Showing last {MAX_DONE} completed tasks
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3285,11 +3777,11 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
         return (
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
             <div style={{ background:T.coral+"18",border:"2px solid "+T.coral,padding:"10px 14px" }}>
-              <div className="px8" style={{ color:T.coral,marginBottom:3,fontSize:"7px" }}>📋 REMAINING THIS WEEK</div>
+              <div className="px8" style={{ color:T.coral,marginBottom:3,fontSize:"12px" }}>📋 REMAINING THIS WEEK</div>
               <div style={{ fontSize:22,fontWeight:900 }}>{pending.length}</div>
             </div>
             <div style={{ background:T.textDim+"18",border:"2px solid "+T.border,padding:"10px 14px" }}>
-              <div className="px8" style={{ color:T.textMid,marginBottom:3,fontSize:"7px" }}>📭 UNSCHEDULED</div>
+              <div className="px8" style={{ color:T.textMid,marginBottom:3,fontSize:"12px" }}>📭 UNSCHEDULED</div>
               <div style={{ fontSize:22,fontWeight:900 }}>{unscheduled.length}</div>
             </div>
           </div>
@@ -3308,7 +3800,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
             <div key={dayLabel} style={{ minWidth:130,background:T.bgCard,border:"2px solid "+(isToday?accent:T.border),boxShadow:"3px 3px 0 "+(isToday?accent:T.border),display:"flex",flexDirection:"column",overflow:"hidden" }}>
               <div style={{ background:isToday?accent+"22":T.bgPanel,padding:"8px 10px",borderBottom:"2px solid "+T.border }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div className="px8" style={{ color:isToday?accent:T.text,fontSize:"7px" }}>{dayLabel}</div>
+                  <div className="px8" style={{ color:isToday?accent:T.text,fontSize:"12px" }}>{dayLabel}</div>
                   <div style={{ width:8,height:8,background:busyColor,border:"1px solid "+T.border }}/>
                 </div>
                 <div style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:2 }}>{date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
@@ -3319,7 +3811,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
                     <DigiSprite digimonId={assignedDigi.speciesId} size={28} animate mood="walk"/>
                     <div style={{ flex:1,minWidth:0 }}>
                       <div style={{ fontSize:10,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{assignedDigi.name}</div>
-                      <div className="px8" style={{ color:T.gold,fontSize:"5px" }}>⚡1.5x XP</div>
+                      <div className="px8" style={{ color:T.gold,fontSize:"10px" }}>⚡1.5x XP</div>
                     </div>
                     <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:12,padding:0 }} onClick={function(){ onAssignDigimon(dayLabel,null); }}>×</button>
                   </div>
@@ -3373,7 +3865,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
                     <div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.priority} · {t.template}</div>
                   </div>
                   <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                    <span className="px8" style={{ color:T.textDim,fontSize:"6px" }}>DUE:</span>
+                    <span className="px8" style={{ color:T.textDim,fontSize:"11px" }}>DUE:</span>
                     <input type="date" defaultValue="" onBlur={function(e){ if(e.target.value) onReschedule(t.id,e.target.value); }}
                       style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"5px 8px",color:T.text,fontSize:12,outline:"none",fontFamily:"'Nunito',sans-serif",colorScheme:"dark" }}/>
                   </div>
@@ -3415,7 +3907,7 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
       {/* Crest preview */}
       {cg && (
         <div style={{ display:"flex",gap:8,alignItems:"center",padding:"8px 10px",background:T.bgPanel,border:"1.5px solid "+T.border }}>
-          <span style={{ fontSize:13 }}>{CREST_INFO[cg.primaryCrest]?.icon}</span>
+          <CrestIcon ci={CREST_INFO[cg.primaryCrest]} size={15}/>
           <span style={{ fontSize:11,fontWeight:700,color:CREST_INFO[cg.primaryCrest]?.color }}>+{cg.primary} {cg.primaryCrest}</span>
           {cg.secondaryCrest&&cg.secondary>0&&<>
             <span style={{ color:T.textDim }}>·</span>
@@ -3426,23 +3918,23 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
       )}
       {form.type==="recurring"&&(
         <div style={{ display:"flex",gap:4,flexWrap:"wrap",alignItems:"center" }}>
-          <span className="px8" style={{ color:T.textMid,fontSize:"7px" }}>DAYS:</span>
+          <span className="px8" style={{ color:T.textMid,fontSize:"12px" }}>DAYS:</span>
           {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(function(d){
             var on=(form.daysOfWeek||[]).indexOf(d)>=0;
-            return <button key={d} className="px8" style={{ padding:"4px 8px",border:"1.5px solid "+(on?accent:T.border),background:on?accent+"22":"transparent",color:on?accent:T.textDim,cursor:"pointer",fontSize:"6px" }}
+            return <button key={d} className="px8" style={{ padding:"4px 8px",border:"1.5px solid "+(on?accent:T.border),background:on?accent+"22":"transparent",color:on?accent:T.textDim,cursor:"pointer",fontSize:"11px" }}
               onClick={function(){setForm(function(f){var dw=f.daysOfWeek||[];return Object.assign({},f,{daysOfWeek:on?dw.filter(function(x){return x!==d;}):dw.concat([d])});});}}>{d}</button>;
           })}
         </div>
       )}
       <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-        <span className="px8" style={{ color:T.textMid,fontSize:"7px",whiteSpace:"nowrap" }}>DUE DATE:</span>
+        <span className="px8" style={{ color:T.textMid,fontSize:"12px",whiteSpace:"nowrap" }}>DUE DATE:</span>
         <input type="date" value={form.dueDate||""} onChange={function(e){setForm(function(f){return Object.assign({},f,{dueDate:e.target.value||null});});}} style={Object.assign({},inputSt,{flex:1,colorScheme:"dark"})}/>
         {form.dueDate&&<button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:16,padding:"0 4px",flexShrink:0 }} onClick={function(){setForm(function(f){return Object.assign({},f,{dueDate:null});});}}>×</button>}
       </div>
       <textarea value={form.notes} onChange={function(e){setForm(function(f){return Object.assign({},f,{notes:e.target.value});});}} placeholder="Notes (optional)..." rows={2} style={Object.assign({},inputSt,{resize:"vertical"})}/>
       <div style={{ display:"flex",gap:8 }}>
-        <button className="px8" style={{ padding:"9px 18px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontWeight:800,fontSize:"7px",boxShadow:"2px 2px 0 "+T.border }} onClick={onSubmit}>{label}</button>
-        <button className="px8" style={{ padding:"9px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"7px" }} onClick={onCancel}>CANCEL</button>
+        <button className="px8" style={{ padding:"9px 18px",background:accent,border:"2px solid "+T.border,color:T.bg,cursor:"pointer",fontWeight:800,fontSize:"12px",boxShadow:"2px 2px 0 "+T.border }} onClick={onSubmit}>{label}</button>
+        <button className="px8" style={{ padding:"9px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"12px" }} onClick={onCancel}>CANCEL</button>
       </div>
     </div>
   );
@@ -3484,7 +3976,7 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
           <div style={{ background:T.bgPanel,border:"1.5px solid "+T.lavender,padding:"14px 16px",display:"flex",alignItems:"center",gap:14 }}>
             <div style={{ fontSize:32 }}>💤</div>
             <div style={{ flex:1 }}>
-              <div className="px8" style={{ color:T.lavender,marginBottom:4,fontSize:"6px" }}>
+              <div className="px8" style={{ color:T.lavender,marginBottom:4,fontSize:"11px" }}>
                 {sleepState.phase === 'countdown' ? "WINDING DOWN..." : "SLEEPING"}
               </div>
               <div style={{ fontSize:12,color:T.textMid }}>
@@ -3503,7 +3995,7 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
           </div>
         ) : (
           <div style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"12px 14px" }}>
-            <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"6px" }}>SET WAKE-UP ALARM</div>
+            <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"11px" }}>SET WAKE-UP ALARM</div>
             <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
               <input
                 type="time"
@@ -3513,13 +4005,13 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
               />
             </div>
             {/* Quick presets */}
-            <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"5px" }}>QUICK SELECT</div>
+            <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"10px" }}>QUICK SELECT</div>
             <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
               {PRESETS.map(function(p){
                 return (
                   <button key={p.val}
                     className="px8"
-                    style={{ padding:"5px 10px",background:wakeTime===p.val?T.lavender+"33":"transparent",border:"1.5px solid "+(wakeTime===p.val?T.lavender:T.border),color:wakeTime===p.val?T.lavender:T.textMid,cursor:"pointer",fontSize:"6px" }}
+                    style={{ padding:"5px 10px",background:wakeTime===p.val?T.lavender+"33":"transparent",border:"1.5px solid "+(wakeTime===p.val?T.lavender:T.border),color:wakeTime===p.val?T.lavender:T.textMid,cursor:"pointer",fontSize:"11px" }}
                     onClick={function(){ setWakeTime(p.val); }}>
                     {p.label}
                   </button>
@@ -3532,13 +4024,13 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
         {/* Action */}
         {isSleeping ? (
           <button className="px8"
-            style={{ padding:"10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"7px" }}
+            style={{ padding:"10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}
             onClick={onWake}>
             ☀ WAKE UP EARLY
           </button>
         ) : (
           <button className="px8"
-            style={{ padding:"10px",background:T.lavender+"22",border:"2px solid "+T.lavender,color:T.lavender,cursor:"pointer",fontSize:"7px" }}
+            style={{ padding:"10px",background:T.lavender+"22",border:"2px solid "+T.lavender,color:T.lavender,cursor:"pointer",fontSize:"12px" }}
             onClick={function(){ onStart(wakeTime); }}>
             🌙 BEGIN REST — ALARM {wakeTime}
           </button>
@@ -3547,7 +4039,7 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
         {/* Sleep log */}
         {sleepLog.length > 0 && (
           <div>
-            <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"6px" }}>SLEEP HISTORY</div>
+            <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"11px" }}>SLEEP HISTORY</div>
             <div style={{ display:"flex",flexDirection:"column",gap:4,maxHeight:160,overflowY:"auto" }}>
               {sleepLog.slice(0,7).map(function(entry,i){
                 return (
@@ -3566,7 +4058,7 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
               var avg = Math.round(recent.reduce(function(s,e){ return s+e.durationMins; },0) / recent.length);
               return (
                 <div style={{ marginTop:8,padding:"7px 10px",background:T.bgPanel,border:"1px solid "+T.lavender+"44",display:"flex",justifyContent:"space-between" }}>
-                  <span className="px8" style={{ color:T.textDim,fontSize:"5px" }}>7-DAY AVG SLEEP</span>
+                  <span className="px8" style={{ color:T.textDim,fontSize:"10px" }}>7-DAY AVG SLEEP</span>
                   <span style={{ color:T.lavender,fontWeight:900,fontSize:12 }}>{fmtDuration(avg)}</span>
                 </div>
               );
