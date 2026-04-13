@@ -136,6 +136,7 @@ export default function App({ session }) {
   var [bits,             setBits]             = useState(350);
   var [allDisc,          setAllDisc]          = useState([]);
   var [tasks,            setTasks]            = useState([]);
+  var [allTasks,         setAllTasks]         = useState([]); // unfiltered — used by week view for recurring tasks on non-today days
   var [weeklyDigimon,    setWeeklyDigimon]    = useState({});
   var [speech,           setSpeech]           = useState("finish your tasks!");
   var [showSpeech,       setShowSpeech]       = useState(false);
@@ -211,6 +212,12 @@ export default function App({ session }) {
   // ── Load data ───────────────────────────────────────────────────────────────
   useEffect(function() {
     async function load() {
+      // Version check — forces PWA to reload fresh code when the app is updated
+      var DV_VER = '6';
+      var stored = localStorage.getItem('dv_ver');
+      localStorage.setItem('dv_ver', DV_VER);
+      if (stored && stored !== DV_VER) { window.location.reload(); return; }
+
       var today = new Date().toISOString().split('T')[0];
       var [{ data:profile }, { data:digimonData }, { data:tasksData }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', userId).single(),
@@ -375,12 +382,7 @@ export default function App({ session }) {
       if (tasksData) {
         var todayDay  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
         var todayDate = new Date().toISOString().split('T')[0];
-        setTasks(tasksData.filter(function(t) {
-          if (t.type !== 'recurring') return true;
-          if (!t.days_of_week || !t.days_of_week.length) return true;
-          return t.days_of_week.includes(todayDay);
-        }).map(function(t) {
-          // daily/recurring tasks completed on a previous day reset to pending
+        function mapTask(t) {
           var stale = (t.type === 'daily' || t.type === 'recurring')
             && t.done && t.last_completed_date !== todayDate;
           return {
@@ -392,7 +394,13 @@ export default function App({ session }) {
             lastCompletedDate: t.last_completed_date || null,
             daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
           };
-        }));
+        }
+        setTasks(tasksData.filter(function(t) {
+          if (t.type !== 'recurring') return true;
+          if (!t.days_of_week || !t.days_of_week.length) return true;
+          return t.days_of_week.includes(todayDay);
+        }).map(mapTask));
+        setAllTasks(tasksData.map(mapTask)); // full list for week view
       }
       // ── Catch-up prompt (past 5am, once per day, if tasks were missed yesterday) ─
       if (tasksData) {
@@ -438,6 +446,195 @@ export default function App({ session }) {
     load();
   }, [userId]);
 
+  // ── Live sync — refresh display state from DB without re-running init logic ──
+  async function refreshData() {
+    if (!userId) return;
+    var today = new Date().toISOString().split('T')[0];
+    var [{ data:profile }, { data:digimonData }, { data:tasksData }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', userId).single(),
+      supabase.from('digimon').select('*').eq('user_id', userId).order('sort_order'),
+      supabase.from('tasks').select('*').eq('user_id', userId).order('created_at'),
+    ]);
+    if (profile) {
+      setBits(profile.bits || 350);
+      setBond(profile.bond || 0);
+      setCrestHistory(profile.crest_history || []);
+      setWeeklyDigimon(profile.weekly_digimon || {});
+      setLoginStreak(profile.login_streak || 0);
+      setDigitamaCredits(profile.digitama_credits || 0);
+      var lastUpd = profile.last_stamina_update || new Date().toISOString();
+      setStamina(calcCurrentStamina(profile.stamina ?? STAMINA_MAX, lastUpd));
+      setLastStaminaUpdate(lastUpd);
+      setFoodStaminaToday(profile.food_stamina_today || 0);
+      var bad = profile.bond_actions_today || {};
+      setBondActionsToday(bad.date === today ? bad : { date:today, tasks:0, play:0 });
+      var rs = profile.raid_state || null;
+      if (rs && rs.raidId !== CURRENT_RAID.id) rs = null;
+      setRaidState(rs || { raidId: CURRENT_RAID.id, totalDamage: 0, raidLog: [] });
+      setSleepLog(profile.sleep_log || []);
+    }
+    if (digimonData && digimonData.length > 0) {
+      var mapped = digimonData.map(function(d) { return {
+        uid: d.id, speciesId: d.species_id, name: d.name, level: d.level,
+        exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
+        personality: d.personality, bonusStats: d.bonus_stats || {},
+        discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
+      }; });
+      setParty(mapped.filter(function(d){ return !d.inFarm; }));
+      setFarm(mapped.filter(function(d){ return d.inFarm; }));
+      var allD = [...new Set(digimonData.flatMap(function(d){ return d.discovered || []; }))];
+      setAllDisc(allD);
+    }
+    if (tasksData) {
+      var todayDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+      setTasks(tasksData.filter(function(t) {
+        if (t.type !== 'recurring') return true;
+        if (!t.days_of_week || !t.days_of_week.length) return true;
+        return t.days_of_week.includes(todayDay);
+      }).map(function(t) {
+        var stale = (t.type === 'daily' || t.type === 'recurring')
+          && t.done && t.last_completed_date !== today;
+        return {
+          id: t.id, title: t.title, template: t.category || 'Neutral',
+          priority: t.priority, difficulty: t.difficulty, type: t.type,
+          notes: t.notes || '', done: stale ? false : (t.done || false),
+          streak: t.streak || 0, lastCompletedDate: t.last_completed_date || null,
+          daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
+        };
+      }));
+      setAllTasks(tasksData.map(function(t) {
+        var stale = (t.type === 'daily' || t.type === 'recurring')
+          && t.done && t.last_completed_date !== today;
+        return {
+          id: t.id, title: t.title, template: t.category || 'Neutral',
+          priority: t.priority, difficulty: t.difficulty, type: t.type,
+          notes: t.notes || '', done: stale ? false : (t.done || false),
+          streak: t.streak || 0, lastCompletedDate: t.last_completed_date || null,
+          daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
+        };
+      }));
+    }
+  }
+
+  // Refresh when tab regains visibility (e.g. switching back from mobile browser)
+  useEffect(function() {
+    function onVisible() { if (document.visibilityState === 'visible') refreshData(); }
+    document.addEventListener('visibilitychange', onVisible);
+    return function() { document.removeEventListener('visibilitychange', onVisible); };
+  }, [userId]);
+
+  // ── Supabase Realtime — surgical payload handlers (no extra DB queries) ────────
+  // Applies only the changed row directly from the event payload so there's no
+  // race condition between local optimistic state and concurrent refreshData calls.
+
+  function applyProfilePayload(payload) {
+    var p = payload.new;
+    if (!p) return;
+    var today = new Date().toISOString().split('T')[0];
+    setBits(p.bits ?? 350);
+    setBond(p.bond ?? 0);
+    setCrestHistory(p.crest_history || []);
+    setWeeklyDigimon(p.weekly_digimon || {});
+    setLoginStreak(p.login_streak || 0);
+    setDigitamaCredits(p.digitama_credits || 0);
+    var lastUpd = p.last_stamina_update || new Date().toISOString();
+    setStamina(calcCurrentStamina(p.stamina ?? STAMINA_MAX, lastUpd));
+    setLastStaminaUpdate(lastUpd);
+    setFoodStaminaToday(p.food_stamina_today || 0);
+    var bad = p.bond_actions_today || {};
+    setBondActionsToday(bad.date === today ? bad : { date:today, tasks:0, play:0 });
+    var rs = p.raid_state || null;
+    if (rs && rs.raidId !== CURRENT_RAID.id) rs = null;
+    setRaidState(rs || { raidId: CURRENT_RAID.id, totalDamage: 0, raidLog: [] });
+    setSleepLog(p.sleep_log || []);
+  }
+
+  function applyTaskPayload(payload) {
+    var today = new Date().toISOString().split('T')[0];
+    var todayDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
+    if (payload.eventType === 'DELETE') {
+      var oldId = payload.old && payload.old.id;
+      if (oldId) {
+        setTasks(function(ts) { return ts.filter(function(t) { return t.id !== oldId; }); });
+        setAllTasks(function(ts) { return ts.filter(function(t) { return t.id !== oldId; }); });
+      }
+      return;
+    }
+    var t = payload.new;
+    if (!t) return;
+    var stale = (t.type === 'daily' || t.type === 'recurring') && t.done && t.last_completed_date !== today;
+    var mapped = {
+      id: t.id, title: t.title, template: t.category || 'Neutral',
+      priority: t.priority, difficulty: t.difficulty, type: t.type,
+      notes: t.notes || '', done: stale ? false : (t.done || false),
+      streak: t.streak || 0, lastCompletedDate: t.last_completed_date || null,
+      daysOfWeek: t.days_of_week || [], dueDate: t.due_date || null,
+    };
+    // allTasks always gets the update (no day filter)
+    setAllTasks(function(ts) {
+      var idx = ts.findIndex(function(x) { return x.id === mapped.id; });
+      if (idx >= 0) return ts.map(function(task) { return task.id === mapped.id ? mapped : task; });
+      return ts.concat([mapped]);
+    });
+    // tasks filtered to today's recurring only
+    if (t.type === 'recurring' && t.days_of_week && t.days_of_week.length && !t.days_of_week.includes(todayDay)) {
+      setTasks(function(ts) { return ts.filter(function(task) { return task.id !== t.id; }); });
+      return;
+    }
+    setTasks(function(ts) {
+      var idx = ts.findIndex(function(x) { return x.id === mapped.id; });
+      if (idx >= 0) return ts.map(function(task) { return task.id === mapped.id ? mapped : task; });
+      return ts.concat([mapped]);
+    });
+  }
+
+  function applyDigimonPayload(payload) {
+    if (payload.eventType === 'DELETE') {
+      var oldId = payload.old && payload.old.id;
+      if (!oldId) return;
+      setParty(function(p) { return p.filter(function(d) { return d.uid !== oldId; }); });
+      setFarm(function(f) { return f.filter(function(d) { return d.uid !== oldId; }); });
+      return;
+    }
+    var d = payload.new;
+    if (!d) return;
+    var mapped = {
+      uid: d.id, speciesId: d.species_id, name: d.name, level: d.level,
+      exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
+      personality: d.personality, bonusStats: d.bonus_stats || {},
+      discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
+    };
+    if (d.in_farm) {
+      setParty(function(p) { return p.filter(function(x) { return x.uid !== mapped.uid; }); });
+      setFarm(function(f) {
+        var idx = f.findIndex(function(x) { return x.uid === mapped.uid; });
+        return idx >= 0 ? f.map(function(x) { return x.uid === mapped.uid ? mapped : x; }) : f.concat([mapped]);
+      });
+    } else {
+      setFarm(function(f) { return f.filter(function(x) { return x.uid !== mapped.uid; }); });
+      setParty(function(p) {
+        var idx = p.findIndex(function(x) { return x.uid === mapped.uid; });
+        return idx >= 0 ? p.map(function(x) { return x.uid === mapped.uid ? mapped : x; }) : p.concat([mapped]);
+      });
+    }
+    if (d.discovered && d.discovered.length) {
+      setAllDisc(function(prev) { return [...new Set(prev.concat(d.discovered))]; });
+    }
+  }
+
+  useEffect(function() {
+    if (!userId) return;
+    var channel = supabase.channel('user-sync-' + userId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles',
+          filter: 'id=eq.' + userId }, applyProfilePayload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks',
+          filter: 'user_id=eq.' + userId }, applyTaskPayload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'digimon',
+          filter: 'user_id=eq.' + userId }, applyDigimonPayload)
+      .subscribe();
+    return function() { supabase.removeChannel(channel); };
+  }, [userId]);
+
   // ── Midnight reset — re-tick so daily counters clear without a reload ────────
   useEffect(function() {
     var now = new Date();
@@ -474,13 +671,45 @@ export default function App({ session }) {
     var id = setTimeout(function() {
       setPomodoroState(function(ps) {
         if (!ps || ps.phase !== 'running') return ps;
-        var next = ps.timeLeft - 1;
-        if (next <= 0) return Object.assign({}, ps, { phase:'done', timeLeft:0 });
+        // Derive remaining from absolute endTime so background pauses don't lose time
+        var next = Math.max(0, Math.floor((ps.endTime - Date.now()) / 1000));
+        if (next <= 0) {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('Session Complete! 🎉', {
+              body: (ps.template || 'Focus') + ' session done — claim your reward in DailyDigivolve!',
+              icon: '/icon-192.png',
+            });
+          }
+          return Object.assign({}, ps, { phase:'done', timeLeft:0 });
+        }
         return Object.assign({}, ps, { timeLeft: next });
       });
     }, 1000);
     return function() { clearTimeout(id); };
   }, [pomodoroState]);
+
+  // Correct timer immediately when returning to the app from background
+  useEffect(function() {
+    function onVisible() {
+      if (document.visibilityState !== 'visible') return;
+      setPomodoroState(function(ps) {
+        if (!ps || ps.phase !== 'running') return ps;
+        var remaining = Math.max(0, Math.floor((ps.endTime - Date.now()) / 1000));
+        if (remaining <= 0) {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('Session Complete! 🎉', {
+              body: (ps.template || 'Focus') + ' session done — claim your reward in DailyDigivolve!',
+              icon: '/icon-192.png',
+            });
+          }
+          return Object.assign({}, ps, { phase:'done', timeLeft:0 });
+        }
+        return Object.assign({}, ps, { timeLeft: remaining });
+      });
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return function() { document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
 
   // ── Wake alarm polling (checks every minute if alarm time reached) ────────────
   useEffect(function() {
@@ -1048,10 +1277,16 @@ export default function App({ session }) {
     setPomodoroState({ phase:'setup', template:'Deep Work', duration:25 });
   }
   function beginPomodoro() {
+    // Request notification permission on first timer start
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
     setPomodoroState(function(ps) {
       if (!ps) return ps;
       var secs = (ps.duration || 25) * 60;
-      return { phase:'running', timeLeft:secs, totalSeconds:secs, template:ps.template||'Deep Work' };
+      return { phase:'running', timeLeft:secs, totalSeconds:secs,
+               endTime: Date.now() + secs * 1000,
+               template:ps.template||'Deep Work', duration:ps.duration||25 };
     });
   }
   async function claimPomodoroReward() {
@@ -2323,7 +2558,7 @@ export default function App({ session }) {
           <div style={{ width:10,height:10,background:accent,border:"2px solid "+T.border,animation:"blink 1.2s step-end infinite",display:"inline-block" }}/>
           DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
-        <div style={{ display:"flex",gap:4,alignItems:"center",overflowX:"auto",flexShrink:1,minWidth:0 }}>
+        <div style={{ display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",flexShrink:1,minWidth:0 }}>
           {/* Grouped dropdowns */}
           {NAV_GROUPS.map(function(g){
             var isOpen    = openGroup === g.id;
@@ -2821,12 +3056,12 @@ export default function App({ session }) {
 
             {/* ── WEEKLY ───────────────────────────────────────────────── */}
             {page==="weekly"&&(
-              <WeeklyPlannerPage tasks={tasks} party={party} farm={farm} weeklyDigimon={weeklyDigimon} onAssignDigimon={assignWeeklyDigimon} onReschedule={rescheduleTask} onComplete={completeTask} accent={accent} T={T}/>
+              <WeeklyPlannerPage tasks={allTasks} party={party} farm={farm} weeklyDigimon={weeklyDigimon} onAssignDigimon={assignWeeklyDigimon} onReschedule={rescheduleTask} onComplete={completeTask} accent={accent} T={T}/>
             )}
 
             {/* ── CRESTS ───────────────────────────────────────────────── */}
             {page==="crests"&&(
-              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} onGoTeam={function(){ setPage("team"); }}/>
+              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} isMobile={isMobile} onGoTeam={function(){ setPage("team"); }}/>
             )}
 
             {/* ── TEAM ─────────────────────────────────────────────────── */}
@@ -3629,7 +3864,7 @@ function RadarChart({ percentages, T }) {
 }
 
 // ── CrestsPage ────────────────────────────────────────────────────────────────
-function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, T, accent, onGoTeam }) {
+function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, T, accent, isMobile, onGoTeam }) {
   var windowDays = 14;
   var today = new Date().toISOString().split('T')[0];
   var todayEntries = crestHistory.filter(function(e){ return e.date===today; });
@@ -3762,7 +3997,7 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
                       <div className="px8" style={{ color:CREST_INFO[cr.primary].color,fontSize:"11px",marginTop:2,display:"flex",alignItems:"center",gap:4 }}><CrestIcon ci={pci} size={12}/> {cr.primary}{sci&&<><span> +</span><CrestIcon ci={sci} size={12}/><span> {cr.secondary}</span></>}</div>
                     </div>
                     <div style={{ marginLeft:"auto",textAlign:"right" }}>
-                      <div style={{ fontSize:18,fontWeight:900,color:matchScore>=70?T.green:matchScore>=40?T.gold:T.coral }}>{matchScore}%</div>
+                      <div style={{ fontSize:isMobile?13:18,fontWeight:900,color:matchScore>=70?T.green:matchScore>=40?T.gold:T.coral }}>{matchScore}%</div>
                       <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>MATCH</div>
                     </div>
                   </div>
@@ -4021,25 +4256,57 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
   function startEdit(t){ setEditId(t.id); setForm({title:t.title,template:t.template||"Neutral",priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
 
   var typeColor = { once:T.lavender, daily:T.teal, recurring:T.mint };
+  var PRIO_ORDER = { Urgent:0, High:1, Medium:2, Low:3 };
   var filtered  = tasks.filter(function(t){ return (filterTpl==="All"||t.template===filterTpl)&&(filterType==="All"||t.type===filterType); });
-  var pendTasks = filtered.filter(function(t){ return !t.done; });
-  var compTasks = filtered.filter(function(t){ return  t.done; });
+  var pendTasks = filtered.filter(function(t){ return !t.done; }).sort(function(a,b){
+    return (PRIO_ORDER[a.priority]??99) - (PRIO_ORDER[b.priority]??99);
+  });
+  var compTasks = filtered.filter(function(t){ return t.done; }).sort(function(a,b){
+    if ((b.lastCompletedDate||'') > (a.lastCompletedDate||'')) return 1;
+    if ((b.lastCompletedDate||'') < (a.lastCompletedDate||'')) return -1;
+    return 0;
+  });
   var MAX_DONE  = 15;
+  // Template → primary crest image (via CREST_INFO) for compact filter tabs
+  var TPL_CREST_CI = {
+    "Workout":    CREST_INFO["Courage"],
+    "Deep Work":  CREST_INFO["Knowledge"],
+    "Recovery":   CREST_INFO["Care"],
+    "Maintenance":CREST_INFO["Reliability"],
+    "Social":     CREST_INFO["Friendship"],
+    "Reflection": CREST_INFO["Sincerity"],
+    "Challenge":  CREST_INFO["Hope"],
+    "Neutral":    null,
+  };
 
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-      {/* Template filters */}
-      <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,width:"fit-content",flexWrap:"wrap" }}>
-        {["All"].concat(["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"]).map(function(c){
-          var a=filterTpl===c;
-          return <button key={c} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterTpl(c); setVisibleDone(5); }}>{c.toUpperCase()}</button>;
-        })}
-      </div>
-      <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,width:"fit-content" }}>
-        {["All","once","daily","recurring"].map(function(t){
-          var a=filterType===t;
-          return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(t); setVisibleDone(5); }}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
-        })}
+      {/* Template filter — crest images; type filter — original readable text */}
+      <div style={{ display:"flex",gap:4,flexWrap:"wrap",alignItems:"center" }}>
+        <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,flexShrink:0,flexWrap:"wrap" }}>
+          {["All","Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"].map(function(c){
+            var a=filterTpl===c;
+            var ci=TPL_CREST_CI[c];
+            return (
+              <button key={c} title={c} className="task-tab"
+                style={{ background:a?T.bgCard:T.bg,outline:a?"2px solid "+accent:"none",outlineOffset:"-2px",padding:"5px 7px",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center" }}
+                onClick={function(){ setFilterTpl(c); setVisibleDone(5); }}>
+                {c==="All"
+                  ? <span className="px8" style={{ color:a?accent:T.textMid,fontSize:"10px" }}>ALL</span>
+                  : ci
+                    ? <CrestIcon ci={ci} size={18}/>
+                    : <span style={{ fontSize:13,color:a?accent:T.textDim }}>○</span>
+                }
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,flexShrink:0 }}>
+          {["All","once","daily","recurring"].map(function(t){
+            var a=filterType===t;
+            return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(t); setVisibleDone(5); }}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
+          })}
+        </div>
       </div>
 
       {showAdd&&!editId&&<TaskForm form={form} setForm={setForm} onSubmit={submitAdd} onCancel={function(){setShowAdd(false);reset();}} label="ADD TASK" accent={accent} T={T}/>}
@@ -4072,7 +4339,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
                       {cg&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(CREST_INFO[cg.primaryCrest]?.color||T.border),color:CREST_INFO[cg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"11px" }}>+{cg.primary} {cg.primaryCrest}</span>}
                       <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"11px" }}>{t.priority.toUpperCase()}</span>
                       {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px" }}>🔥 {t.streak}D</span>}
-                      {t.dueDate&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"11px" }}>📅 {t.dueDate}</span>}
+                      {t.dueDate&&t.type==='once'&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"11px" }}>📅 {t.dueDate}</span>}
                     </div>
                   </div>
                   <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
@@ -4128,6 +4395,9 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
 
 // ── WeeklyPlannerPage ─────────────────────────────────────────────────────────
 function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon, onReschedule, onComplete, accent, T }) {
+  var [showDaily,     setShowDaily]     = useState(true);
+  var [showRecurring, setShowRecurring] = useState(true);
+  var [showDone,      setShowDone]      = useState(false);
   var today = new Date();
   var dayOfWeek = today.getDay();
   var mondayOffset = dayOfWeek===0?-6:1-dayOfWeek;
@@ -4135,16 +4405,43 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
   monday.setDate(today.getDate()+mondayOffset);
   var DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   var weekDates = DAYS.map(function(_,i){ var d=new Date(monday); d.setDate(monday.getDate()+i); return d; });
-  var todayStr = today.toISOString().split('T')[0];
+  // Use local date strings to avoid UTC-shift bugs (e.g. Sunday midnight local = Saturday UTC)
+  function localISO(d) {
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+  var todayStr = localISO(today);
   var allDigimon = party.concat(farm);
   var BUSY_COLOR = ['#7EF797','#FFD700','#FF9940','#FF4444'];
 
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-        <div className="px12">WEEKLY PLANNER</div>
-        <div style={{ fontSize:12,fontWeight:700,color:T.textMid }}>
-          {monday.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {weekDates[6].toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8 }}>
+        <div>
+          <div className="px12">WEEKLY PLANNER</div>
+          <div style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:4 }}>
+            {monday.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {weekDates[6].toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+          </div>
+        </div>
+        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+          <span style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"8px",color:T.textDim }}>SHOW</span>
+          <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border }}>
+            {[
+              { key:"daily",     label:"DAILY",  active:showDaily,     set:setShowDaily,     color:T.teal },
+              { key:"recurring", label:"RECUR",  active:showRecurring, set:setShowRecurring, color:T.mint },
+              { key:"done",      label:"DONE",   active:showDone,      set:setShowDone,      color:T.lavender },
+            ].map(function(btn){
+              return (
+                <button key={btn.key}
+                  onClick={function(){ btn.set(function(v){ return !v; }); }}
+                  style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"8px",padding:"5px 9px",cursor:"pointer",
+                    border:"none",borderRight:"1px solid "+T.border,
+                    background:btn.active?btn.color+"28":"transparent",
+                    color:btn.active?btn.color:T.textDim }}>
+                  {btn.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       {(function(){
@@ -4165,10 +4462,26 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
       })()}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,overflowX:"auto" }}>
         {weekDates.map(function(date,i){
-          var dateStr   = date.toISOString().split('T')[0];
+          var dateStr   = localISO(date);
           var dayLabel  = DAYS[i];
           var isToday   = dateStr===todayStr;
-          var dayTasks  = tasks.filter(function(t){ return t.dueDate===dateStr; });
+          var WEEK_PRIO = { Urgent:0, High:1, Medium:2, Low:3 };
+          var dayTasks  = tasks.filter(function(t){
+            if (t.dueDate===dateStr) return true;
+            if (showDaily && t.type==='daily') return true;
+            if (showRecurring && t.type==='recurring' && (t.daysOfWeek||[]).includes(dayLabel)) return true;
+            return false;
+          }).map(function(t){
+            // Per-day done: daily/recurring are only done if completed on this specific date
+            var doneOnThisDay = (t.type==='daily'||t.type==='recurring')
+              ? t.lastCompletedDate===dateStr
+              : t.done;
+            return Object.assign({},t,{done:doneOnThisDay});
+          }).sort(function(a,b){
+            // Pending tasks first, then by priority
+            if (a.done !== b.done) return a.done ? 1 : -1;
+            return (WEEK_PRIO[a.priority]??99) - (WEEK_PRIO[b.priority]??99);
+          });
           var pendCount = dayTasks.filter(function(t){ return !t.done; }).length;
           var busyColor = BUSY_COLOR[pendCount===0?0:pendCount<=2?1:pendCount<=4?2:3];
           var assignedDigi = allDigimon.find(function(d){ return d.uid===weeklyDigimon[dayLabel]; });
@@ -4200,28 +4513,36 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
                 )}
               </div>
               <div style={{ padding:"8px 10px",display:"flex",flexDirection:"column",gap:6,flex:1 }}>
-                {dayTasks.length===0
-                  ? <div style={{ fontSize:10,color:T.textDim,fontStyle:"italic" }}>No tasks</div>
-                  : dayTasks.map(function(t){
+                {(function(){
+                  var visible = showDone ? dayTasks : dayTasks.filter(function(t){ return !t.done; });
+                  if (visible.length===0) {
+                    var allDone = dayTasks.length>0 && dayTasks.every(function(t){ return t.done; });
+                    return <div style={{ fontSize:10,color:allDone?T.teal:T.textDim,fontStyle:"italic" }}>{allDone?"✓ All done":"No tasks"}</div>;
+                  }
+                  return visible.map(function(t){
+                    var isDaily     = t.type==='daily';
+                    var isRecurring = t.type==='recurring';
+                    var borderCol   = t.done?T.border:isDaily?T.lavender:isRecurring?T.mint:T.teal;
+                    var typeLabel   = isDaily?"⟳ DAILY":isRecurring?"↻ RECURRING":t.template;
                     return (
-                      <div key={t.id} style={{ background:t.done?T.bgPanel:T.bgCard,border:"1.5px solid "+(t.done?T.border:T.teal),padding:"5px 7px",opacity:t.done?0.5:1 }}>
+                      <div key={t.id+'-'+dateStr} style={{ background:t.done?T.bgPanel:T.bgCard,border:"1.5px solid "+borderCol,padding:"5px 7px",opacity:t.done?0.5:1 }}>
                         <div style={{ display:"flex",alignItems:"flex-start",gap:5 }}>
                           <div style={{ width:14,height:14,border:"1.5px solid "+(t.done?T.teal:T.border),background:t.done?T.teal:"transparent",display:"grid",placeItems:"center",flexShrink:0,cursor:"pointer",marginTop:1 }} onClick={function(){ if(!t.done)onComplete(t.id); }}>
                             {t.done&&<span style={{ fontSize:9,color:"white",lineHeight:1,fontWeight:900 }}>✓</span>}
                           </div>
                           <div style={{ flex:1,minWidth:0 }}>
                             <div style={{ fontSize:11,fontWeight:700,color:t.done?T.textMid:T.text,textDecoration:t.done?"line-through":"none",lineHeight:1.3,wordBreak:"break-word" }}>{t.title}</div>
-                            <div style={{ fontSize:9,fontWeight:700,color:T.textDim,marginTop:2 }}>{t.template}</div>
+                            <div style={{ fontSize:9,fontWeight:700,color:T.textDim,marginTop:2 }}>{typeLabel}</div>
                           </div>
                         </div>
-                        {!t.done&&(
+                        {!t.done&&t.type==='once'&&(
                           <input type="date" defaultValue={t.dueDate||""} onBlur={function(e){ if(e.target.value&&e.target.value!==t.dueDate) onReschedule(t.id,e.target.value); }}
                             style={{ width:"100%",marginTop:5,background:T.bgPanel,border:"1px solid "+T.border,padding:"3px 5px",color:T.textMid,fontSize:10,outline:"none",fontFamily:"'Nunito',sans-serif",colorScheme:"dark" }}/>
                         )}
                       </div>
                     );
-                  })
-                }
+                  });
+                })()}
               </div>
             </div>
           );
