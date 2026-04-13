@@ -86,6 +86,14 @@ var JIJIMON_LINES = {
   neglect_warn:  "Your partner has grown quiet. But it is never too late to rebuild what was lost.",
 };
 
+// ── Catch-up prompt lines (Jijimon speaks on return after missed tasks) ──────
+var CATCHUP_LINES = [
+  "Hey, tamer... I noticed some quests went unlogged yesterday. No judgment — life gets in the way. If you got them done when I wasn't watching, say the word. Those rewards are still yours.",
+  "Before we dive into today — yesterday left a few loose threads. Did any of those tasks actually happen? Claim what you earned. It counts.",
+  "Ahem! A tamer's work doesn't vanish just because the clock moved on. Some quests from yesterday went unrecorded. Did you complete any of them? Let's settle the books.",
+  "You're back. Good. I kept a list of what was unfinished yesterday. If the work got done — even quietly, even imperfectly — the rewards are waiting for you. No guilt. Just claim them.",
+];
+
 // ── Neglect reconnect messages (personality × severity) ───────────────────────
 var RECONNECT_MSG = {
   durable: {
@@ -180,6 +188,18 @@ export default function App({ session }) {
   var [appReady,         setAppReady]         = useState(false);
   // Midnight tick — updates so daily counters reset without a page reload
   var [midnightTick,     setMidnightTick]     = useState(0);
+  // Catch-up modal — tasks missed yesterday
+  var [showCatchupModal, setShowCatchupModal] = useState(false);
+  var [catchupTasks,     setCatchupTasks]     = useState([]);
+  var [catchupChecked,   setCatchupChecked]   = useState({});
+  var catchupLineRef = useRef(CATCHUP_LINES[0]);
+  // Mobile layout detection
+  var [isMobile, setIsMobile] = useState(function(){
+    // Manual override takes priority; otherwise auto-detect by viewport width
+    if (localStorage.getItem('dv_force_mobile') === 'true') return true;
+    return window.innerWidth <= 768;
+  });
+  var [showMobileMore, setShowMobileMore] = useState(false);
   // Quick-add task modal (launched from dashboard)
   var [showQuickAdd,     setShowQuickAdd]     = useState(false);
   var [quickAddForm,     setQuickAddForm]     = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
@@ -374,6 +394,44 @@ export default function App({ session }) {
           };
         }));
       }
+      // ── Catch-up prompt (past 5am, once per day, if tasks were missed yesterday) ─
+      if (tasksData) {
+        var nowLocal   = new Date();
+        var localHour  = nowLocal.getHours();
+        var todayISO   = nowLocal.toISOString().split('T')[0];
+        var yestDate   = new Date(Date.now() - 86400000);
+        var yestISO    = yestDate.toISOString().split('T')[0];
+        var yestDay    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][yestDate.getDay()];
+        var catchupKey = 'dv_catchup_' + userId;
+        var lastCatchup = localStorage.getItem(catchupKey);
+
+        if (localHour >= 5 && lastCatchup !== todayISO) {
+          var missedRaw = tasksData.filter(function(t) {
+            if (t.type === 'daily') return t.last_completed_date !== yestISO;
+            if (t.type === 'recurring') {
+              var days = t.days_of_week || [];
+              return days.includes(yestDay) && t.last_completed_date !== yestISO;
+            }
+            if (t.type === 'once') return t.due_date === yestISO && !t.done;
+            return false;
+          });
+          if (missedRaw.length > 0) {
+            setCatchupTasks(missedRaw.map(function(t) {
+              return {
+                id: t.id, title: t.title, template: t.category || 'Neutral',
+                priority: t.priority, difficulty: t.difficulty, type: t.type,
+                streak: t.streak || 0, dueDate: t.due_date || null,
+              };
+            }));
+            catchupLineRef.current = CATCHUP_LINES[Math.floor(Math.random() * CATCHUP_LINES.length)];
+            setCatchupChecked({});
+            setShowCatchupModal(true);
+            localStorage.setItem(catchupKey, todayISO);
+          }
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
       setShowOnboarding(false);
       setAppReady(true);
     }
@@ -399,6 +457,16 @@ export default function App({ session }) {
     }, msLeft);
     return function() { clearTimeout(id); };
   }, [midnightTick]);
+
+  // ── Mobile resize detection ──────────────────────────────────────────────────
+  useEffect(function() {
+    function onResize() {
+      if (localStorage.getItem('dv_force_mobile') === 'true') return; // respect manual override
+      setIsMobile(window.innerWidth <= 768);
+    }
+    window.addEventListener('resize', onResize);
+    return function() { window.removeEventListener('resize', onResize); };
+  }, []);
 
   // ── Pomodoro countdown ───────────────────────────────────────────────────────
   useEffect(function() {
@@ -503,6 +571,16 @@ export default function App({ session }) {
     setShowSpeech(true);
     clearTimeout(speechDismissTimer.current);
     speechDismissTimer.current = setTimeout(function(){ setShowSpeech(false); }, 30000);
+  }
+  function toggleMobileView() {
+    var force = localStorage.getItem('dv_force_mobile') === 'true';
+    if (force) {
+      localStorage.removeItem('dv_force_mobile');
+      setIsMobile(window.innerWidth <= 768);
+    } else {
+      localStorage.setItem('dv_force_mobile', 'true');
+      setIsMobile(true);
+    }
   }
   function triggerJijimon(key) {
     if (jijimonSeen[key]) return;
@@ -837,6 +915,66 @@ export default function App({ session }) {
     if (crestHistory.length === 0 && cg) triggerJijimon('crest_intro');
   }
 
+  // ── Claim catch-up rewards for tasks completed yesterday but not logged ──────
+  async function claimCatchupRewards() {
+    var claimed = catchupTasks.filter(function(t){ return catchupChecked[t.id]; });
+    setShowCatchupModal(false);
+    if (claimed.length === 0) return;
+
+    var yest       = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    var totalXp    = 0;
+    var newBond    = bond;
+    var newHistory = crestHistory.slice();
+    var newTaskBond = taskBondToday;
+
+    for (var i = 0; i < claimed.length; i++) {
+      var ct = claimed[i];
+      totalXp += calcXpReward(ct, ct.streak);
+
+      var cg = calcCrestGain(ct.template, ct.difficulty);
+      if (cg) {
+        newHistory.push({
+          date: yest,
+          primaryCrest:   cg.primaryCrest,
+          secondaryCrest: cg.secondaryCrest,
+          primary:        cg.primary,
+          secondary:      cg.secondary,
+        });
+      }
+
+      if (newTaskBond < 5) { newBond = clampBond(newBond + 0.5); newTaskBond++; }
+
+      await supabase.from('tasks').update({
+        last_completed_date: yest,
+        streak: (ct.streak || 0) + 1,
+      }).eq('id', ct.id);
+    }
+
+    // Trim crest history to 60 days
+    var cutoff = Date.now() - 60 * 86400000;
+    newHistory = newHistory.filter(function(e){ return new Date(e.date).getTime() >= cutoff; });
+    setCrestHistory(newHistory);
+    setBond(newBond);
+    var today = new Date().toISOString().split('T')[0];
+    var newBAT = Object.assign({}, bondActionsToday, { tasks: newTaskBond, date: today });
+    setBondActionsToday(newBAT);
+
+    // Apply XP to all party members
+    if (activeDigi && totalXp > 0) {
+      var partyResults = party.map(function(d){ return applyXpGain(d, totalXp); });
+      await Promise.all(party.map(function(d, idx) {
+        var r = partyResults[idx];
+        return supabase.from('digimon').update({ exp: r.exp, level: r.level, exp_needed: r.expNeeded }).eq('id', d.uid);
+      }));
+      setParty(function(p){ return p.map(function(d, idx){ return Object.assign({}, d, partyResults[idx]); }); });
+    }
+
+    await supabase.from('profiles').update({ bond: newBond, crest_history: newHistory, bond_actions_today: newBAT }).eq('id', userId);
+
+    addLog("🌟", "Yesterday's rewards claimed! +" + totalXp + " XP across " + claimed.length + " task(s)");
+    toast_("Catch-up rewards claimed! +" + totalXp + " XP 🌟", T.gold);
+  }
+
   // ── Evolution ─────────────────────────────────────────────────────────────────
   async function evolve(uid, targetId) {
     var info = DIGIMON_MAP[targetId];
@@ -1153,8 +1291,40 @@ export default function App({ session }) {
     .crest-bar-fill::after { content:''; position:absolute; top:2px; left:3px; right:3px; height:3px; background:rgba(255,255,255,0.25); }
     .main-grid { display:grid; grid-template-columns:300px 1fr 260px; min-height:calc(100vh - 64px); position:relative; z-index:1; }
     @media (max-width:1200px) { .main-grid { grid-template-columns:260px 1fr; } .right-col { display:none !important; } }
-    @media (max-width:768px)  { .main-grid { grid-template-columns:1fr; } .left-col { display:none !important; } .main-content { padding:12px !important; } }
+    @media (max-width:768px)  { .main-grid { grid-template-columns:1fr; } .main-content { padding:12px !important; } }
     @media (max-width:480px)  { .nav-pill { font-size:7px; padding:7px 9px; } .nav-drop-item { font-size:7px; } .px8 { font-size:8px; } .px12 { font-size:12px; } }
+
+    /* ── Mobile native layout ── */
+    /* CSS safety net — fires even before JS class applies */
+    @media (max-width:768px) {
+      nav.top-nav { display:none !important; }
+      .mob-tab-bar { display:flex !important; }
+      .main-grid { display:flex !important; flex-direction:column !important; height:calc(100vh - 60px) !important; min-height:unset !important; overflow:hidden !important; }
+      .right-col { display:none !important; }
+      .left-col  { display:none !important; }
+      .main-content { flex:1 !important; overflow-y:auto !important; min-height:0 !important; padding:12px 14px 16px !important; }
+    }
+    /* JS-class driven — for manual override on larger screens */
+    .is-mobile nav.top-nav { display:none !important; }
+    .is-mobile .main-grid { display:flex !important; flex-direction:column !important; height:calc(100vh - 60px) !important; min-height:unset !important; overflow:hidden !important; }
+    .is-mobile .right-col  { display:none !important; }
+    .is-mobile .left-col   { display:none !important; }
+    .is-mobile .main-content { flex:1 !important; overflow-y:auto !important; min-height:0 !important; padding:12px 14px 16px !important; }
+
+    /* PET tab — left-col fills the screen, main-content hidden */
+    .is-mobile.pet-page .left-col,
+    .pet-page .left-col { display:flex !important; flex:1 !important; min-height:0 !important; overflow-y:auto !important; border-right:none !important; padding:14px 14px 16px !important; }
+    .is-mobile.pet-page .main-content,
+    .pet-page .main-content { display:none !important; }
+
+    /* Mobile compact character strip */
+    .mob-char-strip { display:none; }
+    .is-mobile:not(.pet-page) .mob-char-strip { display:flex !important; position:sticky; top:0; z-index:150; }
+
+    /* Mobile bottom tab bar */
+    .mob-tab-bar { display:none; position:fixed; bottom:0; left:0; right:0; z-index:250; height:60px; }
+    .is-mobile .mob-tab-bar { display:flex !important; }
+    .mob-tab-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; flex:1; border:none; background:transparent; cursor:pointer; padding:4px 2px; border-top:2.5px solid transparent; transition:color 0.1s; font-family:inherit; }
   `;
 
   // ── Onboarding completion handler ────────────────────────────────────────────
@@ -1220,7 +1390,7 @@ export default function App({ session }) {
   }
 
   return (
-    <div style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Nunito',sans-serif", "--accent":accent }}>
+    <div className={"dv-app" + (isMobile ? " is-mobile" : "") + (isMobile && page === 'dashboard' ? " pet-page" : "")} style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Nunito',sans-serif", "--accent":accent }}>
       <style>{css}</style>
 
       {/* Particles */}
@@ -1269,8 +1439,7 @@ export default function App({ session }) {
           <div style={{ background:T.bgCard,border:"2px solid "+T.gold,boxShadow:"4px 4px 0 "+T.gold,maxWidth:520,width:"calc(100% - 32px)",padding:0,animation:"jijiIn 0.3s ease",overflow:"hidden" }}>
             {/* Header */}
             <div style={{ background:"linear-gradient(90deg,#1a1800,#1f1f0a)",borderBottom:"2px solid "+T.gold,padding:"10px 16px",display:"flex",alignItems:"center",gap:10 }}>
-              {/* JIJIMON SPRITE — replace this div with <DigiSprite digimonId="jijimon" size={36}/> once sprite is added */}
-              <div style={{ width:36,height:36,border:"2px solid "+T.gold,background:"#1a1500",display:"grid",placeItems:"center",fontSize:18,flexShrink:0 }}>💭</div>
+              <img src="/sprites/jijimon.gif" alt="Jijimon" style={{ width:36,height:36,objectFit:"contain",imageRendering:"pixelated",flexShrink:0 }}/>
               <div className="px9" style={{ color:T.gold }}>JIJIMON</div>
               <div style={{ flex:1 }}/>
               <button onClick={function(){ dismissJijimon(false); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px" }}>×</button>
@@ -1853,6 +2022,103 @@ export default function App({ session }) {
         </div>
       )}
 
+      {/* ── CATCH-UP MODAL (Jijimon — missed yesterday's tasks) ─────────── */}
+      {showCatchupModal && catchupTasks.length > 0 && (function(){
+        var jijiLine = catchupLineRef.current;
+        var anyChecked = catchupTasks.some(function(t){ return catchupChecked[t.id]; });
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:635,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto" }}>
+            <div style={{ background:T.bgCard,border:"2px solid "+T.gold,boxShadow:"4px 4px 0 "+T.gold,maxWidth:440,width:"100%",overflow:"hidden",animation:"jijiIn 0.3s ease" }}>
+
+              {/* Header */}
+              <div style={{ background:T.gold+"18",borderBottom:"2px solid "+T.gold+"44",padding:"14px 18px",display:"flex",alignItems:"center",gap:12 }}>
+                <div style={{ fontSize:30 }}>📋</div>
+                <div>
+                  <div className="px10" style={{ color:T.gold }}>YESTERDAY'S QUESTS</div>
+                  <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginTop:2 }}>Uncollected rewards — claim what's yours</div>
+                </div>
+              </div>
+
+              {/* Jijimon portrait + speech */}
+              <div style={{ padding:"16px 18px 0",display:"flex",gap:14,alignItems:"flex-start" }}>
+                <div style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                  <div style={{ width:56,height:56,border:"2px solid "+T.gold,background:"#1a1500",display:"grid",placeItems:"center",overflow:"hidden" }}>
+                    <img src="/sprites/jijimon.gif" alt="Jijimon" style={{ width:52,height:52,objectFit:"contain",imageRendering:"pixelated" }}/>
+                  </div>
+                  <div className="px8" style={{ color:T.gold,fontSize:"9px",textAlign:"center" }}>JIJIMON</div>
+                </div>
+                <div style={{ background:T.bgPanel,border:"1.5px solid "+T.gold+"66",padding:"10px 13px",flex:1,position:"relative" }}>
+                  <div style={{ fontSize:11,fontWeight:700,color:T.text,lineHeight:1.75,fontStyle:"italic" }}>
+                    "{jijiLine}"
+                  </div>
+                  {/* speech bubble tail */}
+                  <div style={{ position:"absolute",left:-8,top:14,width:0,height:0,borderTop:"6px solid transparent",borderBottom:"6px solid transparent",borderRight:"8px solid "+T.gold+"66" }}/>
+                </div>
+              </div>
+
+              {/* Task checklist */}
+              <div style={{ padding:"14px 18px 0" }}>
+                <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:8 }}>DID YOU COMPLETE ANY OF THESE YESTERDAY?</div>
+                <div style={{ display:"flex",flexDirection:"column",gap:6,maxHeight:220,overflowY:"auto" }}>
+                  {catchupTasks.map(function(t) {
+                    var checked = !!catchupChecked[t.id];
+                    var diffColor = t.difficulty==="Hard"?T.coral:t.difficulty==="Easy"?T.teal:T.gold;
+                    return (
+                      <button key={t.id}
+                        onClick={function(){ setCatchupChecked(function(prev){ var next=Object.assign({},prev); next[t.id]=!prev[t.id]; return next; }); }}
+                        style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 11px",background:checked?T.gold+"18":T.bgPanel,border:"1.5px solid "+(checked?T.gold:T.border),cursor:"pointer",textAlign:"left",width:"100%",transition:"background 0.15s" }}>
+                        {/* Checkbox */}
+                        <div style={{ width:16,height:16,border:"2px solid "+(checked?T.gold:T.textDim),background:checked?T.gold:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#000" }}>
+                          {checked ? "✓" : ""}
+                        </div>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <div style={{ fontSize:11,fontWeight:700,color:checked?T.text:T.textMid,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.title}</div>
+                          <div style={{ display:"flex",gap:6,marginTop:3,flexWrap:"wrap" }}>
+                            <span className="px8" style={{ fontSize:"9px",color:diffColor }}>{t.difficulty || "Medium"}</span>
+                            <span className="px8" style={{ fontSize:"9px",color:T.textDim }}>{t.template}</span>
+                            {t.type==="once"&&t.dueDate && <span className="px8" style={{ fontSize:"9px",color:T.coral }}>Due {t.dueDate}</span>}
+                          </div>
+                        </div>
+                        {checked && <div style={{ fontSize:14,flexShrink:0 }}>⭐</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Reward preview */}
+              {anyChecked && (function(){
+                var n = catchupTasks.filter(function(t){ return catchupChecked[t.id]; }).length;
+                return (
+                  <div style={{ margin:"12px 18px 0",padding:"9px 12px",background:T.gold+"11",border:"1.5px solid "+T.gold+"44",display:"flex",alignItems:"center",gap:10 }}>
+                    <div style={{ fontSize:18 }}>🌟</div>
+                    <div style={{ fontSize:10,fontWeight:700,color:T.gold,lineHeight:1.6 }}>
+                      Claiming rewards for <strong>{n}</strong> task{n!==1?"s":""} — XP, Bond, and Crest points from yesterday.
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Buttons */}
+              <div style={{ padding:"14px 18px 18px",display:"flex",gap:10 }}>
+                <button className="px8" style={{ flex:1,padding:"10px",background:anyChecked?T.gold+"22":"transparent",border:"2px solid "+(anyChecked?T.gold:T.textDim),color:anyChecked?T.gold:T.textDim,cursor:"pointer",fontSize:"11px" }}
+                  onClick={claimCatchupRewards}>
+                  {anyChecked ? "CLAIM REWARDS ✦" : "CLAIM REWARDS"}
+                </button>
+                <button className="px8" style={{ padding:"10px 14px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"11px" }}
+                  onClick={function(){ setShowCatchupModal(false); }}>
+                  SKIP
+                </button>
+              </div>
+              <div style={{ padding:"0 18px 14px",textAlign:"center" }}>
+                <div style={{ fontSize:"10px",color:T.textDim,lineHeight:1.6 }}>No guilt either way. Yesterday's effort still shaped who you are today.</div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── DIGIDEX DETAIL MODAL ─────────────────────────────────────────── */}
       {digidexEntry && (function(){
         var d = DIGIMON_MAP[digidexEntry];
@@ -2052,12 +2318,12 @@ export default function App({ session }) {
       {openGroup && <div style={{ position:"fixed",inset:0,zIndex:190 }} onClick={function(){ setOpenGroup(null); }}/>}
 
       {/* ── TOP NAV ───────────────────────────────────────────────────────── */}
-      <nav style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",background:T.bgPanel,borderBottom:"2px solid "+T.border,boxShadow:"0 2px 0 "+T.border,position:"sticky",top:0,zIndex:200,gap:12,flexWrap:"wrap" }}>
+      <nav className="top-nav" style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",background:T.bgPanel,borderBottom:"2px solid "+T.border,boxShadow:"0 2px 0 "+T.border,position:"sticky",top:0,zIndex:200,gap:12,flexWrap:"wrap" }}>
         <div className="px12" style={{ display:"flex",alignItems:"center",gap:10,color:T.text }}>
           <div style={{ width:10,height:10,background:accent,border:"2px solid "+T.border,animation:"blink 1.2s step-end infinite",display:"inline-block" }}/>
           DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
-        <div style={{ display:"flex",gap:4,alignItems:"center" }}>
+        <div style={{ display:"flex",gap:4,alignItems:"center",overflowX:"auto",flexShrink:1,minWidth:0 }}>
           {/* Grouped dropdowns */}
           {NAV_GROUPS.map(function(g){
             var isOpen    = openGroup === g.id;
@@ -2100,6 +2366,13 @@ export default function App({ session }) {
           <button className={"nav-pill"+(page==="dashboard"?" active":"")}
             onClick={function(){ setPage("dashboard"); setOpenGroup(null); }}>
             ⌂ HOME
+          </button>
+
+          {/* MOBILE toggle */}
+          <button className={"nav-pill"+(isMobile?" active":"")}
+            onClick={function(){ toggleMobileView(); setOpenGroup(null); }}
+            title={isMobile?"Switch to desktop layout":"Switch to mobile layout"}>
+            📱 {isMobile?"DESKTOP":"MOBILE"}
           </button>
         </div>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
@@ -2382,6 +2655,36 @@ export default function App({ session }) {
 
         {/* ═══ MIDDLE — MAIN CONTENT ══════════════════════════════════════ */}
         <main className="main-content" style={{ padding:"24px 28px",display:"flex",flexDirection:"column",gap:18,overflowY:"auto" }}>
+
+          {/* ── MOBILE COMPACT CHARACTER STRIP (non-pet pages) ──────────── */}
+          <div className="mob-char-strip" style={{ background:T.bgPanel,borderBottom:"2px solid "+T.border,padding:"9px 0",alignItems:"center",gap:11,marginBottom:6 }}>
+            <div style={{ flexShrink:0 }}>
+              {activeDigi && <DigiSprite digimonId={activeDigi.speciesId} size={42} animate mood="walk"/>}
+            </div>
+            <div style={{ flex:1,minWidth:0 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:7,marginBottom:4 }}>
+                <span className="px10" style={{ color:T.text,fontSize:"10px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{activeDigi && activeDigi.name}</span>
+                <span className="px8" style={{ background:accent,border:"1px solid "+T.border,padding:"2px 6px",color:T.bg,flexShrink:0,fontSize:"8px" }}>LV.{activeDigi && activeDigi.level}</span>
+              </div>
+              <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                <div style={{ height:4,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden",flex:1 }}>
+                  <div style={{ width:activeDigi ? Math.min((activeDigi.exp/activeDigi.expNeeded)*100,100)+"%" : "0%",height:"100%",background:T.gold }}/>
+                </div>
+                <span className="px8" style={{ fontSize:"8px",color:T.gold,flexShrink:0 }}>XP</span>
+              </div>
+            </div>
+            <div style={{ display:"flex",gap:10,flexShrink:0 }}>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:13 }}>⚡</div>
+                <div className="px8" style={{ fontSize:"8px",color:"#4ECDC4" }}>{stamina}</div>
+              </div>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ fontSize:13 }}>💗</div>
+                <div className="px8" style={{ fontSize:"8px",color:T.pink }}>{Math.round(bond)}</div>
+              </div>
+            </div>
+          </div>
+
           <div key={page} className="page-in">
 
             {/* ── DASHBOARD ────────────────────────────────────────────── */}
@@ -3202,6 +3505,79 @@ export default function App({ session }) {
 
         </aside>
       </div>
+
+      {/* ── MOBILE MORE SHEET (slides up above tab bar) ──────────────── */}
+      {isMobile && showMobileMore && (
+        <>
+          <div style={{ position:"fixed",inset:0,zIndex:230,background:"rgba(0,0,0,0.55)" }}
+            onClick={function(){ setShowMobileMore(false); }}/>
+          <div style={{ position:"fixed",bottom:60,left:0,right:0,zIndex:235,background:T.bgPanel,borderTop:"2px solid "+T.border,padding:"16px 16px 20px",animation:"slideUp 0.2s ease" }}>
+            <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:12 }}>MORE PAGES</div>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+              {[
+                { id:"team",     icon:"◈",  label:"TEAM" },
+                { id:"digifarm", icon:"🌿", label:"FARM" },
+                { id:"digidex",  icon:"📖", label:"DIGIDEX" },
+                { id:"crests",   icon:"💎", label:"CRESTS" },
+                { id:"store",    icon:"🛒", label:"STORE" },
+                { id:"network",  icon:"🔗", label:"NETWORK" },
+                { id:"battle",   icon:"⚔",  label:"PATCH" },
+                { id:"chat",     icon:"💬", label:"CHAT" },
+              ].map(function(item){
+                var isAct = page === item.id;
+                return (
+                  <button key={item.id}
+                    onClick={function(){ setPage(item.id); setShowMobileMore(false); }}
+                    style={{ display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:isAct?accent+"22":T.bgCard,border:"1.5px solid "+(isAct?accent:T.border),cursor:"pointer",color:isAct?accent:T.textMid,fontFamily:"inherit",transition:"all 0.1s" }}>
+                    <span style={{ fontSize:20 }}>{item.icon}</span>
+                    <span className="px8" style={{ fontSize:"9px" }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {localStorage.getItem('dv_force_mobile') === 'true' && (
+              <button className="px8"
+                onClick={function(){ toggleMobileView(); setShowMobileMore(false); }}
+                style={{ marginTop:14,width:"100%",padding:"10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"10px",display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+                🖥 SWITCH TO DESKTOP VIEW
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── MOBILE BOTTOM TAB BAR ────────────────────────────────────── */}
+      {(function(){
+        var morePageIds = ["team","digifarm","digidex","crests","store","network","battle","chat"];
+        var TABS = [
+          { id:"dashboard", icon:"🐾", label:"PET" },
+          { id:"tasks",     icon:"✅", label:"TASKS" },
+          { id:"weekly",    icon:"📅", label:"WEEK" },
+          { id:"campaign",  icon:"☠",  label:"BREACH" },
+          { id:"more",      icon:"☰",  label:"MORE"  },
+        ];
+        return (
+          <div className="mob-tab-bar" style={{ background:T.bgPanel,borderTop:"2px solid "+T.border }}>
+            {TABS.map(function(tab){
+              var isActive = tab.id === 'more'
+                ? (showMobileMore || morePageIds.includes(page))
+                : (!showMobileMore && page === tab.id);
+              return (
+                <button key={tab.id} className="mob-tab-btn"
+                  style={{ borderTopColor:isActive?accent:"transparent",color:isActive?accent:T.textMid }}
+                  onClick={function(){
+                    if (tab.id === 'more') { setShowMobileMore(function(v){ return !v; }); }
+                    else { setPage(tab.id); setShowMobileMore(false); }
+                  }}>
+                  <div style={{ fontSize:21 }}>{tab.icon}</div>
+                  <div className="px8" style={{ fontSize:"8px" }}>{tab.label}</div>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
     </div>
   );
 }

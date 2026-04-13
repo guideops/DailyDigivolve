@@ -598,15 +598,86 @@ Types:
 
 ---
 
+## Session 5 — 2026-04-13
+
+### Jijimon Catch-Up Prompt
+
+[FEAT] Daily catch-up popup — retroactive reward claiming for missed tasks
+       Trigger conditions: local time ≥ 05:00, first open of the day (localStorage key dv_catchup_<userId>)
+       Detected missed tasks:
+         - Daily tasks whose last_completed_date ≠ yesterday
+         - Recurring tasks scheduled for yesterday not completed yesterday
+         - One-time tasks with due_date = yesterday that remain undone
+       UI: Jijimon sprite portrait with speech bubble, scrollable task checklist,
+           live reward preview (XP / Bond / Crest points), CLAIM REWARDS and SKIP buttons
+       Tone: forgiving, non-judgmental — "Yesterday's effort still shaped who you are today"
+       Dialog: 4 rotating lines picked at modal-open time (stable across re-renders via useRef)
+       On claim: grants full XP, bond (respects daily 5-task cap), crest history entries dated
+                 yesterday, increments streaks, updates last_completed_date in Supabase
+       Inspired by Habitica's yesterday's dailies check-in mechanic
+
+### Jijimon Sprite
+
+[FEAT] Real Jijimon GIF sprite applied to all Jijimon modals
+       Source: /sprites/jijimon.gif (already in public/sprites/)
+       Applied to:
+         - Jijimon tip modal header (replaced 💭 placeholder — TODO comment cleared)
+         - Catch-up prompt portrait (56×56px gold-bordered frame)
+       imageRendering: pixelated for crisp scaling
+
+### Mobile Native Layout
+
+[FEAT] Mobile-native layout added — automatic on phones, manual toggle on tablets/desktop
+       Detection: JavaScript reads window.innerWidth ≤ 768px on mount + resize listener
+       CSS safety net: @media (max-width:768px) mirrors all layout rules so the bottom tab
+       bar and correct layout fire even before React renders (no layout flash on load)
+       Manual toggle: 📱 MOBILE button added to desktop nav
+         - Activates mobile layout regardless of screen width
+         - Preference persisted to localStorage key dv_force_mobile
+         - Button flips to 🖥 DESKTOP when active; click again to revert to auto-detect
+       Exit: "SWITCH TO DESKTOP VIEW" in mobile MORE sheet (shown only when force-mobile active)
+
+[UI] Bottom tab bar (60px fixed, zIndex 250)
+     5 tabs: 🐾 PET / ✅ TASKS / 📅 WEEK / ☠ BREACH / ☰ MORE
+     Active tab: accent-coloured top border + accent text
+     MORE tab shows as active when viewing any secondary page (Team, Store, etc.)
+
+[UI] PET tab — full character panel fills the screen
+     Left-col shown full-width via CSS class (no JSX duplication)
+     Contains: sprite stage (200px, animated), name + level, XP/Stamina/Bond bars,
+     Raid mini-widget, neglect widget, crest alignment mini, Feed/Play/Rest/Train buttons
+     Left-col becomes flex:1 column with internal scroll; border-right removed
+
+[UI] Non-PET tabs — compact sticky character strip at top of content
+     Sprite (42px) + name + level badge + XP bar + ⚡ Stamina + 💗 Bond
+     Sticky within the main-content scroll container (position:sticky top:0)
+     Hides on desktop via CSS; shows only on mobile non-pet pages
+
+[UI] More sheet (slides up from bottom, zIndex 235)
+     2-column grid of 8 secondary pages: Team, Farm, Digidex, Crests, Store, Network, Patch, Chat
+     Semi-transparent backdrop dismisses sheet on tap
+     Active page highlighted with accent border
+
+[UI] Nav overflow fix
+     Desktop nav button group: overflowX:auto + flexShrink:1 + minWidth:0
+     Prevents horizontal page overflow on intermediate screen widths
+     Nav scrolls internally rather than blowing past viewport edge
+
+[UI] Right column hidden on mobile (already hidden at ≤1200px; reinforced in mobile layout)
+[UI] Top nav hidden on mobile — replaced entirely by bottom tab bar
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
 
-[ ] Jijimon sprite — provide image file, replace 💭 placeholder in modal
 [ ] De-digivolution — slide evolution back when crest alignment diverges significantly
 [ ] DNA Digivolution — fusion evolution requiring two Digimon in party
 [ ] Pomodoro sessions tracked over time — weekly focus stats on Tamer Profile
 [ ] PvP sparring — async challenge between two tamers
+[ ] Mobile layout polish — per-page content optimisation (tasks, weekly, crests views)
+[ ] PWA / Add to Home Screen — manifest.json + service worker so phone treats it as a native app
 
 ### Medium-term
 
@@ -616,10 +687,11 @@ Types:
 [ ] Partner Vow shop item — enables vow evolution path [defined, not yet in Store UI]
 [ ] Onboarding: Jijimon animated sprite (replace placeholder GIF)
 [ ] Weekly focus stats — Pomodoro session history on Tamer Profile
+[ ] Push notifications — browser/PWA notifications for 5am catch-up prompt
 
 ### Long-term
 
-[ ] Mobile app (React Native / Expo) — required before watch companion
+[ ] Mobile app (React Native / Expo) — native app after PWA validates engagement
 [ ] Apple Watch / Wear OS companion
 [ ] DigiVice hardware prototype (ESP32-S3 + LVGL)
 [ ] dailydigivolve.com domain + NZ company registration
