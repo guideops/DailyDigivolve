@@ -668,16 +668,121 @@ Types:
 
 ---
 
+## Session 6 — 2026-04-14
+
+### Cross-Device Sync
+
+[FEAT] Supabase Realtime subscriptions — surgical payload handlers for profiles, tasks, digimon
+       Each table change applies only the changed row directly from the event payload
+       Eliminates race condition where refreshData() could overwrite optimistic local state
+       Handlers: applyProfilePayload / applyTaskPayload / applyDigimonPayload
+
+[FEAT] visibilitychange listener — re-fetches all display state when tab regains focus
+       Handles switching back from mobile to desktop and vice versa
+       Calls refreshData() which syncs bond, bits, stamina, tasks, party, crest history
+       Does NOT re-run init-only logic (login streak, neglect detection, daily reset)
+
+[FEAT] allTasks state — unfiltered task list for week view
+       tasks state retains today-only filter for recurring tasks (correct for task list)
+       allTasks stores all tasks regardless of day — passed to WeeklyPlannerPage
+       Enables recurring tasks to appear on their correct days across the full week
+
+[FIX] APP_VERSION / DV_VER cache-bust — forces PWA hard reload when app code is updated
+      Version stored in localStorage key dv_ver; mismatch triggers window.location.reload()
+      Increment DV_VER constant on each deploy to push fresh code to installed PWAs
+
+### PWA Notifications
+
+[FEAT] Pomodoro timer rebuilt on absolute endTime timestamp
+       Previously: decremented timeLeft counter — paused when iOS backgrounded the PWA
+       Now: stores endTime = Date.now() + totalSeconds*1000 on session start
+       Remaining time recalculated as Math.floor((endTime - Date.now()) / 1000) each tick
+       visibilitychange handler snaps timer to correct remaining time instantly on resume
+       If endTime has passed while away, session immediately completes on return
+
+[FEAT] Web Notifications for Pomodoro completion
+       Requests Notification permission when user starts first timer session
+       Fires new Notification('Session Complete! 🎉') when timer hits zero
+       Works when app is backgrounded (open but not in focus) on iOS 16.4+ PWA
+       Does not fire if PWA has been force-closed (JS process killed)
+
+### Nav Fix
+
+[FIX] Desktop nav dropdown menus not appearing
+      Root cause: nav pills container had overflowX:auto which clips position:absolute children
+      Fix: replaced with flexWrap:wrap — pills wrap to new line on narrow widths instead of scrolling
+      Top nav already has flexWrap:wrap so this is consistent
+
+### Week View
+
+[FIX] Sunday timezone bug — tasks scheduled for Sunday not appearing in week view
+      Root cause: date.toISOString() converts to UTC; Sunday midnight local = Saturday UTC in AEST
+      Fix: localISO() helper uses getFullYear/getMonth/getDate (local time) instead of toISOString()
+      Applied to both todayStr and dateStr in WeeklyPlannerPage
+
+[FEAT] Daily tasks shown in week view across all 7 days
+       Toggle: DAILY (teal) — on by default; lavender border distinguishes daily from once tasks
+
+[FEAT] Recurring tasks shown in week view on their scheduled days
+       Uses allTasks prop (unfiltered) so Wednesday tasks appear on Wednesday even on Tuesday
+       Toggle: RECUR (mint) — on by default; mint border distinguishes recurring from other types
+
+[FEAT] SHOW toggle strip — DAILY / RECUR / DONE buttons replace separate ON/OFF buttons
+       Compact segmented control; each pill highlights in its own colour when active
+       DONE defaults to off — clean pending-only view by default
+       When DONE off and all tasks complete: column shows "✓ All done" in teal
+
+[FEAT] Per-day done state for daily and recurring tasks
+       daily/recurring tasks use t.lastCompletedDate === dateStr to determine done per column
+       Completing Tuesday's daily doesn't mark it done in Wednesday's column
+
+[FEAT] Priority sort in week view — each day column sorts pending-first, then Urgent→High→Medium→Low
+       Done tasks always sink to bottom when DONE is visible
+
+[UI] No due date shown or required for daily or recurring tasks
+     dueDate badge hidden in task cards for type !== 'once'
+     Reschedule date input in week column only shown for once tasks
+
+[UI] Week view header reorganised — title + date range stacked on left; SHOW strip on right
+     Cleaner layout, less horizontal clutter than inline ON/OFF buttons
+
+### Tasks Page
+
+[FEAT] Priority sort — pending tasks ordered Urgent→High→Medium→Low (mobile and desktop)
+
+[FEAT] Completed tasks newest-first — sorted descending by lastCompletedDate
+
+[UI] Template filter replaced with crest PNG images (CrestIcon, 18px)
+     Uses CREST_INFO[primary_crest].img paths (/crests/*.png) already in public/crests/
+     Active tab highlighted with accent outline; title tooltip shows template name on hover
+     Neutral template shows ○ placeholder (no associated crest)
+
+[UI] Type filter restored to readable text — ALL / ONE-TIME / DAILY / RECURRING
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
+
+[ ] Sleep wake-up notification — wire existing sleepState.wakeTime to a Web Notification
+    Small change (~10 lines in handleSleep): setTimeout fires Notification at exact wake timestamp
+    Works when PWA is backgrounded; requires notification permission (already requested by Pomodoro)
+
+[ ] Service worker + Web Push — true background push notifications when PWA is fully closed
+    Required for: reliable Pomodoro alerts, sleep alarms, 5am catch-up prompt when app not open
+    Stack: VAPID key pair + Supabase Edge Function (push sender) + service worker (receiver)
+    Estimated effort: one full session
+    Unlocks: all notification types work even after user swipes PWA away from app switcher
+
+[ ] Google Calendar export — "Add to Calendar" button on scheduled once tasks
+    Creates Google Calendar event via Calendar API or .ics file download
+    OAuth required for direct API sync; .ics file is simpler (manual import, no auth)
 
 [ ] De-digivolution — slide evolution back when crest alignment diverges significantly
 [ ] DNA Digivolution — fusion evolution requiring two Digimon in party
 [ ] Pomodoro sessions tracked over time — weekly focus stats on Tamer Profile
 [ ] PvP sparring — async challenge between two tamers
-[ ] Mobile layout polish — per-page content optimisation (tasks, weekly, crests views)
-[ ] PWA / Add to Home Screen — manifest.json + service worker so phone treats it as a native app
 
 ### Medium-term
 
@@ -687,11 +792,13 @@ Types:
 [ ] Partner Vow shop item — enables vow evolution path [defined, not yet in Store UI]
 [ ] Onboarding: Jijimon animated sprite (replace placeholder GIF)
 [ ] Weekly focus stats — Pomodoro session history on Tamer Profile
-[ ] Push notifications — browser/PWA notifications for 5am catch-up prompt
+[ ] Apple Calendar / Reminders — .ics file export from task due dates (no auth needed)
+    Note: direct Apple Calendar API not accessible from web; .ics is the only browser path
 
 ### Long-term
 
 [ ] Mobile app (React Native / Expo) — native app after PWA validates engagement
+    Note: true background execution, Apple Alarm integration, and widgets require native app
 [ ] Apple Watch / Wear OS companion
 [ ] DigiVice hardware prototype (ESP32-S3 + LVGL)
 [ ] dailydigivolve.com domain + NZ company registration
