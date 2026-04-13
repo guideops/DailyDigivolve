@@ -32,8 +32,8 @@ var T = {
 // ── Tour steps ────────────────────────────────────────────────────────────────
 var TOUR = [
   {
-    icon:"☑", section:"P.E.T. — TASKS",
-    jijimon:"This is your P.E.T. — Personal Tamer Terminal. Every task you log here becomes real training for your partners. Complete them daily and your bonds will grow stronger with every tick!",
+    icon:"☑", section:"FILEHAVEN — TASKS",
+    jijimon:"This is your FILEHAVEN — where your tamer journey is tracked. Every task you log here becomes real training for your partners. Complete them daily and your bonds will grow stronger with every tick!",
     baby:"Let's go! We'll all get stronger with every task we do together!",
   },
   {
@@ -47,8 +47,8 @@ var TOUR = [
     baby:"Three of us — nothing can stop us! Right, team?",
   },
   {
-    icon:"🗂", section:"FILEHAVEN",
-    jijimon:"FILEHAVEN holds all your Digimon data. Manage your team, send partners to the farm to train, and browse the Digidex to plan every step of every evolution path.",
+    icon:"📟", section:"P.E.T.",
+    jijimon:"P.E.T. — Personal Evolution Terminal — holds all your Digimon data. Manage your team, send partners to the farm to train, and browse the Digidex to plan every step of every evolution path.",
     baby:"I wonder what I'll evolve into... there are so many paths! I can't wait to find out!",
   },
   {
@@ -123,7 +123,8 @@ export default function OnboardingFlow({ tamerName, onComplete }) {
 
   // ── Crest styling ────────────────────────────────────────────────────────────
   var crestColor = topCrest && CREST_INFO[topCrest] ? CREST_INFO[topCrest].color : T.gold;
-  var crestIcon  = topCrest && CREST_INFO[topCrest] ? CREST_INFO[topCrest].icon  : "✨";
+  var crestInfo  = topCrest && CREST_INFO[topCrest] ? CREST_INFO[topCrest] : null;
+  var crestIcon  = crestInfo?.icon ?? "✨";
 
   // ── Typewriter text per phase ─────────────────────────────────────────────────
   var twText = (function() {
@@ -359,7 +360,12 @@ export default function OnboardingFlow({ tamerName, onComplete }) {
               <div style={{ padding:"18px 32px",border:"2px solid "+crestColor,boxShadow:"4px 4px 0 "+crestColor,
                 textAlign:"center",background:"rgba(0,0,0,0.3)","--cc":crestColor,
                 animation:"crestPulse 2s ease-in-out infinite" }}>
-                <div style={{ fontSize:28 }}>{crestIcon}</div>
+                <div style={{ margin:"0 auto 4px" }}>
+                  {crestInfo?.img
+                    ? <img src={crestInfo.img} alt="" style={{ width:52, height:52, objectFit:"contain", display:"block", margin:"0 auto" }}/>
+                    : <span style={{ fontSize:28 }}>{crestIcon}</span>
+                  }
+                </div>
                 <div style={{ fontSize:9,color:crestColor,letterSpacing:3,marginTop:4 }}>YOUR CREST</div>
                 <div style={{ fontSize:22,fontWeight:900,color:crestColor,marginTop:4 }}>{topCrest.toUpperCase()}</div>
                 <div style={{ fontSize:10,color:T.textMid,marginTop:6 }}>{CREST_INFO[topCrest]?.desc}</div>

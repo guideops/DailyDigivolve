@@ -370,37 +370,6 @@ export const DIGIMON_DB = [
     crestReq:{ primary:"Courage", secondary:"Reliability" },
     evolvesTo:[] },
 
-  // ── Agumon X line ─────────────────────────────────────────────────────────────
-  { id:"agumon_x", name:"Agumon X", stage:"Rookie", type:"Vaccine", attr:"Fire",
-    hp:110, sp:55, atk:61, def:50, int:39, spd:55, isX:true,
-    role:"Balanced",
-    passive:"X-Adapt — no role penalty, all stats +10% vs Virus types",
-    signature:"Pepper Breath X — 25% chance to strike twice",
-    evolvesTo:["greymon_x"] },
-
-  { id:"greymon_x", name:"Greymon X", stage:"Champion", type:"Vaccine", attr:"Fire",
-    hp:176, sp:77, atk:99, def:83, int:61, spd:72, isX:true,
-    role:"Striker",
-    passive:"Pressure — reduces enemy Guard by 15% for 2 turns after hit",
-    signature:"Nova Flame X — Power boosted by 30% on this form's signature move",
-    crestReq:{ primary:"Courage", secondary:"Care" },
-    evolvesTo:["metalgreymon_x"] },
-
-  { id:"metalgreymon_x", name:"MetalGreymon X", stage:"Ultimate", type:"Vaccine", attr:"Fire",
-    hp:253, sp:110, atk:154, def:121, int:99, spd:105, isX:true,
-    role:"Vanguard",
-    passive:"Chrome Digizoid — Guard +25%, immune to Guard-break effects",
-    signature:"Giga Blaster X — piercing + splash, hits primary target and one adjacent enemy",
-    crestReq:{ primary:"Courage", secondary:"Reliability" },
-    evolvesTo:["wargreymon_x"] },
-
-  { id:"wargreymon_x", name:"WarGreymon X", stage:"Mega", type:"Vaccine", attr:"Fire",
-    hp:341, sp:143, atk:220, def:176, int:143, spd:160, isX:true,
-    role:"Vanguard",
-    passive:"Dramon Destroyer — Power +40% vs Virus, destroys all enemy barriers on entry",
-    signature:"Black Tornado — spinning strike that ignores all Guard",
-    crestReq:{ primary:"Courage", secondary:"Hope" },
-    evolvesTo:[] },
 
   // ════════════════════════════════════════════════════════════════════════════
   // BETAMON / SEA LINE
@@ -628,14 +597,6 @@ export const DIGIMON_DB = [
     signature:"Transcendent Sword — true damage, ignores all Guard — cannot be reduced",
     crestReq:{ primary:"Courage", secondary:"Friendship" },
     evolvesTo:[], fusionOf:["wargreymon","metalgarurumon"] },
-
-  { id:"omnimon_x", name:"Omnimon X", stage:"Mega", type:"Vaccine", attr:"Neutral",
-    hp:418, sp:165, atk:253, def:215, int:193, spd:198, isX:true,
-    role:"Vanguard",
-    passive:"X-Factor Authority — all stats +15% above Omnimon, passive-ignore retained",
-    signature:"Grey Sword X — true damage + reduces all enemy stats by 10% for 2 turns",
-    crestReq:{ primary:"Courage", secondary:"Friendship" },
-    evolvesTo:[], fusionOf:["wargreymon_x","metalgarurumon"] },
 
   // ── BlitzGreymon / Alter-S ────────────────────────────────────────────────────
   { id:"blitzgreymon", name:"BlitzGreymon", stage:"Mega", type:"Vaccine", attr:"Thunder",

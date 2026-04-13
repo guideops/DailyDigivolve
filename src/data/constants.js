@@ -50,14 +50,14 @@ export const TEMPLATE_CREST_MAP = {
 
 // Crest definitions
 export const CREST_INFO = {
-  Courage:     { color: "#FF6B35", icon: "🔥", desc: "Facing challenges head-on" },
-  Knowledge:   { color: "#B8A0E8", icon: "📚", desc: "Learning and deep focus" },
-  Reliability: { color: "#7EB8F7", icon: "⚙️",  desc: "Consistency and discipline" },
-  Care:        { color: "#FF9EB5", icon: "💗",  desc: "Nurturing and recovery" },
-  Friendship:  { color: "#7EF797", icon: "🤝",  desc: "Connection and community" },
-  Sincerity:   { color: "#FFD580", icon: "✨",  desc: "Honest reflection" },
-  Hope:        { color: "#FFD700", icon: "⭐",  desc: "Dreaming and pushing limits" },
-  Light:       { color: "#FFE066", icon: "☀️",  desc: "Wellness and balance" },
+  Courage:     { color: "#FF6B35", icon: "🔥", img: "/crests/courage.png",     desc: "Facing challenges head-on" },
+  Knowledge:   { color: "#B8A0E8", icon: "📚", img: "/crests/knowledge.png",   desc: "Learning and deep focus" },
+  Reliability: { color: "#7EB8F7", icon: "⚙️",  img: "/crests/reliability.png", desc: "Consistency and discipline" },
+  Care:        { color: "#FF9EB5", icon: "💗",  img: "/crests/care.png",        desc: "Nurturing and recovery" },
+  Friendship:  { color: "#7EF797", icon: "🤝",  img: "/crests/friendship.png",  desc: "Connection and community" },
+  Sincerity:   { color: "#FFD580", icon: "✨",  img: "/crests/sincerity.png",   desc: "Honest reflection" },
+  Hope:        { color: "#FFD700", icon: "⭐",  img: "/crests/hope.png",        desc: "Dreaming and pushing limits" },
+  Light:       { color: "#FFE066", icon: "☀️",  img: "/crests/light.png",       desc: "Wellness and balance" },
 };
 
 // Crest gain per task (primary / secondary points)

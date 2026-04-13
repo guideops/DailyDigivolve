@@ -43,12 +43,12 @@ export const SPRITE_CONFIG = {
   leafmon:             { ...G },
   mokumon:             { ...G },
   nyokimon:            { ...G },
-  pabumon:             { mode:"frames", frameCount:2, fps:4 },
+  pabumon:             { ...G },
   paomon:              { ...G },
   pichimon:            { ...G },
   punimon:             { ...G },
   pusumon:             { ...G },
-  relemon:             { mode:"frames", frameCount:2, fps:4 },
+  relemon:             { ...G },
   yukimibotamon:       { ...G },
   zerimon:             { ...G },
   zulumon:             { ...G },
@@ -65,12 +65,12 @@ export const SPRITE_CONFIG = {
   hopmon:              { ...S1 },
   minomon:             { ...G },
   petitmeramon:        { ...G },
-  motimon:             { mode:"frames", frameCount:2, fps:4 },
+  motimon:             { ...G },
   xiamon:              { ...G },
-  bukamon:             { mode:"frames", frameCount:2, fps:4 },
+  bukamon:             { ...G },
   pusurimon:           { ...G },
-  viximon:             { mode:"frames", frameCount:2, fps:4 },
-  nyaromon:            { mode:"frames", frameCount:2, fps:4 },
+  viximon:             { ...G },
+  nyaromon:            { ...G },
   moonmon:             { ...G },
   gummymon:            { ...G },
   pagumon:             { ...G },
@@ -79,6 +79,7 @@ export const SPRITE_CONFIG = {
   tsunomon:            { ...G },
   sunmon:              { ...G },
   tanemon:             { ...G },
+  gigimon:             { ...G },
   // lopmon_it shares lopmon sprite
   lopmon_it:           { ...G, spriteId:"lopmon" },
   // no sprites: kuramon (SVG fallback)
@@ -112,8 +113,8 @@ export const SPRITE_CONFIG = {
   garurumon:           { ...G },
   weregarurumon:       { ...G },
   metalgarurumon:      { ...G, fps:8 },
-  cresgaru:            { ...S1 },                 // CresGarurumon — DNA fusion Mega
-  zeedgarurumon:       { ...G, fps:8 },           // Ultra
+  cresgaru:            { ...G },                   // CresGarurumon — DNA fusion Mega
+  zeedgarurumon:       { ...S1 },                  // Ultra — 16×16 single frame
 
   // ── Patamon line — Holy Wind ──────────────────────────────────────────────
   patamon:             { ...G },
@@ -141,16 +142,16 @@ export const SPRITE_CONFIG = {
   rosemon:             { ...G, fps:8 },
 
   // ── Piyomon line — Flame Bird ─────────────────────────────────────────────
-  pyokomon:            { ...S1 },
-  piyomon:             { ...S1 },
-  birdramon:           { ...S1 },
-  garudamon:           { ...S1 },
+  pyokomon:            { ...G },
+  piyomon:             { ...G },
+  birdramon:           { ...G },
+  garudamon:           { ...G },
   phoenixmon:          { ...G, fps:8 },
 
   // ── Veemon line — Dragon Man ──────────────────────────────────────────────
   veemon:              { ...G },
   exveemon:            { ...G },
-  veedramon:           { ...S1 },
+  veedramon:           { ...G },
   aeroveedramon:       { ...G },
   ulforceveedramon:    { ...G, fps:8 },
   paildramon:          { ...G },                  // DNA fusion display
@@ -175,16 +176,16 @@ export const SPRITE_CONFIG = {
   banchostingmon:      { ...S1 },
 
   // ── Terriermon line — Brave Heart ─────────────────────────────────────────
-  terriermon:          { ...S1 },
-  gargomon:            { ...S1 },
-  rapidmon:            { ...S1 },
-  megagargomon:        { ...S1 },
+  terriermon:          { ...G },
+  gargomon:            { ...G },
+  rapidmon:            { ...G },
+  megagargomon:        { ...G },
   rapidmon_armor:      { ...G },
 
   // ── Lopmon line — Earth Guardian ──────────────────────────────────────────
   lopmon:              { ...G },
   turuiemon:           { ...G },
-  andiramon:           { ...S1 },
+  andiramon:           { ...G },
   andiramon_virus:     { ...G },
   cherubimon:          { ...G, fps:8 },
   cherubimon_vice:     { ...G, fps:8 },
@@ -203,16 +204,16 @@ export const SPRITE_CONFIG = {
   vikemon:             { ...G, fps:8 },
   plesiomon:           { ...G },
   aegisdramon:         { ...G, fps:8 },           // Ultra
-  mojyamon:            { ...S1 },
-  pixiemon:            { ...S1 },
-  shakomon:            { ...S1 },
-  shellmon:            { ...S1 },
-  whamon:              { ...S1 },
-  marinangemon:        { ...S1 },
-  // jijimon: SVG fallback
+  mojyamon:            { ...G },
+  pixiemon:            { ...G },
+  shakomon:            { ...G },
+  shellmon:            { ...G },
+  whamon:              { ...G },
+  marinangemon:        { ...G },
+  jijimon:             { mode:"gif", frameW:52, frameH:68 },
 
   // ── Betamon line — Sea Dragon ─────────────────────────────────────────────
-  betamon:             { ...G },
+  betamon:             { ...S1 },                  // 16×16 single frame
   seadramon:           { ...G },
   airdramon:           { ...G },
   megaseadramon:       { ...G },
@@ -233,13 +234,13 @@ export const SPRITE_CONFIG = {
 
   // ── Commandramon line — Military ─────────────────────────────────────────
   // choromon / caprimon: shared
-  commandramon:        { ...S1 },
-  hi_commandramon:     { ...S1 },
-  tankermon:           { ...S1 },
-  cargodramon:         { ...S1 },
-  deckerdramon:        { ...S1 },
-  brigadramon:         { ...S1 },
-  darkdramon:          { ...S1 },
+  commandramon:        { ...G },
+  hi_commandramon:     { ...G },
+  tankermon:           { ...G },
+  cargodramon:         { ...G },
+  deckerdramon:        { ...G },
+  brigadramon:         { ...G },
+  darkdramon:          { ...G },
 
   // ── Dorumon line — Metal Grail ────────────────────────────────────────────
   // dodomon / dorimon: already listed above
@@ -247,8 +248,8 @@ export const SPRITE_CONFIG = {
   dorugamon:           { ...G },
   doruguremon:         { ...G },
   alphamon:            { ...G, fps:8 },
-  drimogemon:          { ...S1 },
-  giromon:             { ...S1 },
+  drimogemon:          { ...G },
+  giromon:             { ...G },
   // hiandromon: already listed above
 
   // ── Pulsemon line — Electro ───────────────────────────────────────────────
@@ -322,9 +323,9 @@ export const SPRITE_CONFIG = {
 
   // ── Gaomon line — Steel Fang ──────────────────────────────────────────────
   // botamon / wanyamon: already listed above
-  gaomon:              { ...S1 },
-  gaogamon:            { ...S1 },
-  machgaogamon:        { ...S1 },
+  gaomon:              { ...G },
+  gaogamon:            { ...G },
+  machgaogamon:        { ...G },
   miragegaogamon:      { ...S1 },
   // zeedgarurumon: already listed above (Ultra)
 
@@ -339,7 +340,7 @@ export const SPRITE_CONFIG = {
   monzaemon:           { ...G },
   warumonzaemon:       { ...G, fps:8 },
   gold_numemon:        { ...G },
-  blackkingnumemon:    { ...S1 },
+  blackkingnumemon:    { ...G },
 
 };
 
