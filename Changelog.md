@@ -497,24 +497,125 @@ Types:
 
 ---
 
+## Session 4 — 2026-04-13
+
+### Neglect System
+
+[FEAT] Neglect system implemented — bond decay and partner corruption arc
+       Triggers when no tasks completed for N consecutive days
+       Two corruption paths based on behavioural fingerprint:
+         Sukamon path  — tamer abandoned partner (low Care/Friendship + low bond)
+         Numemon path  — tamer burned out and withdrew (low Courage/Reliability)
+       Reconnection Arc: complete 3 tasks to restore bond and redeem the path
+       Redemption branch: evolves to a healthy Champion form
+       Non-redemption branch: Sukamon or Numemon corruption evolution locked in
+       Left panel widget shows neglect level (quiet / dormant / unstable / critical)
+       CORRUPTION RISK badge shown when Sukamon evo is imminent
+
+### Campaign Raid Mode
+
+[FEAT] BREACH page added — community boss raid event
+       Current event: VenomMyotismon (Virus/Dark, 5,000,000 HP community pool)
+       Three phases with phase-dominant stat bonuses:
+         Corruption (Power dominant) → Rampage (Guard dominant) → Venom Burst (Focus dominant)
+       Phase threshold markers on HP bar; active phase callout with description
+       Partner contribution stats — your Power/Guard/Focus/Momentum shown with active phase highlight
+       Task → raid stat guide: Workout/Challenge → Power, Deep Work/Reflection → Focus, etc.
+       Raid log: last 15 task contributions with damage dealt, phase, and date
+       Raid mini-widget on character panel: ☠ BREACH label + current phase + HP bar + damage counter
+       Raid state persisted to Supabase (raid_state JSONB on profiles)
+       Auto-resets if raidId doesn't match current event
+
+### First-Run Onboarding
+
+[FEAT] Full onboarding flow for new tamers (OnboardingFlow.jsx)
+       Phase sequence:
+         welcome → quiz → result → hatch_1 → reveal_1 → surprise → reveal_2 → egg_choose → reveal_3 → tour
+       Jijimon quiz: 5 questions, answers map to 8 crests, highest-scoring crest wins
+       Three-egg hatch sequence:
+         Egg 1 — determined by quiz result (crest-matched species)
+         Egg 2 — surprise gift, auto-hatches (second crest-matched species)
+         Egg 3 — free choice from all available eggs
+       All 3 partners join party (not farm) on completion
+       App tour: 5-step walkthrough of key sections with Jijimon commentary
+       allDisc seeded on complete — all 3 baby species immediately added to DigiDex
+
+### Navigation Overhaul
+
+[UI] Nav condensed into grouped dropdown pills
+     Three dropdown groups:
+       P.E.T      — TEAM / FARM / DIGIDEX
+       FILEHAVEN  — TASKS / WEEK / CRESTS
+       CYBERSPACE — PATCH / BREACH / STORE / NETWORK
+     Standalone pills: CHAT, HOME
+     Final nav order: P.E.T → FILEHAVEN → CYBERSPACE → CHAT → HOME
+     Hover-to-open dropdowns with 150ms close debounce
+     Active group highlighted with accent colour border
+
+### Crest Images
+
+[FEAT] Real crest PNG images integrated throughout the app
+       8 crests added to public/crests/: courage, knowledge, reliability, care,
+       friendship, sincerity, hope, light (Love.png mapped to care.png)
+       CrestIcon component renders <img> with graceful emoji fallback
+       Applied to: CrestsPage callout cards, alignment profile bars, today's activity badges,
+       evolution path hints + mini bars, tamer profile block, FILEHAVEN crest bars,
+       task cards, focus timer, Digidex crest requirements, team manager evo requirements,
+       radar chart SVG labels (switched to SVG <image> elements), onboarding result phase
+
+### UI Polish
+
+[UI] Font sizing reverted to premium small sizes
+     CSS utility classes restored: px8=8px, px9=9px, px10=10px, px12=12px
+     nav-pill=7px, pet-btn=7px, task-tab=7px, sec-label=7px, sec-title=8px
+     nav-drop-item kept at 8px (old 6px was illegible — preserved fix)
+     All fontSize:"4px" bugs fixed to 9px (raid box, digidex detail, evo chain labels)
+     Team manager party badges set to 9px (old code had 6px = unreadable)
+     Right-side compact party role text: 9px
+
+[UI] Breach mini-widget (character panel) — removed boss name, shows ☠ BREACH + phase only
+
+[UI] Character panel stat bars — XP/Stamina/Bond labels and numbers use px8 class (no override)
+
+[UI] Crest alignment mini box (character panel)
+     Header uses px8 class; PRIMARY/SUPPORT labels use px8 class
+     Crest icon sizes reduced: primary 14px, secondary 12px
+     Crest name font reduced to 10px
+
+[UI] FILEHAVEN crest alignment bars — fixed cramped PRI/SEC column
+     Crest name 10px, width 80; bar height 7px; gap 6px
+     Percentage and ★PRI/◆SEC labels use px8 class with tighter widths (28px each)
+
+### Today's Crest Activity
+
+[FEAT] CrestsPage — Today's Crest Activity now shows secondary crest gains
+       Previously only showed primary crest points per task
+       Each activity badge now displays:
+         Primary points at full opacity (e.g. +2)
+         Secondary points at 65% opacity with "sec" suffix (e.g. +1 sec)
+       A crest that earned both primary and secondary points from different tasks
+       shows as a single merged badge with both values
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
 
 [ ] Jijimon sprite — provide image file, replace 💭 placeholder in modal
-[ ] Rest mechanic — sleep tracking / next-day stamina bonus
-[ ] Neglect system — if no tasks for N days, bond decay + Sukamon warning
 [ ] De-digivolution — slide evolution back when crest alignment diverges significantly
 [ ] DNA Digivolution — fusion evolution requiring two Digimon in party
+[ ] Pomodoro sessions tracked over time — weekly focus stats on Tamer Profile
+[ ] PvP sparring — async challenge between two tamers
 
 ### Medium-term
 
-[ ] PvP sparring — async challenge between two tamers
-[ ] Raid mode — coordinated multi-tamer boss battles
-[ ] Campaign mode — story stages with escalating difficulty
-[ ] Pomodoro sessions tracked over time — weekly focus stats on Tamer Profile
-[ ] Crest Catalyst shop item — +3 to lowest active crest (1 per week)
-[ ] Partner Vow shop item — enables vow evolution path
+[ ] Campaign mode — story stages with escalating difficulty (beyond single raid event)
+[ ] Raid state as true community pool — shared totalDamage across all users via Supabase
+[ ] Crest Catalyst shop item — +3 to lowest active crest (1 per week) [defined, not yet in Store UI]
+[ ] Partner Vow shop item — enables vow evolution path [defined, not yet in Store UI]
+[ ] Onboarding: Jijimon animated sprite (replace placeholder GIF)
+[ ] Weekly focus stats — Pomodoro session history on Tamer Profile
 
 ### Long-term
 
