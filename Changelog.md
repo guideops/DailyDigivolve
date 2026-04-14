@@ -860,6 +860,24 @@ Types:
 
 ---
 
+## Session 8 — 2026-04-15
+
+### Mobile UX
+
+[FIX] Keyboard dismiss zoom on iOS — after confirming a new task the mobile browser was
+      staying zoomed in (viewport not resetting) when the keyboard dropped.
+      Root cause: React removed the form from the DOM without the browser receiving a blur
+      signal first, so iOS kept the viewport in its keyboard-zoomed state.
+      Fix: added `document.activeElement?.blur()` + `window.scrollTo(0,0)` before all
+      form dismiss paths (submit, cancel, backdrop tap, × button) in both the quick-add
+      modal and the inline tasks-page TaskForm. This lets iOS dismiss the keyboard and
+      reset the viewport naturally before the UI state changes.
+
+[DEPLOY] DV_VER bumped 7 → 8 — forces PWA hard reload for all installed instances
+[DEPLOY] Pushed to main → Cloudflare Pages auto-deploy
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)

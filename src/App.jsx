@@ -213,7 +213,7 @@ export default function App({ session }) {
   useEffect(function() {
     async function load() {
       // Version check — forces PWA to reload fresh code when the app is updated
-      var DV_VER = '7';
+      var DV_VER = '8';
       var stored = localStorage.getItem('dv_ver');
       localStorage.setItem('dv_ver', DV_VER);
       if (stored && stored !== DV_VER) { window.location.reload(); return; }
@@ -1654,13 +1654,13 @@ export default function App({ session }) {
       {/* ── QUICK-ADD TASK MODAL ──────────────────────────────────────────── */}
       {showQuickAdd && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"16px",overflowY:"auto",WebkitOverflowScrolling:"touch" }}
-          onClick={function(e){ if(e.target===e.currentTarget){ setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); } }}>
+          onClick={function(e){ if(e.target===e.currentTarget){ document.activeElement?.blur(); setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); } }}>
           <div style={{ width:"100%",maxWidth:480,marginTop:"auto",marginBottom:"auto" }}>
             <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,padding:"16px 16px 0",marginBottom:0 }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
                 <div className="px12" style={{ color:accent }}>NEW TASK</div>
                 <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 4px" }}
-                  onClick={function(){ setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }}>×</button>
+                  onClick={function(){ document.activeElement?.blur(); setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }}>×</button>
               </div>
             </div>
             <TaskForm
@@ -1671,11 +1671,14 @@ export default function App({ session }) {
               label="ADD TASK"
               onSubmit={function(){
                 if(!quickAddForm.title.trim()) return;
+                document.activeElement?.blur();
+                window.scrollTo(0,0);
                 addTask(quickAddForm);
                 setShowQuickAdd(false);
                 setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""});
               }}
               onCancel={function(){
+                document.activeElement?.blur();
                 setShowQuickAdd(false);
                 setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""});
               }}
@@ -4240,8 +4243,8 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
   var [form, setForm] = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
 
   function reset(){ setForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }
-  function submitAdd(){ if(!form.title.trim())return; onAdd(form); reset(); setShowAdd(false); }
-  function submitEdit(){ if(!editId||!form.title.trim())return; onEdit(editId,form); setEditId(null); reset(); }
+  function submitAdd(){ if(!form.title.trim())return; document.activeElement?.blur(); window.scrollTo(0,0); onAdd(form); reset(); setShowAdd(false); }
+  function submitEdit(){ if(!editId||!form.title.trim())return; document.activeElement?.blur(); window.scrollTo(0,0); onEdit(editId,form); setEditId(null); reset(); }
   function startEdit(t){ setEditId(t.id); setForm({title:t.title,template:t.template||"Neutral",priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
 
   var typeColor = { once:T.lavender, daily:T.teal, recurring:T.mint };
@@ -4301,7 +4304,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
         </div>
       </div>
 
-      {showAdd&&!editId&&<TaskForm form={form} setForm={setForm} onSubmit={submitAdd} onCancel={function(){setShowAdd(false);reset();}} label="ADD TASK" accent={accent} T={T}/>}
+      {showAdd&&!editId&&<TaskForm form={form} setForm={setForm} onSubmit={submitAdd} onCancel={function(){document.activeElement?.blur();setShowAdd(false);reset();}} label="ADD TASK" accent={accent} T={T}/>}
       {!showAdd&&!editId&&(
         <button className="px8" style={{ padding:"11px 18px",background:T.coral,border:"2px solid "+T.border,boxShadow:"3px 3px 0 "+T.border,color:"white",cursor:"pointer",textAlign:"left",fontSize:"12px" }} onClick={function(){setShowAdd(true);}}>+ NEW TASK</button>
       )}
@@ -4315,7 +4318,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
         return (
           <div key={t.id}>
             {editId===t.id
-              ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){setEditId(null);reset();}} label="SAVE" accent={accent} T={T}/>
+              ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){document.activeElement?.blur();setEditId(null);reset();}} label="SAVE" accent={accent} T={T}/>
               : (
                 <div className={"task-card tc-"+(t.priority||"low").toLowerCase()}>
                   <div className="task-check" onClick={function(){ onComplete(t.id); }}>
