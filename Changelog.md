@@ -761,6 +761,105 @@ Types:
 
 ---
 
+## Session 7 — 2026-04-14
+
+### Persistence Fixes
+
+[FIX] Battle bits and stamina not persisting after PATCH battles
+      Root cause 1: startBattle fired a fire-and-forget Supabase stamina update; the realtime event
+      from that update arrived with the full row snapshot (old bits/bond values) and overwrote the
+      reward that was just applied locally
+      Root cause 2: battleAttack used a stale closure value for the DB bits write
+      Fix: startBattle now includes current bits+bond in its stamina update so the realtime payload
+      is never stale. battleAttack is now async and awaits a single combined bits+stamina save at
+      battle end using a consistent newBits variable
+
+[FIX] Play action (bond +1) appearing to reset
+      Same realtime race condition as above — resolved by including bond in the startBattle payload
+      so realtime events always carry current values
+
+[FIX] Tamer name reverting to "Tamer" after tab switch or page reload
+      Root cause: refreshData() (called on visibilitychange) and applyProfilePayload (realtime handler)
+      both set bits/bond/stamina but neither set tamerName — so any sync event could clobber a
+      locally-set name if display_name was not in the payload or returned null
+      Fix: both refreshData and applyProfilePayload now call setTamerName(profile.display_name)
+      when display_name is present
+
+### Jijimon Catch-up Modal
+
+[FIX] Catch-up modal could reappear on a second device or browser (localStorage is device-local)
+      Fix: added catchup_last_seen TEXT column to profiles table (migration 20260414_catchup_last_seen)
+      On first show of the day the date is written to BOTH localStorage AND profiles.catchup_last_seen
+      On load, either source being "today" prevents the modal from showing again
+      Supabase migration applied to remote DB via db query --linked
+
+[FIX] Catch-up date comparison used toISOString() (UTC) for todayISO; now uses local date components
+      (getFullYear/getMonth/getDate) to match the per-column localISO() logic in WeeklyPlannerPage
+
+### Week View — Task Completion
+
+[FIX] Completing a task in week view moved it to the prior day column
+      Root cause: completeTask used new Date().toISOString().split('T')[0] (UTC date) for
+      last_completed_date. WeeklyPlannerPage computes dateStr via localISO() (local date).
+      For UTC+ timezone users, UTC date can be one day behind local date — so a task completed
+      on Tuesday got stamped Monday UTC and appeared done in Monday's column
+      Fix: completeTask now derives a todayLocal string using getFullYear/getMonth/getDate (same
+      method as WeeklyPlannerPage). todayLocal is used for last_completed_date in the DB write,
+      for lastCompletedDate in both setTasks and setAllTasks state updates, and for the daily
+      cap completedTodayCount filter. UTC today is kept only for bond/crest/profile-level dates
+
+[FIX] stale check in mapTask (initial load), refreshData (visibility sync), and applyTaskPayload
+      (realtime) all compared last_completed_date against UTC today — now all use local date
+      so a task completed at 9am Tuesday local / Monday UTC is not wrongly flagged as stale
+
+[FIX] Completing a task updated tasks state but not allTasks — week view received allTasks and
+      showed the pre-completion lastCompletedDate until realtime arrived, causing a visible
+      "wrong day" flash even when the date was correct
+      Fix: both setTasks and setAllTasks now apply the same applyComplete mapper in completeTask
+
+### Mobile UX
+
+[FIX] iOS auto-zoom on new task input — font-size 13px triggers iOS viewport zoom on focus
+      Fix: TaskForm inputSt fontSize changed 13 → 16px (iOS only zooms on inputs below 16px)
+      Applies to all inputs in the form: title, notes, date
+
+[FIX] New task modal not scrollable on mobile — fixed overlay used alignItems:center with no
+      overflow handling; when the soft keyboard appeared the form was partially hidden
+      Fix: overlay now uses alignItems:flex-start with overflowY:auto and WebkitOverflowScrolling:touch
+      Inner content uses marginTop/Bottom:auto so it stays centred when space allows
+
+[FIX] Feed (food) panel invisible / unscrollable on mobile
+      Root cause: panel used justifyContent:flex-start and paddingLeft:320 (desktop sidebar offset)
+      On mobile there is no sidebar so the panel rendered off-screen to the right
+      Fix: replaced with justifyContent:center and padding:16; inner panel has maxHeight:90vh and
+      overflowY:auto so it scrolls if content overflows on small screens
+
+### Breach Page
+
+[UI] VenomMyotismon GIF added to breach boss header
+     File: public/sprites/breach_boss_venommyotismon.gif (copied from Downloads/3D Sprite/breach boss/)
+     Replaces the SVG placeholder that was drawn in code
+     Image is ONLY used on the BREACH page — not referenced in DigiDex or DigiSprite component
+
+### Tasks Page
+
+[FIX] Completed task sort — rewrote comparator to unambiguous descending form:
+      da > db → return -1 (a more recent → a first); da < db → return 1 (b more recent → b first)
+      Null/missing lastCompletedDate falls back to '0000-00-00' so undated tasks always sort last
+      Previously used return 1 / return -1 with b-relative comparison — functionally equivalent
+      but ambiguous and prone to inversion bugs
+
+[UI] Completed tasks cap raised from 15 → 50
+     Previously capped at 15 regardless of how many tasks were completed
+     Footer label updated: "Showing most recent 50 completed tasks"
+
+### Deploy
+
+[DEPLOY] DV_VER bumped 6 → 7 — forces PWA hard reload for all installed instances
+[DEPLOY] Pushed to main → Cloudflare Pages auto-deploy
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)

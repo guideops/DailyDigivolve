@@ -213,7 +213,7 @@ export default function App({ session }) {
   useEffect(function() {
     async function load() {
       // Version check — forces PWA to reload fresh code when the app is updated
-      var DV_VER = '6';
+      var DV_VER = '7';
       var stored = localStorage.getItem('dv_ver');
       localStorage.setItem('dv_ver', DV_VER);
       if (stored && stored !== DV_VER) { window.location.reload(); return; }
@@ -381,7 +381,7 @@ export default function App({ session }) {
 
       if (tasksData) {
         var todayDay  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
-        var todayDate = new Date().toISOString().split('T')[0];
+        var _ld = new Date(); var todayDate = _ld.getFullYear()+'-'+String(_ld.getMonth()+1).padStart(2,'0')+'-'+String(_ld.getDate()).padStart(2,'0');
         function mapTask(t) {
           var stale = (t.type === 'daily' || t.type === 'recurring')
             && t.done && t.last_completed_date !== todayDate;
@@ -406,14 +406,18 @@ export default function App({ session }) {
       if (tasksData) {
         var nowLocal   = new Date();
         var localHour  = nowLocal.getHours();
-        var todayISO   = nowLocal.toISOString().split('T')[0];
-        var yestDate   = new Date(Date.now() - 86400000);
+        var todayLocal = new Date(nowLocal.getFullYear(), nowLocal.getMonth(), nowLocal.getDate());
+        var todayISO   = todayLocal.toISOString().split('T')[0];
+        var yestDate   = new Date(todayLocal.getTime() - 86400000);
         var yestISO    = yestDate.toISOString().split('T')[0];
         var yestDay    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][yestDate.getDay()];
         var catchupKey = 'dv_catchup_' + userId;
-        var lastCatchup = localStorage.getItem(catchupKey);
+        // Check both localStorage (fast, device-local) AND Supabase profile (cross-device)
+        var lastCatchupLocal = localStorage.getItem(catchupKey);
+        var lastCatchupServer = profile ? (profile.catchup_last_seen || null) : null;
+        var alreadySeenToday = (lastCatchupLocal === todayISO) || (lastCatchupServer === todayISO);
 
-        if (localHour >= 5 && lastCatchup !== todayISO) {
+        if (localHour >= 5 && !alreadySeenToday) {
           var missedRaw = tasksData.filter(function(t) {
             if (t.type === 'daily') return t.last_completed_date !== yestISO;
             if (t.type === 'recurring') {
@@ -434,7 +438,9 @@ export default function App({ session }) {
             catchupLineRef.current = CATCHUP_LINES[Math.floor(Math.random() * CATCHUP_LINES.length)];
             setCatchupChecked({});
             setShowCatchupModal(true);
+            // Persist seen-date to both localStorage and Supabase so it's cross-device
             localStorage.setItem(catchupKey, todayISO);
+            supabase.from('profiles').update({ catchup_last_seen: todayISO }).eq('id', userId);
           }
         }
       }
@@ -449,7 +455,8 @@ export default function App({ session }) {
   // ── Live sync — refresh display state from DB without re-running init logic ──
   async function refreshData() {
     if (!userId) return;
-    var today = new Date().toISOString().split('T')[0];
+    var today = new Date().toISOString().split('T')[0]; // UTC — used for profile-level date comparisons (bond_actions_today, etc.)
+    var _rld = new Date(); var todayLocal = _rld.getFullYear()+'-'+String(_rld.getMonth()+1).padStart(2,'0')+'-'+String(_rld.getDate()).padStart(2,'0');
     var [{ data:profile }, { data:digimonData }, { data:tasksData }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('digimon').select('*').eq('user_id', userId).order('sort_order'),
@@ -458,6 +465,7 @@ export default function App({ session }) {
     if (profile) {
       setBits(profile.bits || 350);
       setBond(profile.bond || 0);
+      if (profile.display_name) setTamerName(profile.display_name);
       setCrestHistory(profile.crest_history || []);
       setWeeklyDigimon(profile.weekly_digimon || {});
       setLoginStreak(profile.login_streak || 0);
@@ -493,7 +501,7 @@ export default function App({ session }) {
         return t.days_of_week.includes(todayDay);
       }).map(function(t) {
         var stale = (t.type === 'daily' || t.type === 'recurring')
-          && t.done && t.last_completed_date !== today;
+          && t.done && t.last_completed_date !== todayLocal;
         return {
           id: t.id, title: t.title, template: t.category || 'Neutral',
           priority: t.priority, difficulty: t.difficulty, type: t.type,
@@ -504,7 +512,7 @@ export default function App({ session }) {
       }));
       setAllTasks(tasksData.map(function(t) {
         var stale = (t.type === 'daily' || t.type === 'recurring')
-          && t.done && t.last_completed_date !== today;
+          && t.done && t.last_completed_date !== todayLocal;
         return {
           id: t.id, title: t.title, template: t.category || 'Neutral',
           priority: t.priority, difficulty: t.difficulty, type: t.type,
@@ -533,6 +541,7 @@ export default function App({ session }) {
     var today = new Date().toISOString().split('T')[0];
     setBits(p.bits ?? 350);
     setBond(p.bond ?? 0);
+    if (p.display_name) setTamerName(p.display_name);
     setCrestHistory(p.crest_history || []);
     setWeeklyDigimon(p.weekly_digimon || {});
     setLoginStreak(p.login_streak || 0);
@@ -550,7 +559,7 @@ export default function App({ session }) {
   }
 
   function applyTaskPayload(payload) {
-    var today = new Date().toISOString().split('T')[0];
+    var _atd = new Date(); var today = _atd.getFullYear()+'-'+String(_atd.getMonth()+1).padStart(2,'0')+'-'+String(_atd.getDate()).padStart(2,'0');
     var todayDay = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()];
     if (payload.eventType === 'DELETE') {
       var oldId = payload.old && payload.old.id;
@@ -1038,10 +1047,11 @@ export default function App({ session }) {
     var hasBoost   = dayDigiUid && activeDigi && dayDigiUid === activeDigi.uid;
     var baseXp     = calcXpReward(task, streak);
     var xp         = hasBoost ? Math.floor(baseXp * 1.5) : baseXp;
-    var today      = new Date().toISOString().split('T')[0];
+    var today      = new Date().toISOString().split('T')[0]; // UTC — for bond/crest/profile dates
+    var _ctd = new Date(); var todayLocal = _ctd.getFullYear()+'-'+String(_ctd.getMonth()+1).padStart(2,'0')+'-'+String(_ctd.getDate()).padStart(2,'0');
 
     // Silent daily cap — task completion still records but yields no stat gains above 300
-    var completedTodayCount = tasks.filter(function(t){ return t.done && t.lastCompletedDate === today; }).length;
+    var completedTodayCount = tasks.filter(function(t){ return t.done && t.lastCompletedDate === todayLocal; }).length;
     var statGainAllowed = completedTodayCount < 300;
 
     // Crest gain
@@ -1073,14 +1083,16 @@ export default function App({ session }) {
     var newBAT = Object.assign({}, bondActionsToday, { tasks: newTaskBond, date: today });
     setBondActionsToday(newBAT);
 
-    // Update task
+    // Update task — use local date so week view column comparison (also local) matches
     await supabase.from('tasks').update({
       done: true, streak: (task.streak||0)+1,
-      last_completed_date: today,
+      last_completed_date: todayLocal,
     }).eq('id', id);
-    setTasks(function(ts){ return ts.map(function(t){
-      return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1,lastCompletedDate:today}) : t;
-    }); });
+    var applyComplete = function(t) {
+      return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1,lastCompletedDate:todayLocal}) : t;
+    };
+    setTasks(function(ts){ return ts.map(applyComplete); });
+    setAllTasks(function(ts){ return ts.map(applyComplete); });
 
     // XP to all party members equally (farm Digimon excluded — not in party array)
     if (activeDigi && statGainAllowed) {
@@ -1400,11 +1412,12 @@ export default function App({ session }) {
     });
     var newStam = Math.max(0, stamina - cost);
     setStamina(newStam);
-    supabase.from('profiles').update({ stamina:newStam, last_stamina_update:new Date().toISOString() }).eq('id', userId);
+    // Include bits+bond so the realtime event carries current values and can't clobber recent rewards
+    supabase.from('profiles').update({ stamina:newStam, last_stamina_update:new Date().toISOString(), bits:bits, bond:bond }).eq('id', userId);
     setBattleState({ playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
   }
 
-  function battleAttack(idx) {
+  async function battleAttack(idx) {
     if (!battleState||battleState.phase!=="fight") return;
     var bs = JSON.parse(JSON.stringify(battleState));
     var att = bs.playerTeam[bs.selected];
@@ -1428,10 +1441,13 @@ export default function App({ session }) {
     if (won||lost) {
       var r    = BATTLE_REWARDS[bs.difficulty]||{win:60,loss:25};
       var earn = won ? r.win : r.loss;
-      setBits(function(b){ return b+earn; });
-      supabase.from('profiles').update({ bits: bits+earn }).eq('id', userId);
+      var newBits = bits + earn;
+      setBits(newBits);
       bs.log = [(won?"⚔ Victory! ":"💀 Defeated... ")+"+" + earn + "🪙"].concat(bs.log);
       bs.phase = won ? "won" : "lost";
+      setBattleState(bs);
+      await supabase.from('profiles').update({ bits: newBits, stamina: stamina, last_stamina_update: lastStaminaUpdate }).eq('id', userId);
+      return;
     }
     setBattleState(bs);
   }
@@ -1637,9 +1653,9 @@ export default function App({ session }) {
 
       {/* ── QUICK-ADD TASK MODAL ──────────────────────────────────────────── */}
       {showQuickAdd && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px" }}
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"16px",overflowY:"auto",WebkitOverflowScrolling:"touch" }}
           onClick={function(e){ if(e.target===e.currentTarget){ setShowQuickAdd(false); setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); } }}>
-          <div style={{ width:"100%",maxWidth:480 }}>
+          <div style={{ width:"100%",maxWidth:480,marginTop:"auto",marginBottom:"auto" }}>
             <div style={{ background:T.bgCard,border:"2px solid "+accent,boxShadow:"4px 4px 0 "+accent,padding:"16px 16px 0",marginBottom:0 }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
                 <div className="px12" style={{ color:accent }}>NEW TASK</div>
@@ -1695,8 +1711,8 @@ export default function App({ session }) {
 
       {/* ── FEED PANEL ────────────────────────────────────────────────────── */}
       {showFeedPanel && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.60)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"flex-start",paddingLeft:320 }}>
-          <div style={{ background:T.bgCard,border:"2px solid "+T.pink,boxShadow:"4px 4px 0 "+T.pink,padding:16,width:260,animation:"jijiIn 0.2s ease" }}>
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.60)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.pink,boxShadow:"4px 4px 0 "+T.pink,padding:16,width:"100%",maxWidth:320,animation:"jijiIn 0.2s ease",maxHeight:"90vh",overflowY:"auto" }}>
             <div className="px9" style={{ color:T.pink,marginBottom:12 }}>🍎 FEED PARTNER</div>
             <div style={{ fontSize:11,color:T.textMid,marginBottom:12 }}>
               Stamina: {stamina}/{STAMINA_MAX} · Food cap: {Math.max(0,STAMINA_FOOD_CAP-foodStaminaToday)} left today
@@ -3433,36 +3449,9 @@ export default function App({ session }) {
                     {/* Star field */}
                     <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(155,89,182,0.18) 1px,transparent 1px)",backgroundSize:"20px 20px",pointerEvents:"none" }}/>
                     <div style={{ display:"flex",gap:18,alignItems:"center",position:"relative" }}>
-                      {/* Boss portrait — SVG placeholder */}
-                      <div style={{ width:90,height:90,flexShrink:0,position:"relative" }}>
-                        <svg width={90} height={90} viewBox="0 0 90 90" style={{ display:"block" }}>
-                          {/* Shadow */}
-                          <ellipse cx="45" cy="87" rx="20" ry="3" fill="rgba(0,0,0,0.4)"/>
-                          {/* Wings */}
-                          <path d="M45 55 L8 28 L18 50 Z"  fill="#6c3483" opacity="0.9"/>
-                          <path d="M45 55 L82 28 L72 50 Z" fill="#6c3483" opacity="0.9"/>
-                          <path d="M45 55 L2 44 L14 58 Z"  fill="#512e78" opacity="0.7"/>
-                          <path d="M45 55 L88 44 L76 58 Z" fill="#512e78" opacity="0.7"/>
-                          {/* Body */}
-                          <ellipse cx="45" cy="52" rx="16" ry="20" fill="#2c0033"/>
-                          {/* Cloak collar */}
-                          <path d="M29 48 Q45 40 61 48 L58 60 Q45 55 32 60 Z" fill="#4a0055"/>
-                          {/* Head */}
-                          <ellipse cx="45" cy="30" rx="13" ry="14" fill="#1a001f"/>
-                          {/* Bat ears */}
-                          <path d="M33 22 L28 8 L38 18 Z"  fill="#9B59B6"/>
-                          <path d="M57 22 L62 8 L52 18 Z"  fill="#9B59B6"/>
-                          {/* Eyes — red glow */}
-                          <ellipse cx="39" cy="29" rx="4" ry="4" fill="#cc0000"/>
-                          <ellipse cx="51" cy="29" rx="4" ry="4" fill="#cc0000"/>
-                          <ellipse cx="39" cy="29" rx="2" ry="2" fill="#ff4444"/>
-                          <ellipse cx="51" cy="29" rx="2" ry="2" fill="#ff4444"/>
-                          {/* Virus mouth */}
-                          <path d="M37 37 Q45 44 53 37" stroke="#9B59B6" strokeWidth="2" fill="none"/>
-                          {/* Venom drip */}
-                          <ellipse cx="43" cy="42" rx="2" ry="3" fill="#00cc44" opacity="0.8"/>
-                          <ellipse cx="47" cy="43" rx="1.5" ry="2.5" fill="#00cc44" opacity="0.6"/>
-                        </svg>
+                      {/* Boss portrait */}
+                      <div style={{ width:90,height:90,flexShrink:0,position:"relative",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                        <img src="/sprites/breach_boss_venommyotismon.gif" alt="VenomMyotismon" style={{ width:90,height:90,objectFit:"contain",imageRendering:"pixelated" }}/>
                         {!defeated && <div style={{ position:"absolute",top:-4,right:-4,width:10,height:10,background:"#cc0000",borderRadius:"50%",animation:"blink 0.8s step-end infinite" }}/>}
                       </div>
                       <div style={{ flex:1 }}>
@@ -4262,11 +4251,14 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
     return (PRIO_ORDER[a.priority]??99) - (PRIO_ORDER[b.priority]??99);
   });
   var compTasks = filtered.filter(function(t){ return t.done; }).sort(function(a,b){
-    if ((b.lastCompletedDate||'') > (a.lastCompletedDate||'')) return 1;
-    if ((b.lastCompletedDate||'') < (a.lastCompletedDate||'')) return -1;
+    // Newest completed first; tasks with no date sort to the very bottom
+    var da = a.lastCompletedDate || '0000-00-00';
+    var db = b.lastCompletedDate || '0000-00-00';
+    if (da > db) return -1; // a is more recent → a first
+    if (da < db) return 1;  // b is more recent → b first
     return 0;
   });
-  var MAX_DONE  = 15;
+  var MAX_DONE  = 50;
   // Template → primary crest image (via CREST_INFO) for compact filter tabs
   var TPL_CREST_CI = {
     "Workout":    CREST_INFO["Courage"],
@@ -4384,7 +4376,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
           )}
           {compTasks.length > MAX_DONE && visibleDone >= MAX_DONE && (
             <div className="px8" style={{ textAlign:"center",color:T.textDim,fontSize:"11px",padding:"4px 0" }}>
-              Showing last {MAX_DONE} completed tasks
+              Showing most recent {MAX_DONE} completed tasks
             </div>
           )}
         </div>
@@ -4578,7 +4570,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
 
 // ── TaskForm ──────────────────────────────────────────────────────────────────
 function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
-  var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif",boxSizing:"border-box" };
+  var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:16,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif",boxSizing:"border-box" };
   var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
   var TEMPLATES = ["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"];
   var cg = calcCrestGain(form.template, form.difficulty);
