@@ -143,7 +143,8 @@ export const FOOD_ITEMS = [
 // ── Other shop items ──────────────────────────────────────────────────────────
 export const SHOP_ITEMS = [
   { id:"exp",    name:"EXP Booster +500",    cost:1000, icon:"⭐", category:"upgrade" },
-  { id:"random", name:"Random Digimon",      cost:2000, icon:"🎲", category:"special" },
+  { id:"adopt_egg", name:"Adopt an Egg",     cost:2000, icon:"🥚", category:"special",
+    desc:"Browse the full Digitama collection and hatch a new partner." },
   { id:"xab",    name:"X-Antibody",          cost:3000, icon:"✖️", category:"special" },
   { id:"pers",   name:"Personality Changer", cost:2000, icon:"🎭", category:"special" },
   { id:"vow",    name:"Partner Vow",         cost:1500, icon:"🔮", category:"special",

@@ -2,6 +2,7 @@
 import { supabase } from './lib/supabase.js';
 import { useState, useEffect, useMemo, useRef } from "react";
 import DigiSprite from "./components/DigiSprite.jsx";
+import DigiEgg from "./components/DigiEgg.jsx";
 import OnboardingFlow from "./components/OnboardingFlow.jsx";
 import { Bar } from "./components/ui.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
@@ -10,7 +11,7 @@ import {
   STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
   CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
   STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP, EVO_REQUIREMENTS,
-  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT, NEGLECT_SPEECH, NEGLECT_PATHS,
+  CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT, NEGLECT_SPEECH, NEGLECT_PATHS, ALL_EGGS,
 } from "./data/constants.js";
 import {
   calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
@@ -204,6 +205,12 @@ export default function App({ session }) {
   // Quick-add task modal (launched from dashboard)
   var [showQuickAdd,     setShowQuickAdd]     = useState(false);
   var [quickAddForm,     setQuickAddForm]     = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
+  // Adopt-egg shop flow
+  var [showAdoptEgg,     setShowAdoptEgg]     = useState(false);
+  var [adoptEggSel,      setAdoptEggSel]      = useState(null);   // selected ALL_EGGS entry
+  var [adoptEggPhase,    setAdoptEggPhase]    = useState('select'); // 'select'|'hatching'|'hatched'
+  var [adoptHatchedDigi, setAdoptHatchedDigi] = useState(null);   // hatched digimon object
+  var [jijiPrompt,       setJijiPrompt]       = useState(null);   // { type:'leader'|'swap'|'swapPick', newDigi }
 
   var dragIdx      = useRef(null);
   var navCloseTimer = useRef(null); // delay before closing a nav dropdown on mouse-leave
@@ -213,7 +220,7 @@ export default function App({ session }) {
   useEffect(function() {
     async function load() {
       // Version check — forces PWA to reload fresh code when the app is updated
-      var DV_VER = '8';
+      var DV_VER = '9';
       var stored = localStorage.getItem('dv_ver');
       localStorage.setItem('dv_ver', DV_VER);
       if (stored && stored !== DV_VER) { window.location.reload(); return; }
@@ -1458,8 +1465,71 @@ export default function App({ session }) {
     var newBits = bits - item.cost;
     setBits(newBits);
     await supabase.from('profiles').update({ bits:newBits }).eq('id', userId);
+    if (item.id === 'adopt_egg') {
+      setShowAdoptEgg(true);
+      setAdoptEggSel(null);
+      setAdoptEggPhase('select');
+      return;
+    }
     toast_("Purchased: " + item.name, "#FFD700");
     addLog("🛒", "Bought " + item.name);
+  }
+
+  // ── Adopt-egg: start hatch animation ─────────────────────────────────────────
+  function doAdoptHatch() {
+    if (!adoptEggSel) return;
+    setAdoptEggPhase('hatching');
+  }
+
+  // ── Adopt-egg: fired by DigiEgg onHatched after animation plays ──────────────
+  async function onAdoptHatched() {
+    var speciesId = adoptEggSel.hatchId;
+    var s = newDigimon(speciesId, {});
+    var { data:newDigi } = await supabase.from('digimon').insert({
+      user_id: userId, species_id: speciesId, name: s.name,
+      level: 1, exp: 0, exp_needed: 100, abi: 0,
+      personality: s.personality, bonus_stats: s.bonusStats || {},
+      discovered: [speciesId], in_farm: false, sort_order: party.length,
+    }).select().single();
+    if (!newDigi) { toast_("Something went wrong.", "#FF8080"); setShowAdoptEgg(false); return; }
+
+    var hatched = Object.assign({}, s, { uid: newDigi.id, inFarm: false });
+    setAdoptHatchedDigi(hatched);
+    setAdoptEggPhase('hatched');
+    setAllDisc(function(d){ return d.includes(speciesId) ? d : d.concat([speciesId]); });
+
+    var partyFull = party.length >= MAX_PARTY_SIZE;
+    if (!partyFull) {
+      setParty(function(p){ return p.concat([hatched]); });
+    } else {
+      setFarm(function(f){ return f.concat([Object.assign({}, hatched, { inFarm:true })]); });
+      await supabase.from('digimon').update({ in_farm:true }).eq('id', newDigi.id);
+    }
+
+    toast_('Welcome, ' + s.name + '! 🥚→✨', T.gold);
+    addLog('🥚', 'Adopted ' + s.name + ' from a Digitama');
+
+    setTimeout(function() {
+      setShowAdoptEgg(false);
+      if (partyFull) {
+        setJijiPrompt({ type:'swap', newDigi:hatched });
+      } else {
+        setJijiPrompt({ type:'leader', newDigi:hatched });
+      }
+    }, 900);
+  }
+
+  // ── Adopt-egg: swap a party member out for the hatched digimon ───────────────
+  async function adoptSwapIn(partyMemberUid) {
+    var newDigi = jijiPrompt && jijiPrompt.newDigi;
+    var member  = party.find(function(x){ return x.uid === partyMemberUid; });
+    if (!newDigi || !member) return;
+    await supabase.from('digimon').update({ in_farm:true  }).eq('id', partyMemberUid);
+    await supabase.from('digimon').update({ in_farm:false }).eq('id', newDigi.uid);
+    setParty(function(p){ return p.filter(function(x){ return x.uid !== partyMemberUid; }).concat([Object.assign({}, newDigi, { inFarm:false })]); });
+    setFarm(function(f){ return f.filter(function(x){ return x.uid !== newDigi.uid; }).concat([Object.assign({}, member, { inFarm:true })]); });
+    toast_(member.name + ' sent to farm. ' + newDigi.name + ' joined the party!', T.teal);
+    setJijiPrompt({ type:'leader', newDigi:newDigi });
   }
 
   // ── Evolution banner helper ──────────────────────────────────────────────────
@@ -1683,6 +1753,159 @@ export default function App({ session }) {
                 setQuickAddForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""});
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── ADOPT EGG MODAL ──────────────────────────────────────────────── */}
+      {showAdoptEgg && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.97)",zIndex:720,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",padding:"24px 16px 80px",overflowY:"auto" }}>
+          <div className="px10" style={{ color:T.gold,letterSpacing:3,marginBottom:4,marginTop:8 }}>ADOPT AN EGG</div>
+          <div style={{ fontSize:13,fontWeight:700,color:T.textMid,marginBottom:20,textAlign:"center" }}>
+            {adoptEggPhase==='select'  ? 'Choose a Digitama to bring home:'
+             :adoptEggPhase==='hatching'? 'Hatching…'
+             : 'Welcome to the family!'}
+          </div>
+
+          {/* ── Egg picker ── */}
+          {adoptEggPhase==='select' && (
+            <>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,width:"100%",maxWidth:560,marginBottom:20,maxHeight:"60vh",overflowY:"auto",paddingRight:4 }}>
+                {ALL_EGGS.map(function(egg){
+                  return (
+                    <DigiEgg
+                      key={egg.file}
+                      eggFile={egg.file}
+                      label={egg.label}
+                      desc={egg.crest}
+                      selected={!!(adoptEggSel && adoptEggSel.file===egg.file)}
+                      onClick={function(){ setAdoptEggSel(egg); }}
+                      phase="idle"
+                      size={64}
+                    />
+                  );
+                })}
+              </div>
+              {adoptEggSel && (
+                <div style={{ marginBottom:12,padding:"10px 16px",background:T.bgCard,border:"1.5px solid "+T.gold,maxWidth:360,width:"100%",textAlign:"center" }}>
+                  <div style={{ fontSize:13,fontWeight:800,color:T.gold,marginBottom:4 }}>{adoptEggSel.label}</div>
+                  <div style={{ fontSize:11,color:T.textMid }}>{adoptEggSel.desc}</div>
+                </div>
+              )}
+              <div style={{ display:"flex",gap:10 }}>
+                <button className="px8"
+                  disabled={!adoptEggSel}
+                  onClick={doAdoptHatch}
+                  style={{ padding:"11px 26px",background:adoptEggSel?T.gold+"22":"transparent",border:"2px solid "+(adoptEggSel?T.gold:T.textDim),color:adoptEggSel?T.gold:T.textDim,cursor:adoptEggSel?"pointer":"not-allowed",fontSize:"12px",boxShadow:adoptEggSel?"2px 2px 0 "+T.gold:"none" }}>
+                  HATCH EGG
+                </button>
+                <button className="px8"
+                  onClick={function(){ setShowAdoptEgg(false); }}
+                  style={{ padding:"11px 18px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}>
+                  CANCEL
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Hatch animation ── */}
+          {(adoptEggPhase==='hatching'||adoptEggPhase==='hatched') && adoptEggSel && (
+            <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:16 }}>
+              <DigiEgg
+                eggFile={adoptEggSel.file}
+                label={adoptEggSel.label}
+                phase={adoptEggPhase}
+                size={120}
+                onHatched={onAdoptHatched}
+              />
+              {adoptEggPhase==='hatching' && (
+                <div className="px8" style={{ color:T.gold,fontSize:"10px",animation:"blink 1s step-end infinite" }}>HATCHING…</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── JIJIMON INTERACTIVE PROMPT (adopt-egg flow) ─────────────────── */}
+      {jijiPrompt && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:715,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 40px" }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.gold,boxShadow:"4px 4px 0 "+T.gold,maxWidth:520,width:"calc(100% - 32px)",padding:0,animation:"jijiIn 0.3s ease",overflow:"hidden" }}>
+            {/* Header */}
+            <div style={{ background:"linear-gradient(90deg,#1a1800,#1f1f0a)",borderBottom:"2px solid "+T.gold,padding:"10px 16px",display:"flex",alignItems:"center",gap:10 }}>
+              <img src="/sprites/jijimon.gif" alt="Jijimon" style={{ width:36,height:36,objectFit:"contain",imageRendering:"pixelated",flexShrink:0 }}/>
+              <div className="px9" style={{ color:T.gold }}>JIJIMON</div>
+            </div>
+            {/* Body */}
+            <div style={{ padding:"18px 20px" }}>
+
+              {/* Prompt: make leader */}
+              {jijiPrompt.type==='leader' && (
+                <>
+                  <div style={{ fontSize:14,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:18 }}>
+                    "{jijiPrompt.newDigi.name} has joined your party! Would you like to make them your party leader?"
+                  </div>
+                  <div style={{ display:"flex",gap:10 }}>
+                    <button className="px8" onClick={function(){ setLeader(jijiPrompt.newDigi.uid); setJijiPrompt(null); }}
+                      style={{ padding:"8px 20px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"12px",boxShadow:"2px 2px 0 "+T.gold }}>
+                      YES, LEAD!
+                    </button>
+                    <button className="px8" onClick={function(){ setJijiPrompt(null); }}
+                      style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}>
+                      NO THANKS
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Prompt: party full — offer swap */}
+              {jijiPrompt.type==='swap' && (
+                <>
+                  <div style={{ fontSize:14,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:18 }}>
+                    "Your party is full! {jijiPrompt.newDigi.name} has been sent to the DigiFarm for now. Would you like to swap them in for a party member?"
+                  </div>
+                  <div style={{ display:"flex",gap:10 }}>
+                    <button className="px8" onClick={function(){ setJijiPrompt({ type:'swapPick', newDigi:jijiPrompt.newDigi }); }}
+                      style={{ padding:"8px 20px",background:T.teal+"22",border:"2px solid "+T.teal,color:T.teal,cursor:"pointer",fontSize:"12px",boxShadow:"2px 2px 0 "+T.teal }}>
+                      YES, SWAP IN
+                    </button>
+                    <button className="px8" onClick={function(){ setJijiPrompt(null); }}
+                      style={{ padding:"8px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"12px" }}>
+                      LEAVE IN FARM
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Prompt: pick which party member to replace */}
+              {jijiPrompt.type==='swapPick' && (
+                <>
+                  <div style={{ fontSize:14,fontWeight:700,color:T.text,lineHeight:1.7,marginBottom:14 }}>
+                    "Who should make way for {jijiPrompt.newDigi.name}? Tap a party member to send them to the DigiFarm."
+                  </div>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:14 }}>
+                    {party.map(function(m){
+                      return (
+                        <button key={m.uid} onClick={function(){ adoptSwapIn(m.uid); }}
+                          style={{ background:T.bgPanel,border:"2px solid "+T.border,padding:"10px 14px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",textAlign:"left",transition:"border-color 0.1s" }}
+                          onMouseOver={function(e){ e.currentTarget.style.borderColor=T.coral; }}
+                          onMouseOut={function(e){ e.currentTarget.style.borderColor=T.border; }}>
+                          <DigiSprite digimonId={m.speciesId} size={36} animate={false}/>
+                          <div>
+                            <div style={{ fontSize:13,fontWeight:800,color:T.text }}>{m.name}</div>
+                            <div className="px8" style={{ fontSize:"10px",color:T.textMid,marginTop:2 }}>Lv.{m.level} · → Farm</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button className="px8" onClick={function(){ setJijiPrompt(null); }}
+                    style={{ padding:"7px 16px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"11px" }}>
+                    CANCEL — LEAVE IN FARM
+                  </button>
+                </>
+              )}
+
+            </div>
           </div>
         </div>
       )}

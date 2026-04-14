@@ -878,6 +878,38 @@ Types:
 
 ---
 
+## Session 9 — 2026-04-15
+
+### Store — Adopt an Egg
+
+[FEAT] Replaced broken "Random Digimon" shop item with "Adopt an Egg" (2000 bits)
+       The old item deducted bits but did nothing. New item opens a full egg-adoption flow.
+
+[FEAT] Egg picker modal — shows all 21 Digitama from ALL_EGGS in a scrollable grid
+       Each egg uses the DigiEgg component (real sprite, idle animation, gold selection ring)
+       Crest affinity shown as subtitle. Selecting an egg reveals its description + confirms.
+
+[FEAT] Hatch animation — on HATCH EGG the DigiEgg plays its shake→hatch frame animation
+       DB insert happens inside the onHatched callback so the new Digimon appears on screen
+       before any state transitions.
+
+[FEAT] Party placement logic:
+       - Party has space (< 9): new Digimon added to party immediately
+       - Party full: new Digimon goes to DigiFarm
+
+[FEAT] Post-hatch Jijimon interactive prompts:
+       - Party full → Jijimon asks "Want to swap them into your party?"
+         YES → party-member picker (tap to swap out → goes to farm, new digi joins party)
+         NO  → Digimon stays in farm
+       - If new Digimon is in party → Jijimon asks "Want to make them your leader?"
+         YES → promotes to party slot 0, persists sort_order to DB
+         NO  → closes
+
+[DEPLOY] DV_VER bumped 8 → 9 — forces PWA hard reload for all installed instances
+[DEPLOY] Pushed to main → Cloudflare Pages auto-deploy
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
