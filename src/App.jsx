@@ -78,6 +78,99 @@ function CrestIcon({ ci, size }) {
   return <span style={{ fontSize:px }}>{ci.icon}</span>;
 }
 
+// ── Crest Compass — reusable alignment radar using crest PNG icons ────────────
+// Props: crestProfile { primary, secondary, percentages }, size (px, default 220)
+var COMPASS_CRESTS = ["Courage","Friendship","Knowledge","Sincerity","Light","Care","Reliability","Hope"];
+var COMPASS_ANGLES = [
+  -Math.PI/2,    // N  — Courage
+  -Math.PI/4,    // NE — Friendship
+   0,            // E  — Knowledge
+   Math.PI/4,    // SE — Sincerity
+   Math.PI/2,    // S  — Light
+   3*Math.PI/4,  // SW — Care
+   Math.PI,      // W  — Reliability
+  -3*Math.PI/4,  // NW — Hope
+];
+function CrestCompass({ crestProfile, size }) {
+  size = size || 220;
+  var half    = size / 2;
+  var outerR  = half * 0.76;  // icons sit here
+  var polyR   = half * 0.65;  // polygon max radius
+  var pcts    = (crestProfile && crestProfile.percentages) || {};
+  var maxVal  = Math.max.apply(null, COMPASS_CRESTS.map(function(n){ return pcts[n]||0; }).concat([1]));
+  var primary = crestProfile && crestProfile.primary;
+  var secondary = crestProfile && crestProfile.secondary;
+
+  var polyPts = COMPASS_CRESTS.map(function(n, i){
+    var frac = (pcts[n]||0) / maxVal;
+    var r    = frac * polyR;
+    return (half + r * Math.cos(COMPASS_ANGLES[i])).toFixed(1) + "," +
+           (half + r * Math.sin(COMPASS_ANGLES[i])).toFixed(1);
+  }).join(" ");
+
+  var priColor = primary ? CREST_INFO[primary].color : "#ffffff";
+
+  return (
+    <svg width={size} height={size} viewBox={"0 0 "+size+" "+size} style={{ overflow:"visible",display:"block" }}>
+      <defs>
+        {COMPASS_CRESTS.map(function(name){
+          var ci = CREST_INFO[name];
+          return (
+            <filter key={name} id={"cc-glow-"+name+"-"+size} x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="4" result="blur"/>
+              <feFlood floodColor={ci.color} floodOpacity="0.8" result="col"/>
+              <feComposite in="col" in2="blur" operator="in" result="glow"/>
+              <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          );
+        })}
+      </defs>
+
+      {/* Reference rings */}
+      {[0.33, 0.66, 1].map(function(f){
+        return <circle key={f} cx={half} cy={half} r={polyR*f} fill="none" stroke="#1e1e2e" strokeWidth="1" strokeDasharray={f===1?"3 5":"2 6"}/>;
+      })}
+
+      {/* Axis spokes */}
+      {COMPASS_ANGLES.map(function(ang, i){
+        return (
+          <line key={i} x1={half} y1={half}
+            x2={(half + outerR * Math.cos(ang)).toFixed(1)}
+            y2={(half + outerR * Math.sin(ang)).toFixed(1)}
+            stroke="#1a1a2a" strokeWidth="1"/>
+        );
+      })}
+
+      {/* Alignment polygon */}
+      <polygon points={polyPts}
+        fill={priColor+"22"} stroke={priColor+"77"} strokeWidth="1.5"/>
+
+      {/* Crest icons */}
+      {COMPASS_CRESTS.map(function(name, i){
+        var ci      = CREST_INFO[name];
+        var frac    = (pcts[name]||0) / maxVal;
+        var isPrim  = name === primary;
+        var isSec   = name === secondary;
+        var iconSz  = isPrim ? Math.round(size*0.13) : isSec ? Math.round(size*0.10) : Math.max(Math.round(size*0.06), Math.round(size*0.06 + frac*size*0.04));
+        var opacity = isPrim ? 1 : isSec ? 0.85 : Math.max(0.18, frac * 0.88);
+        var nx = half + outerR * Math.cos(COMPASS_ANGLES[i]);
+        var ny = half + outerR * Math.sin(COMPASS_ANGLES[i]);
+        return (
+          <g key={name} opacity={opacity} filter={isPrim || isSec ? "url(#cc-glow-"+name+"-"+size+")" : undefined}>
+            <image href={ci.img}
+              x={nx - iconSz/2} y={ny - iconSz/2}
+              width={iconSz} height={iconSz}
+              style={{ imageRendering:"pixelated" }}/>
+          </g>
+        );
+      })}
+
+      {/* Centre dot */}
+      <circle cx={half} cy={half} r={size*0.022} fill={priColor} opacity="0.65"/>
+    </svg>
+  );
+}
+
 // ── Crest-based tamer titles ──────────────────────────────────────────────────
 var CREST_TITLES = {
   Courage:"Brave Tamer", Knowledge:"Scholar Tamer", Reliability:"Steadfast Tamer",
@@ -138,6 +231,114 @@ var RECONNECT_MSG = {
   },
 };
 
+// ── Battle helper functions (pure, module-scope) ───────────────────────────────
+var MG_SYMBOLS = ["★","◈","▲","◆","⚡","◉"];
+
+function buildMinigame(type) {
+  if (type === "digicode") {
+    var tiles = [0,1,2,3].map(function(i){ return MG_SYMBOLS[i]; });
+    var answer = Math.floor(Math.random() * 4);
+    return { type:"digicode", tiles:tiles, answer:answer, phase:"reveal" };
+  }
+  if (type === "timing") {
+    return { type:"timing", phase:"input", startedAt:Date.now(), zoneStart:32, zoneEnd:68, answer:"zone" };
+  }
+  // guard
+  var dirs = ["↑","↓","←","→"];
+  var answer = Math.floor(Math.random() * 4);
+  return { type:"guard", dirs:dirs, answer:answer, phase:"reveal" };
+}
+
+function resolveRoundLogic(bs, mgResult) {
+  bs = JSON.parse(JSON.stringify(bs));
+  var alivePlayers = bs.playerTeam.filter(function(p){ return p.currentHp > 0; });
+  var aliveEnemies = bs.enemyTeam.filter(function(e){ return e.currentHp > 0; });
+  if (!alivePlayers.length || !aliveEnemies.length) return bs;
+
+  var attacker = alivePlayers[0];
+  var as = calcBattleStats(attacker);
+  var focusBonus = mgResult === "focus_success";
+  var momentumBonus = mgResult === "momentum_success";
+  var guardBlock = mgResult === "guard_success";
+
+  // Pick target — first alive enemy
+  var defender = aliveEnemies[0];
+
+  // Player attacks
+  var r1 = calcBattleDamage(attacker, defender, { focusBonus:focusBonus });
+  defender.currentHp = Math.max(0, defender.currentHp - r1.damage);
+  bs.log = [attacker.name+" → "+defender.name+"  −"+r1.damage+(r1.crit?" CRIT!":"")].concat(bs.log).slice(0,8);
+
+  // Momentum double-strike
+  var momentumChance = Math.min(0.35, as.Momentum / 200);
+  if (momentumBonus || Math.random() < momentumChance) {
+    aliveEnemies = bs.enemyTeam.filter(function(e){ return e.currentHp > 0; });
+    if (aliveEnemies.length > 0) {
+      var r2 = calcBattleDamage(attacker, aliveEnemies[0], {});
+      aliveEnemies[0].currentHp = Math.max(0, aliveEnemies[0].currentHp - r2.damage);
+      bs.log = ["⚡ Double strike! −"+r2.damage].concat(bs.log).slice(0,8);
+    }
+  }
+
+  // Passive: Smolder burn DoT
+  var attInfo = DIGIMON_MAP[attacker.speciesId];
+  if (attInfo && attInfo.passive && attInfo.passive.toLowerCase().includes("smolder")) {
+    bs.burnDot = bs.burnDot || {};
+    var burnKey = defender.uid || defender.speciesId;
+    bs.burnDot[burnKey] = { rounds:3, dmg:Math.max(1, Math.floor(as.Power * 0.12)) };
+    bs.log = ["🔥 "+defender.name+" ignited!"].concat(bs.log).slice(0,8);
+  }
+
+  // Apply active burn ticks
+  if (bs.burnDot) {
+    bs.enemyTeam.forEach(function(e) {
+      var key = e.uid || e.speciesId;
+      if (bs.burnDot[key] && e.currentHp > 0) {
+        e.currentHp = Math.max(0, e.currentHp - bs.burnDot[key].dmg);
+        bs.log = ["🔥 "+e.name+" −"+bs.burnDot[key].dmg+" (burn)"].concat(bs.log).slice(0,8);
+        bs.burnDot[key].rounds--;
+        if (bs.burnDot[key].rounds <= 0) delete bs.burnDot[key];
+      }
+    });
+  }
+
+  // Enemy counter-attack
+  aliveEnemies = bs.enemyTeam.filter(function(e){ return e.currentHp > 0; });
+  if (aliveEnemies.length > 0) {
+    var en = aliveEnemies[0];
+    var tgt = bs.playerTeam.filter(function(p){ return p.currentHp > 0; })[0];
+    if (tgt) {
+      var er = calcBattleDamage(en, tgt, {});
+      var finalDmg = guardBlock ? Math.max(1, Math.floor(er.damage * 0.18)) : er.damage;
+      tgt.currentHp = Math.max(0, tgt.currentHp - finalDmg);
+      bs.log = [en.name+" → "+tgt.name+"  −"+finalDmg+(guardBlock?" (BLOCKED!)":"")].concat(bs.log).slice(0,8);
+    }
+  }
+
+  // Signature skill fires once when attacker HP < 50%
+  if (!bs.sigFired && attacker.currentHp < attacker.maxHp * 0.5 && attInfo && attInfo.signature) {
+    bs.sigFired = true;
+    var sigDmg = Math.floor(as.Power * 2.2);
+    var sigTarget = bs.enemyTeam.filter(function(e){ return e.currentHp > 0; })[0];
+    if (sigTarget) {
+      sigTarget.currentHp = Math.max(0, sigTarget.currentHp - sigDmg);
+      bs.log = ["💫 "+attacker.name+" uses "+attInfo.signature.split("—")[0].trim()+"! −"+sigDmg].concat(bs.log).slice(0,8);
+    }
+  }
+
+  // Check end condition
+  var won  = bs.enemyTeam.every(function(e){ return e.currentHp <= 0; });
+  var lost = bs.playerTeam.every(function(p){ return p.currentHp <= 0; });
+  if (won || lost) {
+    var rw = BATTLE_REWARDS[bs.difficulty] || { win:60, loss:25 };
+    bs._earn = won ? rw.win : rw.loss;
+    bs.log = [(won?"⚔ Victory! ":"💀 Defeated... ")+"+" + bs._earn+"🪙"].concat(bs.log).slice(0,8);
+    bs.phase = won ? "won" : "lost";
+  }
+
+  return bs;
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App({ session }) {
   var [page,             setPage]             = useState("dashboard");
@@ -181,6 +382,7 @@ export default function App({ session }) {
   var [showDigitamaModal,setShowDigitamaModal]= useState(false);
   var [confirmReset,     setConfirmReset]     = useState(false);
   var [dedigivolveConfirm, setDedigivolveConfirm] = useState(null); // { uid, prevId } | null
+  var [petSummary,        setPetSummary]        = useState(null);  // uid of digimon whose summary modal is open
   // raidState: null | { raidId, totalDamage, raidLog:[{date,damage,taskTitle,stat,phase}] }
   var [raidState,        setRaidState]        = useState(null);
   var [raidHit,          setRaidHit]          = useState(null); // { damage, stat } flashed on task complete
@@ -235,8 +437,13 @@ export default function App({ session }) {
   var [tamerLevel,           setTamerLevel]           = useState(1);
   var [tamerXp,              setTamerXp]              = useState(0);
 
-  var dragIdx      = useRef(null);
-  var navCloseTimer = useRef(null); // delay before closing a nav dropdown on mouse-leave
+  var [mgActive, setMgActive] = useState(null); // active brain-game minigame state
+
+  var dragIdx          = useRef(null);
+  var navCloseTimer    = useRef(null); // delay before closing a nav dropdown on mouse-leave
+  var digiMutRef       = useRef(0);   // count of in-flight digimon DB mutations
+  var battleAdvTimerRef = useRef(null); // auto-advance round timeout
+  var mgTimerRef       = useRef(null); // minigame auto-fail timeout
   var userId  = session.user.id;
 
   // Posts a message to the SW if it's active — used to schedule/cancel background notifications
@@ -510,11 +717,10 @@ export default function App({ session }) {
       if (tasksData) {
         var nowLocal   = new Date();
         var localHour  = nowLocal.getHours();
-        var todayLocal = new Date(nowLocal.getFullYear(), nowLocal.getMonth(), nowLocal.getDate());
-        var todayISO   = todayLocal.toISOString().split('T')[0];
-        var yestDate   = new Date(todayLocal.getTime() - 86400000);
-        var yestISO    = yestDate.toISOString().split('T')[0];
-        var yestDay    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][yestDate.getDay()];
+        var todayISO   = nowLocal.toISOString().split('T')[0];                              // UTC today — matches last_completed_date storage
+        var yestDate   = new Date(nowLocal.getTime() - 86400000);
+        var yestISO    = yestDate.toISOString().split('T')[0];                              // UTC yesterday
+        var yestDay    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][yestDate.getDay()];    // local day name for recurring task check
         var catchupKey = 'dv_catchup_' + userId;
         // Check both localStorage (fast, device-local) AND Supabase profile (cross-device)
         var lastCatchupLocal = localStorage.getItem(catchupKey);
@@ -621,8 +827,10 @@ export default function App({ session }) {
         farmRows2 = farmRows2.concat(overflow2.map(function(d){ return Object.assign({}, d, { inFarm:true }); }));
         await Promise.all(overflow2.map(function(d){ return supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); }));
       }
-      setParty(partyRows2);
-      setFarm(farmRows2);
+      if (digiMutRef.current === 0) {
+        setParty(partyRows2);
+        setFarm(farmRows2);
+      }
       var allD = [...new Set(digimonData.flatMap(function(d){ return d.discovered || []; }))];
       setAllDisc(allD);
     }
@@ -747,6 +955,7 @@ export default function App({ session }) {
   }
 
   function applyDigimonPayload(payload) {
+    if (payload.eventType === 'UPDATE' && digiMutRef.current > 0) return;
     if (payload.eventType === 'DELETE') {
       var oldId = payload.old && payload.old.id;
       if (!oldId) return;
@@ -943,6 +1152,65 @@ export default function App({ session }) {
     }, 5 * 60 * 1000); // every 5 minutes, silently refresh the text
     return function() { clearInterval(t); };
   }, []);
+
+  // ── Battle auto-advance ───────────────────────────────────────────────────────
+  useEffect(function() {
+    if (!battleState || battleState.phase !== "fight" || mgActive) {
+      clearTimeout(battleAdvTimerRef.current);
+      return;
+    }
+    var capturedBs   = battleState;
+    var capturedBits = bits;
+    battleAdvTimerRef.current = setTimeout(async function() {
+      var round  = (capturedBs.round || 0) + 1;
+      var nextBs = Object.assign({}, capturedBs, { round:round });
+      if (round % 2 === 0) {
+        // Brain game round
+        var types = ["digicode","timing","guard"];
+        var type  = types[Math.floor(Math.random() * types.length)];
+        setBattleState(nextBs);
+        setMgActive(buildMinigame(type));
+      } else {
+        var resolved = resolveRoundLogic(nextBs, null);
+        setBattleState(resolved);
+        if ((resolved.phase === "won" || resolved.phase === "lost") && resolved._earn) {
+          var newBits = capturedBits + resolved._earn;
+          setBits(newBits);
+          await supabase.from('profiles').update({ bits:newBits }).eq('id', userId);
+        }
+      }
+    }, 2200);
+    return function() { clearTimeout(battleAdvTimerRef.current); };
+  }, [battleState, mgActive]);
+
+  // ── Minigame reveal → input transition ───────────────────────────────────────
+  useEffect(function() {
+    if (!mgActive || mgActive.phase !== "reveal") return;
+    var t = setTimeout(function() {
+      setMgActive(function(mg) { return mg ? Object.assign({}, mg, { phase:"input" }) : null; });
+    }, 900);
+    return function() { clearTimeout(t); };
+  }, [mgActive]);
+
+  // ── Minigame auto-fail ────────────────────────────────────────────────────────
+  useEffect(function() {
+    if (!mgActive || mgActive.phase !== "input") return;
+    var capturedBs   = battleState;
+    var capturedBits = bits;
+    var t = setTimeout(async function() {
+      setMgActive(null);
+      if (!capturedBs) return;
+      var resolved = resolveRoundLogic(capturedBs, "fail");
+      setBattleState(resolved);
+      if ((resolved.phase === "won" || resolved.phase === "lost") && resolved._earn) {
+        var newBits = capturedBits + resolved._earn;
+        setBits(newBits);
+        await supabase.from('profiles').update({ bits:newBits }).eq('id', userId);
+      }
+    }, 2500);
+    mgTimerRef.current = t;
+    return function() { clearTimeout(t); };
+  }, [mgActive]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   var activeDigi  = party[0];
@@ -1510,6 +1778,7 @@ export default function App({ session }) {
       // Consume Partner Vow item check could go here
     }
     var nd = digi.discovered.indexOf(targetId)<0 ? digi.discovered.concat([targetId]) : digi.discovered;
+    digiMutRef.current += 1;
     await supabase.from('digimon').update({
       species_id: targetId, name: info.name,
       level: 1, exp: 0, exp_needed: 100,
@@ -1519,9 +1788,9 @@ export default function App({ session }) {
       if (d.uid!==uid) return d;
       return Object.assign({},d,{speciesId:targetId,name:info.name,level:1,exp:0,expNeeded:100,discovered:nd});
     }); });
+    setTimeout(function(){ digiMutRef.current = Math.max(0, digiMutRef.current - 1); }, 3000);
     setAllDisc(function(p){ return p.indexOf(targetId)<0?p.concat([targetId]):p; });
     setEvoAnim(targetId);
-    setTimeout(function(){ setEvoAnim(null); }, 3200);
     addLog("✨", info.name + " digivolved!");
     toast_(info.name + " digivolved!", "#FFD700");
   }
@@ -1707,42 +1976,41 @@ export default function App({ session }) {
     setLastStaminaUpdate(newLastUpdate);
     // Await the write so the DB reflects the cost before any Realtime echo can restore the old value
     await supabase.from('profiles').update({ stamina:newStam, last_stamina_update:newLastUpdate, bits:bits }).eq('id', userId);
-    setBattleState({ playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
+    setBattleState({ playerTeam, enemyTeam:enemies, log:[], phase:"fight", round:0, difficulty:diff });
   }
 
-  async function battleAttack(idx) {
-    if (!battleState||battleState.phase!=="fight") return;
-    var bs = JSON.parse(JSON.stringify(battleState));
-    var att = bs.playerTeam[bs.selected];
-    var def = bs.enemyTeam[idx];
-    if (!att||!def||def.currentHp<=0) return;
-    var dmg = calcBattleDamage(att, def);
-    def.currentHp = Math.max(0, def.currentHp - dmg);
-    bs.log = [att.name + " → " + def.name + "  −" + dmg].concat(bs.log).slice(0,6);
-    var aliveE = bs.enemyTeam.filter(function(e){ return e.currentHp>0; });
-    if (aliveE.length > 0) {
-      var en  = aliveE[Math.floor(Math.random()*aliveE.length)];
-      var tgt = bs.playerTeam.filter(function(p){ return p.currentHp>0; })[0];
-      if (tgt) {
-        var edm = calcBattleDamage(en, tgt);
-        tgt.currentHp = Math.max(0, tgt.currentHp - edm);
-        bs.log = [en.name + " → " + tgt.name + "  −" + edm].concat(bs.log).slice(0,6);
+  async function handleMgAnswer(answer) {
+    if (!mgActive || mgActive.phase !== "input") return;
+    clearTimeout(mgTimerRef.current);
+    var correct = (answer === mgActive.answer);
+    var result  = correct
+      ? (mgActive.type === "digicode" ? "focus_success"
+       : mgActive.type === "timing"   ? "momentum_success"
+       : "guard_success")
+      : "fail";
+    // Flash result phase briefly
+    setMgActive(function(mg) { return mg ? Object.assign({}, mg, { phase: correct ? "success" : "wrong" }) : null; });
+    var capturedBs   = battleState;
+    var capturedBits = bits;
+    setTimeout(async function() {
+      setMgActive(null);
+      if (!capturedBs) return;
+      var resolved = resolveRoundLogic(capturedBs, result);
+      setBattleState(resolved);
+      if ((resolved.phase === "won" || resolved.phase === "lost") && resolved._earn) {
+        var newBits = capturedBits + resolved._earn;
+        setBits(newBits);
+        await supabase.from('profiles').update({ bits:newBits }).eq('id', userId);
       }
-    }
-    var won  = bs.enemyTeam.every(function(e){ return e.currentHp<=0; });
-    var lost = bs.playerTeam.every(function(p){ return p.currentHp<=0; });
-    if (won||lost) {
-      var r    = BATTLE_REWARDS[bs.difficulty]||{win:60,loss:25};
-      var earn = won ? r.win : r.loss;
-      var newBits = bits + earn;
-      setBits(newBits);
-      bs.log = [(won?"⚔ Victory! ":"💀 Defeated... ")+"+" + earn + "🪙"].concat(bs.log);
-      bs.phase = won ? "won" : "lost";
-      setBattleState(bs);
-      await supabase.from('profiles').update({ bits: newBits }).eq('id', userId); // stamina already saved atomically in startBattle
-      return;
-    }
-    setBattleState(bs);
+    }, 650);
+  }
+
+  function handleTimingTap() {
+    if (!mgActive || mgActive.phase !== "input" || mgActive.type !== "timing") return;
+    var pos = Math.min(100, ((Date.now() - mgActive.startedAt) / 2000) * 100);
+    var inZone = pos >= mgActive.zoneStart && pos <= mgActive.zoneEnd;
+    // For timing, pass "zone" (correct) or "miss" (wrong) as the answer
+    handleMgAnswer(inZone ? "zone" : "miss");
   }
 
   // ── Buy shop item ────────────────────────────────────────────────────────────
@@ -1922,11 +2190,17 @@ export default function App({ session }) {
     @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0} }
     @keyframes fadeUp   { from{opacity:0;transform:translateX(-50%) translateY(-6px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
     @keyframes slideUp  { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
-    @keyframes evoIn    { 0%,100%{opacity:0;transform:scale(0.75)} 35%,65%{opacity:1;transform:scale(1)} }
+    @keyframes evoIn    { 0%{opacity:0;transform:scale(0.88)} 100%{opacity:1;transform:scale(1)} }
     @keyframes shimmer  { 0%{background-position:200% center} 100%{background-position:-200% center} }
     @keyframes floatUp  { from{transform:translateY(100vh) rotate(0deg);opacity:0.12} to{transform:translateY(-10vh) rotate(180deg);opacity:0} }
     @keyframes jijiIn   { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
     @keyframes zzzFloat { 0%{opacity:0;transform:translateY(0) scale(0.8)} 30%{opacity:0.9} 100%{opacity:0;transform:translateY(-48px) scale(1.2)} }
+    @keyframes timingSlide { from{left:0%} to{left:calc(100% - 18px)} }
+    .mg-tile { font-family:'Press Start 2P',monospace; font-size:14px; padding:14px 10px; border:2px solid #2a2d3a; background:#161a22; cursor:pointer; transition:all 0.1s; flex:1; text-align:center; }
+    .mg-tile:hover { background:#1e2330; }
+    .mg-tile.reveal { border-color:#FFD700; background:#2a2200; color:#FFD700; box-shadow:0 0 10px #FFD700aa; }
+    .mg-tile.correct { border-color:#5CB85C; background:#0a200a; color:#5CB85C; }
+    .mg-tile.wrong   { border-color:#FF4444; background:#200a0a; color:#FF4444; }
     .page-in { animation: slideUp 0.22s ease; }
     .pcard { background:${T.bgCard}; border:2px solid ${T.border}; box-shadow:3px 3px 0 ${T.border}; }
     .nav-pill { font-family:'Press Start 2P',monospace; font-size:7px; padding:7px 11px; border:2px solid ${T.border}; background:transparent; cursor:pointer; color:${T.textMid}; transition:all 0.1s; white-space:nowrap; }
@@ -2545,11 +2819,11 @@ export default function App({ session }) {
                 </div>
               )}
 
-              {/* Radar chart */}
+              {/* Crest Compass */}
               <div>
-                <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>CREST RADAR</div>
+                <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>CREST COMPASS</div>
                 <div style={{ display:"flex",justifyContent:"center" }}>
-                  <RadarChart percentages={crestProfile.percentages||{}} T={T}/>
+                  <CrestCompass crestProfile={crestProfile} size={280}/>
                 </div>
               </div>
 
@@ -3054,7 +3328,7 @@ export default function App({ session }) {
               <div style={{ padding:"16px 18px 0",display:"flex",gap:14,alignItems:"flex-start" }}>
                 <div style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
                   <div style={{ width:56,height:56,border:"2px solid "+T.gold,background:"#1a1500",display:"grid",placeItems:"center",overflow:"hidden" }}>
-                    <DigiSprite digimonId="jijimon" size={52} mood="happy" animate/>
+                    <DigiSprite digimonId="jijimon" size={52} mood="idle" animate/>
                   </div>
                   <div className="px8" style={{ color:T.gold,fontSize:"9px",textAlign:"center" }}>JIJIMON</div>
                 </div>
@@ -3165,6 +3439,14 @@ export default function App({ session }) {
 
               {known ? (
                 <div style={{ padding:"16px 20px",display:"flex",flexDirection:"column",gap:14 }}>
+
+                  {/* Profile description */}
+                  {d.desc && (
+                    <div style={{ padding:"10px 13px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                      <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:5,letterSpacing:"0.05em" }}>PROFILE</div>
+                      <div style={{ fontSize:11,color:T.textMid,lineHeight:1.75,fontStyle:"italic" }}>{d.desc}</div>
+                    </div>
+                  )}
 
                   {/* Battle Stats */}
                   <div>
@@ -3309,12 +3591,19 @@ export default function App({ session }) {
 
       {/* ── EVOLUTION OVERLAY ─────────────────────────────────────────────── */}
       {evoAnim && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:500,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"evoIn 3.2s ease" }}>
+        <div onClick={function(){ setEvoAnim(null); }}
+          style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:500,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 28px",cursor:"pointer",animation:"evoIn 0.6s ease forwards" }}>
           <div style={{ fontSize:52,marginBottom:16 }}>✨</div>
           <DigiSprite digimonId={evoAnim} size={128} mood="happy"/>
           <div className="px10" style={{ marginTop:24,color:accent,letterSpacing:4 }}>DIGIVOLUTION</div>
           <div style={{ marginTop:10,fontSize:24,fontWeight:900 }}>{DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].name}</div>
           <div className="px8" style={{ marginTop:6,color:T.textMid }}>{DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].stage}</div>
+          {DIGIMON_MAP[evoAnim]&&DIGIMON_MAP[evoAnim].desc&&(
+            <div style={{ marginTop:18,maxWidth:340,fontSize:11,color:T.textDim,lineHeight:1.75,fontStyle:"italic",textAlign:"center" }}>
+              {DIGIMON_MAP[evoAnim].desc}
+            </div>
+          )}
+          <div className="px8" style={{ marginTop:28,color:T.textDim,fontSize:"10px",letterSpacing:"0.1em" }}>TAP TO CONTINUE</div>
         </div>
       )}
 
@@ -3724,40 +4013,47 @@ export default function App({ session }) {
                   })}
                 </div>
 
-                {/* Crest alignment widget */}
-                <div className="pcard" style={{ padding:16 }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                {/* Crest alignment widget — tendency strips */}
+                <div className="pcard" style={{ padding:14 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
                     <div className="px9">CREST ALIGNMENT</div>
-                    <div className="px8" style={{ color:T.textMid }}>14-day window</div>
+                    <div className="px8" style={{ color:T.textMid }}>14-day</div>
                   </div>
-                  {crestProfile.primary ? (
-                    <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-                      {Object.entries(crestProfile.percentages)
-                        .sort(function(a,b){ return b[1]-a[1]; })
-                        .map(function([name, pct]){
-                          var ci = CREST_INFO[name];
+                  {(function(){
+                    var totals = crestProfile.totals || {};
+                    var sorted = Object.entries(CREST_INFO)
+                      .map(function(e){ return { name:e[0], ci:e[1], val:totals[e[0]]||0 }; })
+                      .sort(function(a,b){ return b.val - a.val; });
+                    var maxVal = Math.max.apply(null, sorted.map(function(s){ return s.val; }).concat([1]));
+                    var hasAny = sorted.some(function(s){ return s.val > 0; });
+                    if (!hasAny) return (
+                      <div style={{ fontSize:10,color:T.textDim,fontStyle:"italic" }}>Complete tasks to reveal your alignment.</div>
+                    );
+                    return (
+                      <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
+                        {sorted.filter(function(s){ return s.val > 0; }).map(function(s){
+                          var isPrim = s.name === crestProfile.primary;
+                          var isSec  = s.name === crestProfile.secondary;
+                          var barPct = (s.val / maxVal) * 100;
+                          var opacity = isPrim ? 1 : isSec ? 0.82 : Math.max(0.35, barPct / 100 * 0.9);
                           return (
-                            <div key={name} style={{ display:"flex",alignItems:"center",gap:6 }}>
-                              <span style={{ width:16,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={ci} size={14}/></span>
-                              <span style={{ fontSize:10,fontWeight:700,width:80,color:ci.color,flexShrink:0,lineHeight:1 }}>{name}</span>
-                              <div style={{ flex:1,height:7,background:T.bgPanel,border:"1px solid "+T.border,overflow:"hidden" }}>
-                                <div className="crest-bar-fill" style={{ width:pct+"%",background:ci.color }}/>
+                            <div key={s.name} style={{ display:"flex",alignItems:"center",gap:8,opacity:opacity }}>
+                              <div style={{ width:16,height:16,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                                <CrestIcon ci={s.ci} size={14}/>
                               </div>
-                              <span className="px8" style={{ color:T.textMid,width:28,textAlign:"right",flexShrink:0 }}>{pct}%</span>
-                              {(name===crestProfile.primary||name===crestProfile.secondary)&&(
-                                <span className="px8" style={{ color:name===crestProfile.primary?T.gold:T.textMid,width:28,flexShrink:0,textAlign:"center" }}>
-                                  {name===crestProfile.primary?"★PRI":"◆SEC"}
-                                </span>
-                              )}
+                              <span style={{ width:70,fontSize:10,fontWeight:isPrim?900:700,color:s.ci.color,flexShrink:0,lineHeight:1 }}>
+                                {s.name}{isPrim&&<span style={{ color:T.gold,marginLeft:3,fontSize:8 }}>★</span>}{isSec&&<span style={{ color:T.textMid,marginLeft:3,fontSize:8 }}>◆</span>}
+                              </span>
+                              <div style={{ flex:1,height:6,background:T.bgPanel,border:"1px solid "+T.border,position:"relative",overflow:"hidden" }}>
+                                <div style={{ position:"absolute",inset:0,width:barPct+"%",background:s.ci.color,transition:"width 0.7s ease" }}/>
+                              </div>
+                              <span style={{ width:22,fontSize:10,fontWeight:800,color:isPrim?s.ci.color:T.textDim,textAlign:"right",flexShrink:0 }}>{s.val}</span>
                             </div>
                           );
                         })}
-                    </div>
-                  ) : (
-                    <div style={{ padding:"20px 0",textAlign:"center",color:T.textDim,fontSize:12 }}>
-                      Complete tasks to build your crest alignment profile.
-                    </div>
-                  )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Tasks header */}
@@ -3853,98 +4149,151 @@ export default function App({ session }) {
                 </div>
                 {party.map(function(digi,i){
                   var inf2 = DIGIMON_MAP[digi.speciesId];
-                  var bs   = calcBattleStats(digi);
-                  var role = inf2 && ROLES[inf2.role] ? ROLES[inf2.role] : ROLES.Balanced;
                   var pers = PERSONALITIES.find(function(p){ return p.id===digi.personality; });
-                  // Eligible evolutions
                   var evoList = (inf2&&inf2.evolvesTo||[]).map(function(id){
                     var ti = DIGIMON_MAP[id]; if(!ti||ti.fusionOf) return null;
                     var check = checkEvoEligible(digi, digi.bond || 0, crestProfile, id);
                     return { id, info:ti, ...check };
                   }).filter(Boolean);
+                  var anyEvoReady = evoList.some(function(e){ return e.eligible; });
 
                   return (
-                    <div key={digi.uid} className="pcard" style={{ padding:16,borderColor:i===0?accent:T.border,boxShadow:"3px 3px 0 "+(i===0?accent:T.border) }}>
-                      <div style={{ display:"flex",gap:14,flexWrap:"wrap" }}>
-                        <div style={{ position:"relative" }}>
-                          <DigiSprite digimonId={digi.speciesId} size={80} animate mood="walk"/>
-                          {i===0&&<div style={{ position:"absolute",top:-6,right:-6,background:accent,border:"2px solid "+T.border,width:18,height:18,display:"grid",placeItems:"center",fontSize:9,color:T.bg,fontWeight:900 }}>★</div>}
+                    <div key={digi.uid} className="pcard" style={{ padding:"12px 14px",borderColor:i===0?accent:T.border,boxShadow:"3px 3px 0 "+(i===0?accent:T.border) }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                        {/* Sprite with leader star */}
+                        <div style={{ position:"relative",flexShrink:0 }}>
+                          <DigiSprite digimonId={digi.speciesId} size={52} animate mood="walk"/>
+                          {i===0&&<div style={{ position:"absolute",top:-5,right:-5,background:accent,border:"2px solid "+T.border,width:16,height:16,display:"grid",placeItems:"center",fontSize:8,color:T.bg,fontWeight:900 }}>★</div>}
                         </div>
-                        <div style={{ flex:1,minWidth:160 }}>
-                          {/* Name + badges */}
-                          <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4 }}>
-                            <div className="px10">{digi.name}</div>
-                            <div className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"9px" }}>{inf2&&inf2.stage}</div>
-                            {pers&&<div className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+pers.color,color:pers.color,fontSize:"9px" }}>{pers.label}</div>}
+                        {/* Name + info */}
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap" }}>
+                            <span className="px10" style={{ fontSize:"13px" }}>{digi.name}</span>
+                            <span className="px8" style={{ padding:"1px 6px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"9px" }}>{inf2&&inf2.stage}</span>
+                            {pers&&<span className="px8" style={{ padding:"1px 5px",border:"1.5px solid "+pers.color,color:pers.color,fontSize:"9px" }}>{pers.label}</span>}
+                            {anyEvoReady&&<span style={{ fontSize:"10px",color:T.gold,fontWeight:900 }}>✦ READY</span>}
                           </div>
-                          <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"9px" }}>Lv.{digi.level} · Bond {Math.round(bond)} · {inf2&&inf2.type}</div>
+                          <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:6 }}>Lv.{digi.level} · Bond {Math.round(digi.bond||0)} · {inf2&&inf2.type}</div>
+                          <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={5}/>
+                        </div>
+                        {/* Summary button */}
+                        <button
+                          onClick={function(){ setPetSummary(digi.uid); }}
+                          className="px8"
+                          style={{ flexShrink:0,padding:"8px 10px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"11px",lineHeight:1 }}>
+                          INFO ▸
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
 
-                          {/* Role */}
-                          <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
-                            <div className="px8" style={{ padding:"3px 8px",border:"2px solid "+role.color,color:role.color,background:role.color+"18",fontSize:"9px" }}>{role.icon} {inf2&&inf2.role||"Balanced"}</div>
+                {/* ── Digimon Summary Modal ──────────────────────────────── */}
+                {petSummary && (function(){
+                  var digi = party.find(function(d){ return d.uid===petSummary; });
+                  if (!digi) { setPetSummary(null); return null; }
+                  var inf2  = DIGIMON_MAP[digi.speciesId];
+                  var bs    = calcBattleStats(digi);
+                  var role  = inf2 && ROLES[inf2.role] ? ROLES[inf2.role] : ROLES.Balanced;
+                  var pers  = PERSONALITIES.find(function(p){ return p.id===digi.personality; });
+                  var partyIdx = party.findIndex(function(d){ return d.uid===digi.uid; });
+                  var evoList2 = (inf2&&inf2.evolvesTo||[]).map(function(id){
+                    var ti = DIGIMON_MAP[id]; if(!ti||ti.fusionOf) return null;
+                    var check = checkEvoEligible(digi, digi.bond||0, crestProfile, id);
+                    return { id, info:ti, ...check };
+                  }).filter(Boolean);
+
+                  // Stat bar: scale to stage-appropriate max for relative visual
+                  var STAGE_MAX = { "Baby":50, "In-Training":90, "Rookie":160, "Champion":260, "Ultimate":380, "Mega":520 };
+                  var statMax = STAGE_MAX[inf2&&inf2.stage] || 160;
+                  var renderStatBar = function(label, value, color) {
+                    var pct = Math.min(100, Math.round((value / statMax) * 100));
+                    return (
+                      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:7 }}>
+                        <span className="px8" style={{ width:32,fontSize:"10px",color:T.textDim,textAlign:"right",flexShrink:0 }}>{label}</span>
+                        <div style={{ flex:1,height:7,background:T.bgPanel,border:"1px solid "+T.border,position:"relative" }}>
+                          <div style={{ position:"absolute",inset:0,width:pct+"%",background:color,transition:"width 0.5s ease" }}/>
+                        </div>
+                        <span className="px8" style={{ width:28,fontSize:"10px",color:color,fontWeight:800,textAlign:"right",flexShrink:0 }}>{value}</span>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:640,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto" }}>
+                      <div style={{ background:T.bgCard,border:"2px solid "+(partyIdx===0?accent:T.border),boxShadow:"4px 4px 0 "+(partyIdx===0?accent:T.border),maxWidth:440,width:"100%",position:"relative" }}>
+
+                        {/* Close */}
+                        <button onClick={function(){ setPetSummary(null); }}
+                          style={{ position:"absolute",top:10,right:12,background:"transparent",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,lineHeight:1 }}>✕</button>
+
+                        {/* Header — sprite + identity */}
+                        <div style={{ padding:"20px 20px 14px",display:"flex",gap:16,alignItems:"flex-start",borderBottom:"1px solid "+T.border }}>
+                          <div style={{ position:"relative",flexShrink:0 }}>
+                            <DigiSprite digimonId={digi.speciesId} size={72} animate mood="walk"/>
+                            {partyIdx===0&&<div style={{ position:"absolute",top:-6,right:-6,background:accent,border:"2px solid "+T.border,width:18,height:18,display:"grid",placeItems:"center",fontSize:9,color:T.bg,fontWeight:900 }}>★</div>}
                           </div>
-
-                          {/* Battle stats: Power / Guard / Focus / Momentum */}
-                          <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10 }}>
-                            {[["PWR",bs.Power,"#FF6B35"],["GRD",bs.Guard,"#7EB8F7"],["FOC",bs.Focus,"#B8A0E8"],["MTM",bs.Momentum,"#FFD700"]].map(function(s){
-                              return (
-                                <div key={s[0]} style={{ textAlign:"center",background:T.bgPanel,border:"1px solid "+T.border,padding:"6px 4px" }}>
-                                  <div style={{ fontSize:18,fontWeight:900,color:s[2] }}>{s[1]}</div>
-                                  <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginTop:2 }}>{s[0]}</div>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Passive + Signature */}
-                          {inf2&&inf2.passive&&(
-                            <div style={{ marginBottom:6 }}>
-                              <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}><span style={{ color:T.mint }}>Passive — </span>{inf2.passive}</div>
+                          <div style={{ flex:1 }}>
+                            <div className="px12" style={{ marginBottom:6 }}>{digi.name}</div>
+                            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:6 }}>
+                              <span className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),color:(STAGE_COLOR[inf2&&inf2.stage]||"#aaa"),fontSize:"9px" }}>{inf2&&inf2.stage}</span>
+                              {inf2&&inf2.type&&<span className="px8" style={{ padding:"2px 7px",border:"1.5px solid "+T.border,color:T.textMid,fontSize:"9px" }}>{inf2.type}</span>}
+                              {pers&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+pers.color,color:pers.color,fontSize:"9px" }}>{pers.label}</span>}
+                              <span className="px8" style={{ padding:"2px 7px",border:"2px solid "+role.color,color:role.color,background:role.color+"18",fontSize:"9px" }}>{role.icon} {inf2&&inf2.role||"Balanced"}</span>
                             </div>
-                          )}
-                          {inf2&&inf2.signature&&(
-                            <div style={{ marginBottom:10 }}>
-                              <div style={{ fontSize:11,fontWeight:700,color:T.textMid }}><span style={{ color:T.gold }}>Signature — </span>{inf2.signature}</div>
-                            </div>
-                          )}
-
-                          {/* XP bar */}
-                          <div style={{ marginBottom:10 }}>
-                            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
-                              <span className="px8" style={{ color:T.textMid,fontSize:"11px" }}>⭐ XP</span>
-                              <span className="px8" style={{ color:T.textMid,fontSize:"11px" }}>{digi.exp}/{digi.expNeeded}</span>
-                            </div>
-                            <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={8}/>
+                            <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>Lv.{digi.level} · Bond {Math.round(digi.bond||0)}</div>
                           </div>
+                        </div>
 
-                          {/* Sukamon special corruption evolution */}
-                          {neglectData && neglectData.sukamonRisk && neglectData.sukamonAccepted && DIGIMON_MAP[digi.speciesId] && (DIGIMON_MAP[digi.speciesId].stage==="In-Training"||DIGIMON_MAP[digi.speciesId].stage==="Rookie") && (
-                            <div style={{ marginBottom:8,padding:"8px 10px",background:"linear-gradient(135deg,#100010,#180010)",border:"2px solid #9B59B6" }}>
-                              <div className="px8" style={{ color:"#9B59B6",fontSize:"10px",marginBottom:6 }}>💀 CORRUPTION EVOLUTION</div>
-                              <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
-                                <DigiSprite digimonId="sukamon" size={28} animate mood="walk"/>
-                                <div style={{ flex:1 }}>
-                                  <div style={{ fontSize:12,fontWeight:900,color:"#9B59B6" }}>Sukamon</div>
-                                  <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>Rookie · Virus · Dark</div>
-                                </div>
-                                <button className="px8" style={{ padding:"5px 10px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"11px" }}
-                                  onClick={function(){ evolve(digi.uid,"sukamon"); }}>
-                                  CORRUPT →
-                                </button>
+                        <div style={{ padding:"14px 20px",display:"flex",flexDirection:"column",gap:16 }}>
+
+                          {/* Description */}
+                          {inf2&&inf2.desc&&(
+                            <div>
+                              <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:6,letterSpacing:"0.05em" }}>PROFILE</div>
+                              <div style={{ fontSize:11,color:T.textMid,lineHeight:1.75,fontStyle:"italic",padding:"10px 12px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                                {inf2.desc}
                               </div>
-                              <div style={{ fontSize:10,color:T.textDim,marginTop:5,fontStyle:"italic" }}>The data has warped. A darker form calls.</div>
                             </div>
                           )}
 
-                          {/* Crest stages + spend materials */}
-                          {inf2 && inf2.crestReq && (function(){
-                            var cr = inf2.crestReq;
-                            var stages = digi.crestStages || {};
-                            var crests = [cr.primary, cr.secondary].filter(Boolean);
-                            return (
-                              <div style={{ marginBottom:10 }}>
-                                <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"10px" }}>CREST STAGES</div>
-                                <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
+                          {/* Combat stats */}
+                          <div>
+                            <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:8,letterSpacing:"0.05em" }}>COMBAT</div>
+                            {renderStatBar("PWR", bs.Power,    "#FF6B35")}
+                            {renderStatBar("GRD", bs.Guard,    "#7EB8F7")}
+                            {renderStatBar("FOC", bs.Focus,    "#B8A0E8")}
+                            {renderStatBar("MTM", bs.Momentum, "#FFD700")}
+                            {inf2&&inf2.passive&&(
+                              <div style={{ marginTop:8,padding:"7px 10px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                                <span style={{ fontSize:10,color:T.mint,fontWeight:700 }}>Passive — </span>
+                                <span style={{ fontSize:10,color:T.textMid }}>{inf2.passive}</span>
+                              </div>
+                            )}
+                            {inf2&&inf2.signature&&(
+                              <div style={{ marginTop:5,padding:"7px 10px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                                <span style={{ fontSize:10,color:T.gold,fontWeight:700 }}>Signature — </span>
+                                <span style={{ fontSize:10,color:T.textMid }}>{inf2.signature}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* XP + Crest stages */}
+                          <div>
+                            <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:8,letterSpacing:"0.05em" }}>GROWTH</div>
+                            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"10px" }}>⭐ XP</span>
+                              <span className="px8" style={{ color:T.textMid,fontSize:"10px" }}>{digi.exp} / {digi.expNeeded}</span>
+                            </div>
+                            <Bar value={digi.exp} max={digi.expNeeded} color={accent} h={7}/>
+
+                            {inf2&&inf2.crestReq&&(function(){
+                              var cr = inf2.crestReq;
+                              var stages = digi.crestStages || {};
+                              var crests = [cr.primary, cr.secondary].filter(Boolean);
+                              return (
+                                <div style={{ marginTop:10 }}>
+                                  <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:6 }}>CREST STAGES</div>
                                   {crests.map(function(cname){
                                     var ci      = CREST_INFO[cname];
                                     var stage   = stages[cname] || 0;
@@ -3953,74 +4302,83 @@ export default function App({ session }) {
                                     var avail   = crestMaterials[cname] || 0;
                                     var canSpend= cost !== null && avail >= cost;
                                     return (
-                                      <div key={cname} style={{ display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.bgPanel,border:"1px solid "+T.border }}>
-                                        <CrestIcon ci={ci} size={14}/>
+                                      <div key={cname} style={{ display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.bgPanel,border:"1px solid "+T.border,marginBottom:4 }}>
+                                        <CrestIcon ci={ci} size={13}/>
                                         <span style={{ fontSize:11,fontWeight:800,color:ci.color,flex:1 }}>{cname}</span>
-                                        <span className="px8" style={{ fontSize:"10px",color:T.textMid }}>Stage {stage}</span>
+                                        {[...Array(maxStg)].map(function(_,si){
+                                          return <div key={si} style={{ width:10,height:10,background:si<stage?ci.color:T.bgPanel,border:"1.5px solid "+(si<stage?ci.color:T.border) }}/>;
+                                        })}
                                         {cost !== null && (
-                                          <button className="px8"
-                                            disabled={!canSpend}
+                                          <button className="px8" disabled={!canSpend}
                                             onClick={function(){ spendCrestMaterial(digi.uid, cname); }}
                                             style={{ padding:"3px 7px",background:canSpend?ci.color+"22":"transparent",border:"1.5px solid "+(canSpend?ci.color:T.border),color:canSpend?ci.color:T.textDim,cursor:canSpend?"pointer":"not-allowed",fontSize:"10px" }}>
                                             +1 ({avail}/{cost})
                                           </button>
                                         )}
-                                        {cost === null && <span className="px8" style={{ fontSize:"10px",color:T.gold }}>MAX</span>}
+                                        {cost===null&&<span className="px8" style={{ fontSize:"10px",color:T.gold }}>MAX</span>}
                                       </div>
                                     );
                                   })}
                                 </div>
+                              );
+                            })()}
+                          </div>
+
+                          {/* Corruption evolution */}
+                          {neglectData&&neglectData.sukamonRisk&&neglectData.sukamonAccepted&&inf2&&(inf2.stage==="In-Training"||inf2.stage==="Rookie")&&(
+                            <div style={{ padding:"8px 10px",background:"linear-gradient(135deg,#100010,#180010)",border:"2px solid #9B59B6" }}>
+                              <div className="px8" style={{ color:"#9B59B6",fontSize:"10px",marginBottom:6 }}>💀 CORRUPTION EVOLUTION</div>
+                              <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                                <DigiSprite digimonId="sukamon" size={28} animate mood="walk"/>
+                                <div style={{ flex:1 }}>
+                                  <div style={{ fontSize:12,fontWeight:900,color:"#9B59B6" }}>Sukamon</div>
+                                  <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>Rookie · Virus · Dark</div>
+                                </div>
+                                <button className="px8" style={{ padding:"5px 10px",background:"#9B59B622",border:"2px solid #9B59B6",color:"#9B59B6",cursor:"pointer",fontSize:"11px" }}
+                                  onClick={function(){ evolve(digi.uid,"sukamon"); setPetSummary(null); }}>CORRUPT →</button>
                               </div>
-                            );
-                          })()}
+                              <div style={{ fontSize:10,color:T.textDim,marginTop:5,fontStyle:"italic" }}>The data has warped. A darker form calls.</div>
+                            </div>
+                          )}
 
                           {/* Evolutions */}
-                          {evoList.length > 0 && (
-                            <div style={{ marginBottom:8 }}>
-                              <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"10px" }}>DIGIVOLUTION</div>
+                          {evoList2.length > 0 && (
+                            <div>
+                              <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:8,letterSpacing:"0.05em" }}>DIGIVOLUTION</div>
                               <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-                                {evoList.map(function(evo){
-                                  var canEvo  = evo.eligible;
-                                  var ci      = evo.info.crestReq ? CREST_INFO[evo.info.crestReq.primary] : null;
-                                  var ci2     = evo.info.crestReq&&evo.info.crestReq.secondary ? CREST_INFO[evo.info.crestReq.secondary] : null;
-                                  var req     = EVO_REQUIREMENTS[evo.info.stage] || {};
+                                {evoList2.map(function(evo){
+                                  var canEvo   = evo.eligible;
+                                  var ci       = evo.info.crestReq ? CREST_INFO[evo.info.crestReq.primary] : null;
+                                  var ci2      = evo.info.crestReq&&evo.info.crestReq.secondary ? CREST_INFO[evo.info.crestReq.secondary] : null;
+                                  var req      = EVO_REQUIREMENTS[evo.info.stage] || {};
                                   var stageReq = CREST_STAGE_EVO_REQ[evo.info.stage] || {};
-                                  var btnCol  = canEvo ? T.gold : T.textDim;
+                                  var btnCol   = canEvo ? T.gold : T.textDim;
                                   return (
-                                    <div key={evo.id} style={{ background:T.bgPanel,border:"1.5px solid "+(canEvo?T.gold:T.border),padding:"8px 10px" }}>
-                                      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap" }}>
-                                        <DigiSprite digimonId={evo.id} size={28} animate mood="walk"/>
-                                        <div>
-                                          <div style={{ fontSize:12,fontWeight:900,color:btnCol }}>{evo.info.name}</div>
+                                    <div key={evo.id} style={{ background:T.bgPanel,border:"1.5px solid "+(canEvo?T.gold:T.border),padding:"10px 12px" }}>
+                                      <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
+                                        <DigiSprite digimonId={evo.id} size={32} animate mood="walk"/>
+                                        <div style={{ flex:1 }}>
+                                          <div style={{ fontSize:13,fontWeight:900,color:btnCol }}>{evo.info.name}</div>
                                           <div className="px8" style={{ color:STAGE_COLOR[evo.info.stage]||"#aaa",fontSize:"10px" }}>{evo.info.stage} · {evo.info.type}</div>
                                         </div>
                                         {canEvo&&(
                                           <button className="px8"
-                                            style={{ marginLeft:"auto",padding:"5px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"11px" }}
-                                            onClick={function(){ evolve(digi.uid,evo.id); }}>
+                                            style={{ padding:"6px 12px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"11px",fontWeight:800 }}
+                                            onClick={function(){ evolve(digi.uid,evo.id); setPetSummary(null); }}>
                                             DIGIVOLVE →
                                           </button>
                                         )}
                                       </div>
-                                      {/* Requirements row */}
-                                      <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                                        <span className="px8" style={{ fontSize:"10px",color:digi.level>=req.level?T.green:T.coral }}>
-                                          Lv.{req.level} {digi.level>=req.level?"✓":"✗ ("+digi.level+")"}
-                                        </span>
-                                        {req.bond>0&&<span className="px8" style={{ fontSize:"10px",color:(digi.bond||0)>=req.bond?T.green:T.coral }}>
-                                          Bond {req.bond} {(digi.bond||0)>=req.bond?"✓":"✗ ("+Math.round(digi.bond||0)+")"}
-                                        </span>}
+                                      <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                                        <span className="px8" style={{ fontSize:"10px",color:digi.level>=req.level?T.green:T.coral }}>Lv.{req.level} {digi.level>=req.level?"✓":"✗ ("+digi.level+")"}</span>
+                                        {req.bond>0&&<span className="px8" style={{ fontSize:"10px",color:(digi.bond||0)>=req.bond?T.green:T.coral }}>Bond {req.bond} {(digi.bond||0)>=req.bond?"✓":"✗ ("+Math.round(digi.bond||0)+")"}</span>}
                                         {ci&&(function(){
-                                          var stg = (digi.crestStages||{})[evo.info.crestReq.primary]||0;
-                                          var need = stageReq.primary||0;
-                                          var met  = stg >= need;
-                                          return <span className="px8" style={{ fontSize:"10px",color:met?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={ci} size={11}/> Stage {need} {met?"✓":"✗("+stg+")"}</span>;
+                                          var stg=( digi.crestStages||{})[evo.info.crestReq.primary]||0,need=stageReq.primary||0,met=stg>=need;
+                                          return <span className="px8" style={{ fontSize:"10px",color:met?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={ci} size={10}/> Stage {need} {met?"✓":"✗("+stg+")"}</span>;
                                         })()}
                                         {ci2&&(function(){
-                                          var stg = (digi.crestStages||{})[evo.info.crestReq.secondary]||0;
-                                          var need = stageReq.secondary||0;
-                                          var met  = stg >= need;
-                                          return <span className="px8" style={{ fontSize:"10px",color:met?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={ci2} size={11}/> Stage {need} {met?"✓":"✗("+stg+")"}</span>;
+                                          var stg=(digi.crestStages||{})[evo.info.crestReq.secondary]||0,need=stageReq.secondary||0,met=stg>=need;
+                                          return <span className="px8" style={{ fontSize:"10px",color:met?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={ci2} size={10}/> Stage {need} {met?"✓":"✗("+stg+")"}</span>;
                                         })()}
                                         {!canEvo&&evo.reason&&<span className="px8" style={{ fontSize:"10px",color:T.coral }}>{evo.reason}</span>}
                                       </div>
@@ -4032,27 +4390,28 @@ export default function App({ session }) {
                           )}
 
                           {/* Party controls */}
-                          <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                            {i>0&&<button className="px8" style={{ padding:"6px 10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"11px" }} onClick={function(){ setLeader(digi.uid); }}>★ SET LEADER</button>}
-                            {party.length>1&&<button className="px8" style={{ padding:"6px 10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"11px" }} onClick={function(){ sendToFarm(digi.uid); }}>→ Farm</button>}
+                          <div style={{ display:"flex",gap:8,flexWrap:"wrap",paddingTop:4 }}>
+                            {partyIdx>0&&<button className="px8" style={{ flex:1,padding:"8px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"11px" }} onClick={function(){ setLeader(digi.uid); setPetSummary(null); }}>★ SET LEADER</button>}
+                            {party.length>1&&<button className="px8" style={{ flex:1,padding:"8px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"11px" }} onClick={function(){ sendToFarm(digi.uid); setPetSummary(null); }}>→ FARM</button>}
                             {(function(){
-                              var allDigi2 = Object.values(DIGIMON_MAP);
-                              var prevIds2 = allDigi2.filter(function(x){ return x.evolvesTo && x.evolvesTo.includes(digi.speciesId); }).map(function(x){ return x.id; });
-                              if (prevIds2.length === 0) return null;
-                              var prevId2 = prevIds2[0];
+                              var allDigi2=Object.values(DIGIMON_MAP);
+                              var prevIds2=allDigi2.filter(function(x){ return x.evolvesTo&&x.evolvesTo.includes(digi.speciesId); }).map(function(x){ return x.id; });
+                              if(!prevIds2.length) return null;
+                              var prevId2=prevIds2[0];
                               return (
-                                <button className="px8" style={{ padding:"6px 10px",background:T.coral+"18",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"11px" }}
-                                  onClick={function(){ setDedigivolveConfirm({ uid:digi.uid, prevId:prevId2, digiName:digi.name, prevName:(DIGIMON_MAP[prevId2]&&DIGIMON_MAP[prevId2].name)||prevId2 }); }}>
+                                <button className="px8" style={{ flex:1,padding:"8px",background:T.coral+"18",border:"2px solid "+T.coral,color:T.coral,cursor:"pointer",fontSize:"11px" }}
+                                  onClick={function(){ setDedigivolveConfirm({ uid:digi.uid,prevId:prevId2,digiName:digi.name,prevName:(DIGIMON_MAP[prevId2]&&DIGIMON_MAP[prevId2].name)||prevId2 }); setPetSummary(null); }}>
                                   ↩ DEDIGIVOLVE
                                 </button>
                               );
                             })()}
                           </div>
+
                         </div>
                       </div>
                     </div>
                   );
-                })}
+                })()}
               </div>
             )}
 
@@ -4087,9 +4446,11 @@ export default function App({ session }) {
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div className="px12">PATCH ARENA</div>
-                  <div className="px8" style={{ color:"#4ECDC4" }}>⚡ Stamina: {stamina}/{STAMINA_MAX}</div>
+                  <div className="px8" style={{ color:"#4ECDC4" }}>⚡ {stamina}/{STAMINA_MAX}</div>
                 </div>
-                {!battleState?(
+
+                {/* ── Difficulty select ── */}
+                {!battleState&&(
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12 }}>
                     {["Easy","Medium","Hard"].map(function(diff){
                       var r    = BATTLE_REWARDS[diff]||{win:60,loss:25};
@@ -4106,62 +4467,158 @@ export default function App({ session }) {
                       );
                     })}
                   </div>
-                ):battleState.phase==="fight"?(
-                  <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-                    <div className="sec-label">ENEMY TEAM — tap to attack</div>
+                )}
+
+                {/* ── Fight screen ── */}
+                {battleState&&battleState.phase==="fight"&&(
+                  <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+
+                    {/* Minigame overlay */}
+                    {mgActive&&(function(){
+                      var mg = mgActive;
+                      var isReveal  = mg.phase === "reveal";
+                      var isInput   = mg.phase === "input";
+                      var isSuccess = mg.phase === "success";
+                      var isWrong   = mg.phase === "wrong";
+                      var titleMap  = { digicode:"FOCUS CHECK", timing:"MOMENTUM BURST", guard:"GUARD WALL" };
+                      var colorMap  = { digicode:"#B8A0E8", timing:"#FFD700", guard:"#4ECDC4" };
+                      var mgColor   = colorMap[mg.type] || T.teal;
+                      return (
+                        <div className="pcard" style={{ padding:18,borderColor:mgColor,boxShadow:"0 0 18px "+mgColor+"55",animation:"slideUp 0.18s ease" }}>
+                          <div className="px9" style={{ color:mgColor,marginBottom:14,letterSpacing:"0.12em" }}>
+                            {isSuccess?"✓ SUCCESS!":isWrong?"✗ MISS!":titleMap[mg.type]}
+                          </div>
+                          {/* DigiCode */}
+                          {mg.type==="digicode"&&(
+                            <div>
+                              <div style={{ fontSize:11,color:T.textMid,marginBottom:12 }}>
+                                {isInput?"Tap the tile that glowed!":isSuccess?"Critical hit incoming!":isWrong?"Miss — no Focus bonus":"Watch carefully..."}
+                              </div>
+                              <div style={{ display:"flex",gap:8 }}>
+                                {mg.tiles.map(function(sym,i){
+                                  var cls = "mg-tile"
+                                    + (isReveal && i===mg.answer ? " reveal" : "")
+                                    + (isSuccess && i===mg.answer ? " correct" : "")
+                                    + (isWrong   && i===mg.answer ? " correct" : "");
+                                  return (
+                                    <div key={i} className={cls}
+                                      onClick={function(){ if(isInput) handleMgAnswer(i); }}>
+                                      {sym}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {/* Timing bar */}
+                          {mg.type==="timing"&&(
+                            <div>
+                              <div style={{ fontSize:11,color:T.textMid,marginBottom:12 }}>
+                                {isSuccess?"Perfect timing! Double-strike!":isWrong?"Too early or too late!":"Tap STOP in the green zone!"}
+                              </div>
+                              <div style={{ position:"relative",height:36,background:T.bgPanel,border:"2px solid "+T.border,overflow:"hidden",cursor:"pointer",borderRadius:2 }}
+                                onClick={handleTimingTap}>
+                                {/* Green zone */}
+                                <div style={{ position:"absolute",top:0,bottom:0,left:mg.zoneStart+"%",width:(mg.zoneEnd-mg.zoneStart)+"%",background:"#5CB85C33",borderLeft:"2px solid #5CB85C",borderRight:"2px solid #5CB85C" }}/>
+                                {/* Moving dot — CSS animation drives position */}
+                                {(isInput||isReveal)&&<div style={{ position:"absolute",top:4,width:18,height:26,background:mgColor,borderRadius:2,animation:"timingSlide 2s linear forwards",animationPlayState:isInput?"running":"paused" }}/>}
+                                <div className="px8" style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",color:T.textMid,fontSize:"10px",pointerEvents:"none" }}>TAP!</div>
+                              </div>
+                            </div>
+                          )}
+                          {/* Guard wall */}
+                          {mg.type==="guard"&&(
+                            <div>
+                              <div style={{ fontSize:11,color:T.textMid,marginBottom:12 }}>
+                                {isSuccess?"Attack blocked! Damage cut!":isWrong?"Took full damage!":"Block the incoming attack!"}
+                              </div>
+                              <div style={{ display:"flex",gap:8,justifyContent:"center" }}>
+                                {mg.dirs.map(function(dir,i){
+                                  var isAnswer = i===mg.answer;
+                                  var cls = "mg-tile"
+                                    + (isReveal&&isAnswer ? " reveal" : "")
+                                    + ((isSuccess||isWrong)&&isAnswer ? (isSuccess?" correct":" correct") : "");
+                                  return (
+                                    <div key={i} className={cls} style={{ fontSize:20,padding:"12px 8px",maxWidth:68 }}
+                                      onClick={function(){ if(isInput) handleMgAnswer(i); }}>
+                                      {dir}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Enemy team */}
+                    <div className="sec-label">ENEMY TEAM</div>
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
                       {battleState.enemyTeam.map(function(e,i){
                         var ebs = calcBattleStats(e);
                         return (
-                          <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }} onClick={function(){ battleAttack(i); }}>
-                            <DigiSprite digimonId={e.speciesId} size={52} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0} />
-                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"11px" }}>{e.name}</div>
-                            <Bar value={e.currentHp} max={e.maxHp} color={T.coral} h={6}/>
-                            <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
-                              {[["PWR",ebs.Power,"#FF6B35"],["GRD",ebs.Guard,"#7EB8F7"]].map(function(s){
-                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:12,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"10px",color:T.textDim }}>{s[0]}</div></div>;
-                              })}
+                          <div key={i} className="battle-tile enemy" style={{ opacity:e.currentHp<=0?0.3:1 }}>
+                            <DigiSprite digimonId={e.speciesId} size={48} mood={e.currentHp<=0?"sad":"angry"} animate={e.currentHp>0}/>
+                            <div className="px8" style={{ marginTop:5,marginBottom:4,fontSize:"10px" }}>{e.name}</div>
+                            <Bar value={e.currentHp} max={e.maxHp} color={T.coral} h={5}/>
+                            <div style={{ display:"flex",justifyContent:"center",gap:8,marginTop:5 }}>
+                              <div style={{ textAlign:"center" }}><div style={{ fontSize:11,fontWeight:900,color:"#FF6B35" }}>{ebs.Power}</div><div className="px8" style={{ fontSize:"9px",color:T.textDim }}>PWR</div></div>
+                              <div style={{ textAlign:"center" }}><div style={{ fontSize:11,fontWeight:900,color:"#7EB8F7" }}>{ebs.Guard}</div><div className="px8" style={{ fontSize:"9px",color:T.textDim }}>GRD</div></div>
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                    <div className="sec-label">YOUR TEAM — select attacker</div>
-                    <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                      {battleState.playerTeam.map(function(p,i){
-                        var isAct = battleState.selected===i;
-                        var pbs   = calcBattleStats(p);
-                        var pInfo = DIGIMON_MAP[p.speciesId];
-                        var role  = pInfo&&ROLES[pInfo.role]?ROLES[pInfo.role]:ROLES.Balanced;
-                        return (
-                          <div key={i} className={"battle-tile player"+(isAct?" active":"")} style={{ opacity:p.currentHp<=0?0.3:1 }} onClick={function(){ setBattleState(function(bs){ return Object.assign({},bs,{selected:i}); }); }}>
-                            <DigiSprite digimonId={p.speciesId} size={52} mood={p.currentHp<=0?"sad":isAct?"attack":"walk"} animate={isAct&&p.currentHp>0}/>
-                            <div className="px8" style={{ marginTop:6,marginBottom:4,fontSize:"11px" }}>{p.name}</div>
-                            <Bar value={p.currentHp} max={p.maxHp} color={T.green} h={6}/>
-                            <div style={{ display:"flex",justifyContent:"space-around",marginTop:6 }}>
-                              {[["PWR",pbs.Power,"#FF6B35"],["GRD",pbs.Guard,"#7EB8F7"],["FOC",pbs.Focus,"#B8A0E8"],["MTM",pbs.Momentum,"#FFD700"]].map(function(s){
-                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:11,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"10px",color:T.textDim }}>{s[0]}</div></div>;
-                              })}
-                            </div>
-                            {isAct&&<div className="px8" style={{ color:accent,marginTop:4,fontSize:"11px" }}>★ ATTACKER</div>}
-                            {isAct&&pInfo&&pInfo.passive&&<div style={{ fontSize:9,color:T.mint,marginTop:2,fontStyle:"italic",lineHeight:1.3 }}>{pInfo.passive.split('—')[0]}</div>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="pcard" style={{ padding:12,maxHeight:150,overflowY:"auto" }}>
+
+                    {/* Battle log */}
+                    <div className="pcard" style={{ padding:"10px 12px",maxHeight:120,overflowY:"auto" }}>
                       {battleState.log.length===0
-                        ? <div style={{ fontSize:12,color:T.textMid }}>Tap an enemy to attack</div>
-                        : battleState.log.map(function(l,i){ return <div key={i} style={{ fontSize:12,color:i===0?T.text:T.textMid,padding:"3px 0",borderBottom:"1px solid "+T.border }}>{l}</div>; })
+                        ? <div style={{ fontSize:11,color:T.textMid }}>Battle beginning...</div>
+                        : battleState.log.map(function(l,i){
+                            return <div key={i} style={{ fontSize:11,color:i===0?T.text:T.textMid,padding:"2px 0",borderBottom:"1px solid "+T.border }}>{l}</div>;
+                          })
                       }
                     </div>
+
+                    {/* Player team */}
+                    <div className="sec-label" style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      <span>YOUR TEAM</span>
+                      <span style={{ color:T.textDim,fontSize:"9px",fontFamily:"'Press Start 2P',monospace" }}>RND {battleState.round||0}</span>
+                    </div>
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
+                      {battleState.playerTeam.map(function(p,i){
+                        var pbs   = calcBattleStats(p);
+                        var pInfo = DIGIMON_MAP[p.speciesId];
+                        var alive = p.currentHp > 0;
+                        return (
+                          <div key={i} className="battle-tile player" style={{ opacity:alive?1:0.3 }}>
+                            <DigiSprite digimonId={p.speciesId} size={48} mood={alive?"attack":"sad"} animate={alive}/>
+                            <div className="px8" style={{ marginTop:5,marginBottom:4,fontSize:"10px" }}>{p.name}</div>
+                            <Bar value={p.currentHp} max={p.maxHp} color={T.green} h={5}/>
+                            <div style={{ display:"flex",justifyContent:"space-around",marginTop:5 }}>
+                              {[["PWR",pbs.Power,"#FF6B35"],["GRD",pbs.Guard,"#7EB8F7"],["FOC",pbs.Focus,"#B8A0E8"],["MTM",pbs.Momentum,"#FFD700"]].map(function(s){
+                                return <div key={s[0]} style={{ textAlign:"center" }}><div style={{ fontSize:10,fontWeight:900,color:s[2] }}>{s[1]}</div><div className="px8" style={{ fontSize:"8px",color:T.textDim }}>{s[0]}</div></div>;
+                              })}
+                            </div>
+                            {pInfo&&pInfo.passive&&<div style={{ fontSize:"8px",color:T.mint,marginTop:3,fontStyle:"italic",lineHeight:1.3,textAlign:"center" }}>{pInfo.passive.split("—")[0].trim()}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Auto-battle hint */}
+                    {!mgActive&&<div style={{ textAlign:"center",fontSize:"10px",color:T.textDim,fontFamily:"'Press Start 2P',monospace",animation:"blink 1.4s ease infinite" }}>AUTO FIGHTING...</div>}
                   </div>
-                ):(
+                )}
+
+                {/* ── Victory / Defeat ── */}
+                {battleState&&(battleState.phase==="won"||battleState.phase==="lost")&&(
                   <div className="pcard" style={{ padding:40,textAlign:"center" }}>
                     <div style={{ fontSize:42,marginBottom:12 }}>{battleState.phase==="won"?"🏆":"💀"}</div>
                     <div className="px12" style={{ color:battleState.phase==="won"?T.green:T.coral,marginBottom:8 }}>{battleState.phase==="won"?"VICTORY!":"DEFEATED"}</div>
                     <div style={{ fontSize:12,color:T.textMid,marginBottom:20 }}>{battleState.log[0]}</div>
-                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"12px" }} onClick={function(){ setBattleState(null); }}>RETURN</button>
+                    <button className="px8" style={{ padding:"10px 20px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"12px" }} onClick={function(){ setBattleState(null); setMgActive(null); }}>RETURN</button>
                   </div>
                 )}
               </div>
@@ -4708,37 +5165,56 @@ function CrestsPage({ crestProfile, crestHistory, crestMaterials, loginDay, acti
         })}
       </div>
 
-      {/* All 8 crests */}
+      {/* Tendency Strips */}
       <div className="pcard" style={{ padding:16 }}>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
           <div className="px9">ALIGNMENT PROFILE</div>
           <div style={{ fontSize:11,color:T.textMid }}>Rolling {windowDays}-day window</div>
         </div>
-        {Object.entries(crestProfile.percentages||{})
-          .sort(function(a,b){ return b[1]-a[1]; })
-          .map(function([name, pct]){
-            var ci = CREST_INFO[name];
-            var isPrim = name===crestProfile.primary;
-            var isSec  = name===crestProfile.secondary;
-            return (
-              <div key={name} style={{ marginBottom:10 }}>
-                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
-                  <span style={{ width:22,textAlign:"center",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={ci} size={18}/></span>
-                  <span style={{ fontSize:12,fontWeight:800,color:ci.color,width:100,flexShrink:0 }}>{name}</span>
-                  {isPrim&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"10px" }}>★ PRIMARY</span>}
-                  {isSec&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.textMid,color:T.textMid,fontSize:"10px" }}>◆ SUPPORT</span>}
-                  <span className="px8" style={{ color:T.textMid,fontSize:"11px",marginLeft:"auto" }}>{pct}%</span>
-                </div>
-                <div style={{ height:10,background:T.bgPanel,border:"2px solid "+T.border,overflow:"hidden" }}>
-                  <div style={{ width:pct+"%",height:"100%",background:ci.color,transition:"width 0.8s ease",position:"relative" }}>
-                    <div style={{ position:"absolute",top:2,left:3,right:3,height:3,background:"rgba(255,255,255,0.25)" }}/>
+        {(function(){
+          var totals = crestProfile.totals || {};
+          var sorted = Object.entries(CREST_INFO)
+            .map(function(e){ return { name:e[0], ci:e[1], val:totals[e[0]]||0 }; })
+            .sort(function(a,b){ return b.val - a.val; });
+          var maxVal = sorted[0] ? Math.max(sorted[0].val, 1) : 1;
+          var hasAny = sorted.some(function(s){ return s.val > 0; });
+
+          if (!hasAny) return (
+            <div style={{ textAlign:"center",fontSize:11,color:T.textDim,fontStyle:"italic",padding:"12px 0" }}>
+              Complete tasks to reveal your alignment.
+            </div>
+          );
+
+          return (
+            <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
+              {sorted.map(function(s){
+                var isPrim = s.name === crestProfile.primary;
+                var isSec  = s.name === crestProfile.secondary;
+                var barPct = (s.val / maxVal) * 100;
+                var opacity = s.val === 0 ? 0.2 : isPrim ? 1 : isSec ? 0.82 : Math.max(0.35, barPct / 100 * 0.9);
+                return (
+                  <div key={s.name} style={{ display:"flex",alignItems:"center",gap:10,opacity:opacity }}>
+                    <div style={{ width:20,height:20,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center" }}>
+                      <CrestIcon ci={s.ci} size={18}/>
+                    </div>
+                    <span style={{ width:84,fontSize:11,fontWeight:isPrim?900:700,color:s.ci.color,flexShrink:0,lineHeight:1 }}>
+                      {s.name}
+                      {isPrim && <span style={{ color:T.gold,marginLeft:4,fontSize:9 }}>★</span>}
+                      {isSec  && <span style={{ color:T.textMid,marginLeft:4,fontSize:9 }}>◆</span>}
+                    </span>
+                    <div style={{ flex:1,height:8,background:T.bgPanel,border:"1px solid "+T.border,position:"relative",overflow:"hidden" }}>
+                      <div style={{ position:"absolute",inset:0,width:barPct+"%",background:s.ci.color,transition:"width 0.7s ease" }}/>
+                      <div style={{ position:"absolute",top:1,left:2,right:2,height:3,background:"rgba(255,255,255,0.15)",pointerEvents:"none" }}/>
+                    </div>
+                    <span style={{ width:26,fontSize:10,fontWeight:800,color:isPrim?s.ci.color:T.textDim,textAlign:"right",flexShrink:0 }}>
+                      {s.val > 0 ? s.val : "—"}
+                    </span>
                   </div>
-                </div>
-                <div style={{ fontSize:10,color:T.textDim,marginTop:2 }}>{ci.desc}</div>
-              </div>
-            );
-          })
-        }
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Today's crest activity */}

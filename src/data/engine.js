@@ -35,14 +35,19 @@ export function calcBattleStats(digi) {
 }
 
 // ── Battle damage ─────────────────────────────────────────────────────────────
-export function calcBattleDamage(attacker, defender) {
+// opts: { focusBonus, momentumDouble }
+// Returns { damage, crit }
+export function calcBattleDamage(attacker, defender, opts) {
   var as = calcBattleStats(attacker);
   var ds = calcBattleStats(defender);
   var base = Math.max(1, as.Power * 1.2 - ds.Guard * 0.8);
   var critChance = Math.min(0.30, as.Focus / 200);
-  var crit = Math.random() < critChance ? 1.5 : 1.0;
+  if (opts && opts.focusBonus) critChance = Math.min(0.80, critChance + 0.40);
+  var crit = Math.random() < critChance;
+  var critMult = crit ? 1.6 : 1.0;
   var variance = 0.85 + Math.random() * 0.30;
-  return Math.max(1, Math.floor(base * crit * variance));
+  var damage = Math.max(1, Math.floor(base * critMult * variance));
+  return { damage: damage, crit: crit };
 }
 
 // ── XP reward ─────────────────────────────────────────────────────────────────

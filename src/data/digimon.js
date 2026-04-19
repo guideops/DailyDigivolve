@@ -75,6 +75,7 @@ export const DIGIMON_DB = [
     hp:62, sp:28, atk:20, def:18, int:16, spd:20,
     role:"Balanced", passive:"Smoldering — immune to Fire-type debuffs",
     signature:"Baby Bubble — weakest AoE, no recoil",
+    desc:"Mokumon is a Flame Digimon whose tiny body is formed entirely from spiralling smoke. It harbours an intense Digicore for something so small, and this inner heat will one day ignite into something fierce. It blends effortlessly into drifting smoke, using its cloudy form to confuse and evade opponents.",
     evolvesTo:["petitmeramon","sunmon"] },
 
   { id:"nyokimon",      name:"Nyokimon",      stage:"Baby", type:"Free", attr:"None",
@@ -222,6 +223,7 @@ export const DIGIMON_DB = [
     hp:78, sp:38, atk:28, def:24, int:20, spd:30,
     role:"Balanced", passive:"Smolder — small burn DoT on first hit dealt",
     signature:"Bubble Blow — light AoE poke",
+    desc:"PetiMeramon is a Flame Digimon whose entire body is ablaze due to how its Digicore burns fiercely for a body of its size. It has a wild temperament for its small size, causing its Digicore to burn intensely, but it cannot fight properly despite its aggressive personality as its offensive power is still low. It is extremely weak to Water and Ice-Snow type Digimon and will flee the moment it encounters them. It attacks with small bullets of fire shot from its mouth, but they aren't very powerful.",
     evolvesTo:["candlemon","vorvomon"] },
 
   { id:"pyokomon",     name:"Pyokomon",     stage:"In-Training", type:"Free", attr:"None",
