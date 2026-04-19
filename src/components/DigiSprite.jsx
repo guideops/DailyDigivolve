@@ -47,9 +47,11 @@ function moodToAnim(mood) {
 
 // ── PNG sprite component ───────────────────────────────────────────────────────
 function PngFrames({ id, config, size, animate, mood }) {
-  // For grid mode, pick the correct frame subset based on mood
-  // Taomon (sheet mode) always walks — ignore mood
-  var frames = (config.mode === "grid") ? (ANIM_FRAMES[moodToAnim(mood)] || ANIM_FRAMES.walk) : null;
+  // Grid and frames modes both support mood-based frame selection.
+  // Sheet mode (Taomon etc.) always walks — ignore mood.
+  var frames = (config.mode === "grid" || config.mode === "frames")
+    ? (ANIM_FRAMES[moodToAnim(mood)] || ANIM_FRAMES.walk)
+    : null;
   var [frameIdx, setFrameIdx] = useState(0);
   const timer = useRef(null);
 
@@ -120,10 +122,11 @@ function PngFrames({ id, config, size, animate, mood }) {
     );
   }
 
-  // "frames" mode — individual PNGs
+  // "frames" mode — individual PNGs, mood-aware (same logic as grid but separate files)
+  var absFrame = frames ? frames[frameIdx % frames.length] : frameIdx;
   return (
     <img
-      src={"/sprites/" + spritePath + "/" + frameIdx + ".png"}
+      src={"/sprites/" + spritePath + "/" + absFrame + ".png"}
       width={size}
       height={size}
       draggable={false}

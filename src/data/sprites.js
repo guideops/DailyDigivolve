@@ -210,10 +210,10 @@ export const SPRITE_CONFIG = {
   shellmon:            { ...G },
   whamon:              { ...G },
   marinangemon:        { ...G },
-  jijimon:             { mode:"gif", frameW:52, frameH:68 },
+  jijimon:             { mode:"frames", frameCount:12, fps:6 },
 
   // ── Betamon line — Sea Dragon ─────────────────────────────────────────────
-  betamon:             { ...S1 },                  // 16×16 single frame
+  betamon:             { mode:"frames", frameCount:12, fps:6 },
   seadramon:           { ...G },
   airdramon:           { ...G },
   megaseadramon:       { ...G },
@@ -255,7 +255,7 @@ export const SPRITE_CONFIG = {
   // ── Pulsemon line — Electro ───────────────────────────────────────────────
   // dokimon / bibimon: already listed above
   pulsemon:            { ...G },
-  bulkmon:             { ...S1 },
+  bulkmon:             { mode:"frames", frameCount:12, fps:6 },
   boutmon:             { ...G },
   kazuchimon:          { ...G, fps:8 },
 

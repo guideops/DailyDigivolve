@@ -4,7 +4,7 @@ import { DIGIMON_MAP } from './digimon.js';
 import {
   PERSONALITIES, PRIORITY_XP, DIFF_XP, BASE_XP, STREAK_XP_CAP,
   EVO_REQUIREMENTS, CREST_INFO, TEMPLATE_CREST_MAP, CREST_GAIN, CREST_DAILY_CAP,
-  STAMINA_MAX, STAMINA_REGEN_PER_HOUR,
+  STAMINA_MAX, STAMINA_REGEN_PER_HOUR, CREST_STAGE_EVO_REQ,
 } from './constants.js';
 
 // ── Battle stats (new 4-stat system) ─────────────────────────────────────────
@@ -85,10 +85,10 @@ export function calcCrestProfile(crestHistory, windowDays) {
     if (entry.secondaryCrest) totals[entry.secondaryCrest] = (totals[entry.secondaryCrest] || 0) + (entry.secondary || 0);
   });
 
-  var maxPoints = Math.max.apply(null, Object.values(totals).concat([1]));
+  var totalPoints = Object.values(totals).reduce(function(s, v){ return s + v; }, 0) || 1;
   var percentages = {};
   Object.keys(totals).forEach(function(c) {
-    percentages[c] = Math.round((totals[c] / maxPoints) * 100);
+    percentages[c] = Math.round((totals[c] / totalPoints) * 100);
   });
 
   var sorted = Object.entries(totals).sort(function(a, b){ return b[1] - a[1]; });
@@ -98,22 +98,9 @@ export function calcCrestProfile(crestHistory, windowDays) {
   return { totals: totals, percentages: percentages, primary: primary, secondary: secondary };
 }
 
-// ── Crest match score against a target's ideal crests ────────────────────────
-// Returns 0.0–1.0 (1.0 = perfect match)
-export function calcCrestMatch(crestProfile, crestReq) {
-  if (!crestReq || !crestProfile || !crestProfile.percentages) return 0;
-  var pcts = crestProfile.percentages;
-  var primaryPct   = (pcts[crestReq.primary]   || 0) / 100;
-  var secondaryPct = crestReq.secondary ? (pcts[crestReq.secondary] || 0) / 100 : 0;
-  if (!crestReq.secondary) return primaryPct;
-  return primaryPct * 0.70 + secondaryPct * 0.30;
-}
-
 // ── Evolution eligibility ─────────────────────────────────────────────────────
-// Returns { eligible, vow, reason, matchPct }
-// eligible: true if fully eligible
-// vow: true if Partner Vow could bridge the gap (not fully eligible but close)
-export function checkEvoEligible(digi, bond, crestProfile, targetId) {
+// Returns { eligible, reason, primaryStage, primaryNeed, secondaryStage, secondaryNeed }
+export function checkEvoEligible(digi, bond, _crestProfile, targetId) {
   var targetInfo = DIGIMON_MAP[targetId];
   if (!targetInfo) return { eligible: false, reason: "Unknown target" };
   if (targetInfo.fusionOf) return { eligible: false, reason: "Requires DNA Digivolution" };
@@ -128,20 +115,24 @@ export function checkEvoEligible(digi, bond, crestProfile, targetId) {
     return { eligible: false, reason: "Need Bond " + req.bond };
   }
 
-  if (req.crestMatch && targetInfo.crestReq) {
-    var match = calcCrestMatch(crestProfile, targetInfo.crestReq);
-    var matchPct = Math.round(match * 100);
-    if (match >= req.crestMatch) {
-      return { eligible: true, matchPct: matchPct };
+  if (req.crestStage && targetInfo.crestReq) {
+    var stages   = digi.crestStages || {};
+    var stageReq = CREST_STAGE_EVO_REQ[targetInfo.stage] || {};
+    var primaryStage   = stages[targetInfo.crestReq.primary]   || 0;
+    var secondaryStage = targetInfo.crestReq.secondary ? (stages[targetInfo.crestReq.secondary] || 0) : null;
+    var primaryNeed    = stageReq.primary   || 0;
+    var secondaryNeed  = stageReq.secondary || 0;
+
+    if (primaryStage < primaryNeed) {
+      return { eligible: false, reason: targetInfo.crestReq.primary + " Stage " + primaryNeed + " needed", primaryStage, primaryNeed, secondaryStage, secondaryNeed };
     }
-    // Partner Vow threshold
-    if (match >= (req.partnerVow || 0)) {
-      return { eligible: false, vow: true, matchPct: matchPct, reason: "Partner Vow eligible (" + matchPct + "% match)" };
+    if (secondaryStage !== null && secondaryStage < secondaryNeed) {
+      return { eligible: false, reason: targetInfo.crestReq.secondary + " Stage " + secondaryNeed + " needed", primaryStage, primaryNeed, secondaryStage, secondaryNeed };
     }
-    return { eligible: false, vow: false, matchPct: matchPct, reason: "Crest match " + matchPct + "% (need " + Math.round(req.crestMatch * 100) + "%)" };
+    return { eligible: true, primaryStage, primaryNeed, secondaryStage, secondaryNeed };
   }
 
-  return { eligible: true, matchPct: 100 };
+  return { eligible: true };
 }
 
 // ── Apply XP gain ─────────────────────────────────────────────────────────────

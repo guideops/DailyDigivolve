@@ -12,6 +12,8 @@ import {
   CREST_INFO, ROLES, PERSONALITIES, MAX_PARTY_SIZE, BATTLE_REWARDS,
   STAMINA_MAX, STAMINA_COSTS, FOOD_ITEMS, SHOP_ITEMS, STAMINA_FOOD_CAP, EVO_REQUIREMENTS,
   CURRENT_RAID, TEMPLATE_RAID_STAT, RAID_DIFF_MULT, NEGLECT_SPEECH, NEGLECT_PATHS, ALL_EGGS,
+  CREST_STAGE_COSTS, CREST_STAGE_EVO_REQ, LOGIN_REWARDS,
+  TAMER_XP_PER_LEVEL, TAMER_TASK_XP, TAMER_UNLOCKS,
 } from "./data/constants.js";
 import {
   calcBattleStats, calcBattleDamage, calcXpReward, applyXpGain, newDigimon,
@@ -27,6 +29,13 @@ var T = {
   gold:"#FFD700", red:"#FF4444", green:"#5CB85C", pink:"#FF9EB5",
 };
 var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
+
+// ── Background definitions ─────────────────────────────────────────────────────
+var BACKGROUNDS = [
+  { id:"default",      label:"Digital Dark",  thumb:null,                     url:null,                           category:"default" },
+  { id:"morning_blu",  label:"Morning Blue",  thumb:"/backgrounds/bg_morning_blu.jpg", url:"/backgrounds/bg_morning_blu.jpg", category:"morning" },
+  { id:"night_pur",    label:"Night Purple",  thumb:"/backgrounds/bg_night_pur.jpg",   url:"/backgrounds/bg_night_pur.jpg",   category:"night" },
+];
 
 function px(c){ return { border:"2px solid "+(c||T.pixelBorder), boxShadow:"3px 3px 0 "+(c||T.pixelBorder) }; }
 
@@ -146,6 +155,7 @@ export default function App({ session }) {
   var [toast,            setToast]            = useState(null);
   var [evoAnim,          setEvoAnim]          = useState(null);
   var [battleState,      setBattleState]      = useState(null);
+  var [selectedBg,       setSelectedBg]       = useState("default");
   // New systems
   // bond is per-digimon — derived from the active (party[0]) digimon's bond field
   var [stamina,          setStamina]          = useState(STAMINA_MAX);
@@ -212,6 +222,19 @@ export default function App({ session }) {
   var [adoptHatchedDigi, setAdoptHatchedDigi] = useState(null);   // hatched digimon object
   var [jijiPrompt,       setJijiPrompt]       = useState(null);   // { type:'leader'|'swap'|'swapPick', newDigi }
 
+  // Crest materials + login rewards
+  var [crestMaterials,       setCrestMaterials]       = useState({});
+  var [loginDay,             setLoginDay]             = useState(0);
+  var [lastLoginRewardDate,  setLastLoginRewardDate]  = useState(null);
+  var [armorDigiCount,       setArmorDigiCount]       = useState(0);
+  var [showLoginReward,      setShowLoginReward]      = useState(false);
+  var [pendingLoginReward,   setPendingLoginReward]   = useState(null);
+  var [loginRewardSel,       setLoginRewardSel]       = useState(null); // chosen crest for selector rewards
+  var [showRewardCalendar,   setShowRewardCalendar]   = useState(false);
+  // Tamer level
+  var [tamerLevel,           setTamerLevel]           = useState(1);
+  var [tamerXp,              setTamerXp]              = useState(0);
+
   var dragIdx      = useRef(null);
   var navCloseTimer = useRef(null); // delay before closing a nav dropdown on mouse-leave
   var userId  = session.user.id;
@@ -242,6 +265,7 @@ export default function App({ session }) {
       if (profile) {
         setBits(profile.bits || 350);
         setTamerName(profile.display_name || "Tamer");
+        setSelectedBg(profile.background_id || "default");
         setWeeklyDigimon(profile.weekly_digimon || {});
 
         // Stamina with regen
@@ -401,6 +425,23 @@ export default function App({ session }) {
             setPomodoroState(Object.assign({}, ps, { timeLeft: pomoRemaining }));
           }
         }
+
+        // Crest materials + login rewards
+        setCrestMaterials(profile.crest_materials || {});
+        setArmorDigiCount(profile.armor_digi_count || 0);
+        setTamerLevel(profile.tamer_level || 1);
+        setTamerXp(profile.tamer_xp || 0);
+        var storedLoginDay = profile.login_day || 0;
+        var storedRewardDate = profile.last_login_reward_date || null;
+        setLoginDay(storedLoginDay);
+        setLastLoginRewardDate(storedRewardDate);
+        // Check if a login reward is available (past 5am, new calendar day, days remaining)
+        var nowLR = new Date();
+        var todayLR = nowLR.getFullYear()+'-'+String(nowLR.getMonth()+1).padStart(2,'0')+'-'+String(nowLR.getDate()).padStart(2,'0');
+        if (nowLR.getHours() >= 5 && storedRewardDate !== todayLR && storedLoginDay < 60) {
+          setPendingLoginReward(LOGIN_REWARDS[storedLoginDay]); // 0-indexed, storedLoginDay is current day count
+          setShowLoginReward(true);
+        }
       }
 
       if (digimonData && digimonData.length > 0) {
@@ -409,16 +450,16 @@ export default function App({ session }) {
           exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
           personality: d.personality, bonusStats: d.bonus_stats || {},
           discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
-          bond: d.bond || 0,
+          bond: d.bond || 0, crestStages: d.crest_stages || {},
         }; });
         var partyRows = mapped.filter(function(d){ return !d.inFarm; });
         var farmRows  = mapped.filter(function(d){ return d.inFarm; });
-        // Self-heal: corrupt in_farm=false rows from old bugs can inflate party past cap
+        // Self-heal: corrupt in_farm=false rows can inflate party past cap
         if (partyRows.length > MAX_PARTY_SIZE) {
           var overflow = partyRows.slice(MAX_PARTY_SIZE);
           partyRows = partyRows.slice(0, MAX_PARTY_SIZE);
           farmRows = farmRows.concat(overflow.map(function(d){ return Object.assign({}, d, { inFarm:true }); }));
-          overflow.forEach(function(d){ supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); });
+          await Promise.all(overflow.map(function(d){ return supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); }));
         }
         setParty(partyRows);
         setFarm(farmRows);
@@ -529,7 +570,14 @@ export default function App({ session }) {
     if (profile) {
       setBits(profile.bits || 350);
       if (profile.display_name) setTamerName(profile.display_name);
+      setSelectedBg(profile.background_id || "default");
       setCrestHistory(profile.crest_history || []);
+      setCrestMaterials(profile.crest_materials || {});
+      setLoginDay(profile.login_day || 0);
+      setLastLoginRewardDate(profile.last_login_reward_date || null);
+      setArmorDigiCount(profile.armor_digi_count || 0);
+      setTamerLevel(profile.tamer_level || 1);
+      setTamerXp(profile.tamer_xp || 0);
       setWeeklyDigimon(profile.weekly_digimon || {});
       setLoginStreak(profile.login_streak || 0);
       setDigitamaCredits(profile.digitama_credits || 0);
@@ -563,7 +611,7 @@ export default function App({ session }) {
         exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
         personality: d.personality, bonusStats: d.bonus_stats || {},
         discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
-        bond: d.bond || 0,
+        bond: d.bond || 0, crestStages: d.crest_stages || {},
       }; });
       var partyRows2 = mapped.filter(function(d){ return !d.inFarm; });
       var farmRows2  = mapped.filter(function(d){ return d.inFarm; });
@@ -571,7 +619,7 @@ export default function App({ session }) {
         var overflow2 = partyRows2.slice(MAX_PARTY_SIZE);
         partyRows2 = partyRows2.slice(0, MAX_PARTY_SIZE);
         farmRows2 = farmRows2.concat(overflow2.map(function(d){ return Object.assign({}, d, { inFarm:true }); }));
-        overflow2.forEach(function(d){ supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); });
+        await Promise.all(overflow2.map(function(d){ return supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); }));
       }
       setParty(partyRows2);
       setFarm(farmRows2);
@@ -626,7 +674,10 @@ export default function App({ session }) {
     var today = new Date().toISOString().split('T')[0];
     setBits(p.bits ?? 350);
     if (p.display_name) setTamerName(p.display_name);
+    setSelectedBg(p.background_id || "default");
     setCrestHistory(p.crest_history || []);
+    if (p.tamer_level != null) setTamerLevel(p.tamer_level);
+    if (p.tamer_xp    != null) setTamerXp(p.tamer_xp);
     setWeeklyDigimon(p.weekly_digimon || {});
     setLoginStreak(p.login_streak || 0);
     setDigitamaCredits(p.digitama_credits || 0);
@@ -710,7 +761,7 @@ export default function App({ session }) {
       exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
       personality: d.personality, bonusStats: d.bonus_stats || {},
       discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
-      bond: d.bond || 0,
+      bond: d.bond || 0, crestStages: d.crest_stages || {},
     };
     if (d.in_farm) {
       setParty(function(p) { return p.filter(function(x) { return x.uid !== mapped.uid; }); });
@@ -723,8 +774,10 @@ export default function App({ session }) {
       setParty(function(p) {
         var idx = p.findIndex(function(x) { return x.uid === mapped.uid; });
         if (idx >= 0) return p.map(function(x) { return x.uid === mapped.uid ? mapped : x; });
-        if (p.length >= MAX_PARTY_SIZE) return p; // safety: never exceed cap via realtime
-        return p.concat([mapped]);
+        // Only accept INSERTs from sources we trust (evolve/adopt updates an existing row)
+        if (payload.eventType === 'INSERT' && p.length >= MAX_PARTY_SIZE) return p;
+        if (payload.eventType === 'INSERT') return p.concat([mapped]);
+        return p; // UPDATE for unknown uid — ignore
       });
     }
     if (d.discovered && d.discovered.length) {
@@ -899,13 +952,14 @@ export default function App({ session }) {
 
   // Updates the active digimon's bond in both React state and DB.
   // Only call when activeDigi is present (party has at least one member).
-  function updateActiveBond(newBond) {
+  async function updateActiveBond(newBond) {
     if (!activeDigi) return;
     setParty(function(p) {
       if (!p.length) return p;
       return [Object.assign({}, p[0], { bond: newBond })].concat(p.slice(1));
     });
-    supabase.from('digimon').update({ bond: newBond }).eq('id', activeDigi.uid);
+    var { error } = await supabase.from('digimon').update({ bond: newBond }).eq('id', activeDigi.uid);
+    if (error) console.error('[bond] digimon update failed:', error.message);
     // Keep profiles.bond in sync for friends leaderboard display
     supabase.from('profiles').update({ bond: newBond }).eq('id', userId);
   }
@@ -1122,12 +1176,20 @@ export default function App({ session }) {
     }).eq('id', userId);
   }
 
+  // ── Background ───────────────────────────────────────────────────────────────
+  async function saveBackground(bgId) {
+    setSelectedBg(bgId);
+    await supabase.from('profiles').update({ background_id: bgId }).eq('id', userId);
+  }
+
   // ── Tamer name ──────────────────────────────────────────────────────────────
   async function saveTamerName(name) {
-    var trimmed = name.trim().slice(0, 20) || "Tamer";
+    var trimmed = name.trim().slice(0, 20);
+    if (!trimmed) { setEditingName(false); return; }
     setTamerName(trimmed);
     setEditingName(false);
-    await supabase.from('profiles').update({ display_name: trimmed }).eq('id', userId);
+    var { error } = await supabase.from('profiles').update({ display_name: trimmed }).eq('id', userId);
+    if (error) toast_("Name save failed — try again", T.coral);
   }
 
   // ── Set party leader ────────────────────────────────────────────────────────
@@ -1277,11 +1339,15 @@ export default function App({ session }) {
       });
       await Promise.all(party.map(function(d, i) {
         var r = partyResults[i];
-        return supabase.from('digimon').update({
-          exp: r.exp, level: r.level, exp_needed: r.expNeeded,
-        }).eq('id', d.uid);
+        var upd = { exp: r.exp, level: r.level, exp_needed: r.expNeeded };
+        if (i === 0 && newBond !== bond) upd.bond = newBond; // write bond atomically with exp to avoid Realtime race
+        return supabase.from('digimon').update(upd).eq('id', d.uid);
       }));
-      setParty(function(p){ return p.map(function(d, i){ return Object.assign({}, d, partyResults[i]); }); });
+      setParty(function(p){ return p.map(function(d, i){
+        var merged = Object.assign({}, d, partyResults[i]);
+        if (i === 0 && newBond !== bond) merged.bond = newBond;
+        return merged;
+      }); });
     }
 
     // Raid auto-contribution
@@ -1301,13 +1367,45 @@ export default function App({ session }) {
       setTimeout(function(){ setRaidHit(null); }, 2200);
     }
 
-    // Apply bond gain to active digimon
-    if (newBond !== bond) updateActiveBond(newBond);
+    // Apply bond gain to active digimon (state only — DB write is bundled into the exp update below)
+    if (newBond !== bond) {
+      setParty(function(p) {
+        if (!p.length) return p;
+        return [Object.assign({}, p[0], { bond: newBond })].concat(p.slice(1));
+      });
+    }
+
+    // Tamer XP gain
+    var txpGain = statGainAllowed ? (TAMER_TASK_XP[task.difficulty] || 20) : 0;
+    var newTamerXp = tamerXp + txpGain;
+    var newTamerLevel = tamerLevel;
+    while (newTamerXp >= TAMER_XP_PER_LEVEL) { newTamerXp -= TAMER_XP_PER_LEVEL; newTamerLevel += 1; }
+    if (newTamerLevel > tamerLevel) {
+      toast_("Tamer Level " + newTamerLevel + "! 🌟", T.gold);
+      addLog("🌟", "Tamer reached Level " + newTamerLevel + "!");
+    }
+    setTamerLevel(newTamerLevel);
+    setTamerXp(newTamerXp);
+
+    // Crest materials gain (same mapping as crest history, drives the stage system)
+    var newMatsFromTask = Object.assign({}, crestMaterials);
+    if (cg && statGainAllowed) {
+      if (cg.primaryCrest && cg.primary > 0) {
+        newMatsFromTask[cg.primaryCrest] = (newMatsFromTask[cg.primaryCrest] || 0) + cg.primary;
+      }
+      if (cg.secondaryCrest && cg.secondary > 0) {
+        newMatsFromTask[cg.secondaryCrest] = (newMatsFromTask[cg.secondaryCrest] || 0) + cg.secondary;
+      }
+      setCrestMaterials(newMatsFromTask);
+    }
 
     // Save profile updates
     var profileUpdate = {
       bond_actions_today: newBAT,
       crest_history: newHistory,
+      crest_materials: newMatsFromTask,
+      tamer_level: newTamerLevel,
+      tamer_xp: newTamerXp,
     };
     if (newRaid) profileUpdate.raid_state = newRaid;
     await supabase.from('profiles').update(profileUpdate).eq('id', userId);
@@ -1442,7 +1540,7 @@ export default function App({ session }) {
     setStamina(newStam); setBits(newBits);
     setFoodStaminaToday(newFoodCap); setShowFeedPanel(false);
     showSpeechBubble(food.type==="treat" ? "best tamer ever 🎉" : "nom nom nom 🍎");
-    updateActiveBond(newBond);
+    await updateActiveBond(newBond);
 
     await supabase.from('profiles').update({
       stamina: newStam, last_stamina_update: new Date().toISOString(),
@@ -1460,7 +1558,7 @@ export default function App({ session }) {
     var newBond = clampBond(bond + 1);
     var today = new Date().toISOString().split('T')[0];
     var newBAT = Object.assign({}, bondActionsToday, { play: playUsedToday + 1, date: today });
-    updateActiveBond(newBond); setBondActionsToday(newBAT);
+    await updateActiveBond(newBond); setBondActionsToday(newBAT);
     showSpeechBubble("yay let's play! 🎮");
     addLog("🎮", "Played with " + (activeDigi ? activeDigi.name : "partner") + " +1 Bond");
     toast_("+1 Bond 🎮  " + (2-playUsedToday) + " plays left today", T.teal);
@@ -1506,11 +1604,13 @@ export default function App({ session }) {
     var newBond = clampBond(bond + 1);
     var xpGain  = Math.floor((pomodoroState.totalSeconds / 60) * 3); // 3 XP per minute
     var newBits = bits + 75;
-    updateActiveBond(newBond); setBits(newBits);
+    setBits(newBits);
     if (activeDigi) {
       var result = applyXpGain(activeDigi, xpGain);
-      await supabase.from('digimon').update({ exp:result.exp, level:result.level, exp_needed:result.expNeeded }).eq('id', activeDigi.uid);
-      setParty(function(p){ return p.map(function(d,i){ return i===0?Object.assign({},d,result):d; }); });
+      await supabase.from('digimon').update({ exp:result.exp, level:result.level, exp_needed:result.expNeeded, bond:newBond }).eq('id', activeDigi.uid);
+      setParty(function(p){ return p.map(function(d,i){ return i===0?Object.assign({},d,result,{bond:newBond}):d; }); });
+    } else {
+      await updateActiveBond(newBond);
     }
     await supabase.from('profiles').update({ bits:newBits, crest_history:newHistory, pomodoro_state:null }).eq('id', userId);
     postToSW({ type: 'CANCEL_TIMER', id: 'pomodoro' });
@@ -1530,11 +1630,12 @@ export default function App({ session }) {
     setFarm(function(f){ return f.concat([Object.assign({},d,{inFarm:true})]); });
     toast_(d.name + " sent to DigiFarm.");
   }
-  function recallFromFarm(uid) {
+  async function recallFromFarm(uid) {
     if (party.length >= MAX_PARTY_SIZE) { toast_("Party full!", "#FF8080"); return; }
     var d = farm.find(function(x){ return x.uid===uid; });
     if (!d) return;
-    supabase.from('digimon').update({ in_farm:false }).eq('id', uid);
+    var { error } = await supabase.from('digimon').update({ in_farm:false }).eq('id', uid);
+    if (error) { toast_("Recall failed — try again", "#FF8080"); return; }
     setFarm(function(f){ return f.filter(function(x){ return x.uid!==uid; }); });
     setParty(function(p){ return p.length >= MAX_PARTY_SIZE ? p : p.concat([Object.assign({},d,{inFarm:false})]); });
     toast_(d.name + " recalled!");
@@ -1581,7 +1682,7 @@ export default function App({ session }) {
   }
 
   // ── Battle ────────────────────────────────────────────────────────────────────
-  function startBattle(diff) {
+  async function startBattle(diff) {
     var cost = STAMINA_COSTS["bot_"+diff.toLowerCase()] || 10;
     if (stamina < cost) { triggerJijimon('stamina_low'); toast_("Not enough Stamina! Need "+cost+" ⚡","#FF8080"); return; }
     var candidates = Object.values(DIGIMON_MAP).filter(function(d){
@@ -1601,8 +1702,11 @@ export default function App({ session }) {
       return Object.assign({},d,{currentHp:bs.HP, maxHp:bs.HP});
     });
     var newStam = Math.max(0, stamina - cost);
+    var newLastUpdate = new Date().toISOString();
     setStamina(newStam);
-    supabase.from('profiles').update({ stamina:newStam, last_stamina_update:new Date().toISOString(), bits:bits }).eq('id', userId);
+    setLastStaminaUpdate(newLastUpdate);
+    // Await the write so the DB reflects the cost before any Realtime echo can restore the old value
+    await supabase.from('profiles').update({ stamina:newStam, last_stamina_update:newLastUpdate, bits:bits }).eq('id', userId);
     setBattleState({ playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
   }
 
@@ -1635,7 +1739,7 @@ export default function App({ session }) {
       bs.log = [(won?"⚔ Victory! ":"💀 Defeated... ")+"+" + earn + "🪙"].concat(bs.log);
       bs.phase = won ? "won" : "lost";
       setBattleState(bs);
-      await supabase.from('profiles').update({ bits: newBits, stamina: stamina, last_stamina_update: lastStaminaUpdate }).eq('id', userId);
+      await supabase.from('profiles').update({ bits: newBits }).eq('id', userId); // stamina already saved atomically in startBattle
       return;
     }
     setBattleState(bs);
@@ -1655,6 +1759,78 @@ export default function App({ session }) {
     }
     toast_("Purchased: " + item.name, "#FFD700");
     addLog("🛒", "Bought " + item.name);
+  }
+
+  // ── Claim login day reward ───────────────────────────────────────────────────
+  async function claimLoginReward(selectedCrest) {
+    if (!pendingLoginReward) return;
+    var reward = pendingLoginReward;
+    var nextDay = loginDay + 1;
+    var newMats = Object.assign({}, crestMaterials);
+    var newBits = bits + (reward.bits || 0);
+    var newArmorDigi = armorDigiCount + (reward.armorDigi || 0);
+
+    if (reward.material) {
+      newMats[reward.material.crest] = (newMats[reward.material.crest] || 0) + reward.material.amount;
+    }
+    if (reward.materialSelector && selectedCrest) {
+      newMats[selectedCrest] = (newMats[selectedCrest] || 0) + reward.materialSelector.amount;
+    }
+
+    var nowLR = new Date();
+    var todayLR = nowLR.getFullYear()+'-'+String(nowLR.getMonth()+1).padStart(2,'0')+'-'+String(nowLR.getDate()).padStart(2,'0');
+
+    setBits(newBits);
+    setCrestMaterials(newMats);
+    setArmorDigiCount(newArmorDigi);
+    setLoginDay(nextDay);
+    setLastLoginRewardDate(todayLR);
+    setShowLoginReward(false);
+    setPendingLoginReward(null);
+    setLoginRewardSel(null);
+
+    await supabase.from('profiles').update({
+      bits: newBits,
+      crest_materials: newMats,
+      login_day: nextDay,
+      last_login_reward_date: todayLR,
+      armor_digi_count: newArmorDigi,
+    }).eq('id', userId);
+
+    toast_("Day " + nextDay + " login reward claimed! 🎁", T.gold);
+    addLog("🎁", "Login Day " + nextDay + " reward claimed");
+
+    // Open egg selector after claiming if digitamaSelector reward
+    if (reward.digitamaSelector) {
+      setTimeout(function(){ setShowAdoptEgg(true); setAdoptEggSel(null); setAdoptEggPhase('select'); }, 400);
+    }
+  }
+
+  // ── Spend crest materials to advance a digimon's crest stage ────────────────
+  async function spendCrestMaterial(digiUid, crestName) {
+    var digi = party.find(function(d){ return d.uid === digiUid; }) || farm.find(function(d){ return d.uid === digiUid; });
+    if (!digi) return;
+    var stages = digi.crestStages || {};
+    var currentStage = stages[crestName] || 0;
+    if (currentStage >= CREST_STAGE_COSTS.length) { toast_("Max stage reached!", T.gold); return; }
+    var cost = CREST_STAGE_COSTS[currentStage];
+    var available = crestMaterials[crestName] || 0;
+    if (available < cost) { toast_("Need " + cost + " " + crestName + " materials (have " + available + ")", T.coral); return; }
+
+    var newStages = Object.assign({}, stages, { [crestName]: currentStage + 1 });
+    var newMats   = Object.assign({}, crestMaterials, { [crestName]: available - cost });
+    var ci = CREST_INFO[crestName];
+
+    var updateDigi = function(d){ return d.uid === digiUid ? Object.assign({}, d, { crestStages: newStages }) : d; };
+    setParty(function(p){ return p.map(updateDigi); });
+    setFarm(function(f){ return f.map(updateDigi); });
+    setCrestMaterials(newMats);
+
+    await supabase.from('digimon').update({ crest_stages: newStages }).eq('id', digiUid);
+    await supabase.from('profiles').update({ crest_materials: newMats }).eq('id', userId);
+
+    toast_(digi.name + ": " + crestName + " Stage " + (currentStage+1) + " ✦", ci ? ci.color : T.gold);
+    addLog("💎", digi.name + " " + crestName + " Stage " + (currentStage + 1) + " unlocked");
   }
 
   // ── Adopt-egg: start hatch animation ─────────────────────────────────────────
@@ -1894,6 +2070,8 @@ export default function App({ session }) {
       />
     );
   }
+
+  var activeBg = BACKGROUNDS.find(function(b){ return b.id === selectedBg; }) || BACKGROUNDS[0];
 
   return (
     <div className={"dv-app" + (isMobile ? " is-mobile" : "") + (isMobile && page === 'dashboard' ? " pet-page" : "")} style={{ minHeight:"100vh", background:T.bg, color:T.text, fontFamily:"'Nunito',sans-serif", "--accent":accent }}>
@@ -2331,8 +2509,8 @@ export default function App({ session }) {
               {/* Stats grid */}
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                 {[
+                  { label:"TAMER LEVEL",    val:"Lv."+tamerLevel+" ("+tamerXp+"/"+TAMER_XP_PER_LEVEL+" XP)", color:T.gold },
                   { label:"PARTNER",        val:activeDigi?activeDigi.name:"—",                  color:accent },
-                  { label:"PARTNER LEVEL",  val:activeDigi?"Lv."+activeDigi.level:"—",           color:T.gold },
                   { label:"BOND STRENGTH",  val:Math.round(bond)+"/100",                          color:T.pink },
                   { label:"LOGIN STREAK",   val:loginStreak+" days 🔥",                           color:T.coral },
                   { label:"TODAY'S TASKS",  val:doneToday.length+" completed",                   color:T.green },
@@ -2398,6 +2576,29 @@ export default function App({ session }) {
                 <div className="px8" style={{ color:T.gold,marginBottom:6,fontSize:"11px" }}>✦ TAMER'S OATH</div>
                 <div style={{ fontSize:12,color:T.textMid,lineHeight:1.7,fontStyle:"italic" }}>
                   "I will complete my missions, nurture my partner, and face every challenge with courage. The Digital World grows alongside me."
+                </div>
+              </div>
+
+              {/* Background picker */}
+              <div>
+                <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>BACKGROUND</div>
+                <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                  {BACKGROUNDS.map(function(bg){
+                    var isActive = selectedBg === bg.id;
+                    return (
+                      <div key={bg.id} onClick={function(){ saveBackground(bg.id); }}
+                        style={{ cursor:"pointer",border:"2px solid "+(isActive?accent:T.border),boxShadow:isActive?"3px 3px 0 "+accent:"none",borderRadius:0,overflow:"hidden",width:90,flexShrink:0,transition:"border-color 0.1s,box-shadow 0.1s" }}>
+                        {bg.url ? (
+                          <img src={bg.url} alt={bg.label} style={{ width:"100%",height:54,objectFit:"cover",display:"block" }}/>
+                        ) : (
+                          <div style={{ width:"100%",height:54,background:"#0d0f14",display:"grid",placeItems:"center" }}>
+                            <span style={{ fontSize:18 }}>🌑</span>
+                          </div>
+                        )}
+                        <div className="px8" style={{ padding:"4px 5px",fontSize:"9px",color:isActive?accent:T.textMid,background:T.bgPanel,textAlign:"center" }}>{bg.label}</div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2684,6 +2885,154 @@ export default function App({ session }) {
         </div>
       )}
 
+      {/* ── LOGIN REWARD MODAL ───────────────────────────────────────────── */}
+      {showLoginReward && pendingLoginReward && (function(){
+        var reward = pendingLoginReward;
+        var isSelector = !!reward.materialSelector;
+        var isDigitama  = !!reward.digitamaSelector;
+        var canClaim = !isSelector || loginRewardSel;
+        var isMilestone = reward.day === 30 || reward.day === 60;
+        return (
+          <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:636,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto" }}>
+            <div style={{ background:T.bgCard,border:"3px solid "+(isMilestone?T.gold:T.teal),boxShadow:"4px 4px 0 "+(isMilestone?T.gold:T.teal),maxWidth:420,width:"100%",animation:"jijiIn 0.3s ease" }}>
+              {/* Header */}
+              <div style={{ background:(isMilestone?T.gold:T.teal)+"18",borderBottom:"2px solid "+(isMilestone?T.gold:T.teal)+"44",padding:"14px 18px",display:"flex",alignItems:"center",gap:12 }}>
+                <div style={{ fontSize:isMilestone?36:28 }}>{isMilestone?"🎁":"📅"}</div>
+                <div>
+                  <div className="px10" style={{ color:isMilestone?T.gold:T.teal }}>
+                    {isMilestone ? "MILESTONE REWARD" : "DAILY LOGIN REWARD"}
+                  </div>
+                  <div style={{ fontSize:11,color:T.textMid }}>Day {loginDay + 1} of 60</div>
+                </div>
+              </div>
+              {/* Rewards list */}
+              <div style={{ padding:"16px 18px",display:"flex",flexDirection:"column",gap:10 }}>
+                {reward.bits > 0 && (
+                  <div style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:T.gold+"12",border:"1.5px solid "+T.gold }}>
+                    <span style={{ fontSize:22 }}>🪙</span>
+                    <div>
+                      <div style={{ fontSize:13,fontWeight:900,color:T.gold }}>+{reward.bits} Bits</div>
+                    </div>
+                  </div>
+                )}
+                {reward.material && (function(){
+                  var ci = CREST_INFO[reward.material.crest];
+                  return (
+                    <div style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:ci.color+"12",border:"1.5px solid "+ci.color }}>
+                      <CrestIcon ci={ci} size={22}/>
+                      <div>
+                        <div style={{ fontSize:13,fontWeight:900,color:ci.color }}>+{reward.material.amount} {reward.material.crest} Materials</div>
+                        <div style={{ fontSize:10,color:T.textDim }}>Spend to unlock crest stages on your partner</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {isDigitama && (
+                  <div style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:T.pink+"18",border:"1.5px solid "+T.pink }}>
+                    <span style={{ fontSize:22 }}>🥚</span>
+                    <div>
+                      <div style={{ fontSize:13,fontWeight:900,color:T.pink }}>Digitama Egg Selector</div>
+                      <div style={{ fontSize:10,color:T.textDim }}>Choose any egg to hatch a new partner</div>
+                    </div>
+                  </div>
+                )}
+                {reward.armorDigi > 0 && (
+                  <div style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:T.lavender+"18",border:"1.5px solid "+T.lavender }}>
+                    <span style={{ fontSize:22 }}>⚔️</span>
+                    <div>
+                      <div style={{ fontSize:13,fontWeight:900,color:T.lavender }}>×{reward.armorDigi} Armor Digivolution Item</div>
+                      <div style={{ fontSize:10,color:T.textDim }}>Unlocks a special armor digivolution form</div>
+                    </div>
+                  </div>
+                )}
+                {/* Material selector */}
+                {isSelector && (
+                  <div style={{ marginTop:4 }}>
+                    <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"11px" }}>
+                      CHOOSE ×{reward.materialSelector.amount} CREST MATERIAL
+                    </div>
+                    <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+                      {Object.entries(CREST_INFO).map(function([name, ci]){
+                        var sel = loginRewardSel === name;
+                        return (
+                          <button key={name}
+                            onClick={function(){ setLoginRewardSel(name); }}
+                            style={{ display:"flex",alignItems:"center",gap:5,padding:"6px 10px",background:sel?ci.color+"30":"transparent",border:"2px solid "+(sel?ci.color:T.border),color:sel?ci.color:T.textMid,cursor:"pointer",fontSize:"11px",fontWeight:sel?900:400 }}>
+                            <CrestIcon ci={ci} size={14}/>{name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Claim button */}
+              <div style={{ padding:"0 18px 16px" }}>
+                <button
+                  onClick={function(){ claimLoginReward(loginRewardSel); }}
+                  disabled={!canClaim}
+                  style={{ width:"100%",padding:"10px 0",background:canClaim?(isMilestone?T.gold:T.teal)+"22":"transparent",border:"2px solid "+(canClaim?(isMilestone?T.gold:T.teal):T.border),color:canClaim?(isMilestone?T.gold:T.teal):T.textDim,cursor:canClaim?"pointer":"not-allowed",fontFamily:"inherit",fontSize:"12px",fontWeight:900 }}>
+                  {isSelector && !loginRewardSel ? "SELECT A CREST FIRST" : (isDigitama ? "CLAIM & SELECT EGG →" : "CLAIM REWARD")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── LOGIN REWARD CALENDAR ────────────────────────────────────────── */}
+      {showRewardCalendar && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.94)",zIndex:637,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto" }}
+          onClick={function(){ setShowRewardCalendar(false); }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.gold,boxShadow:"4px 4px 0 "+T.gold,maxWidth:520,width:"100%",maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column" }}
+            onClick={function(e){ e.stopPropagation(); }}>
+            {/* Header */}
+            <div style={{ background:T.gold+"18",borderBottom:"2px solid "+T.gold+"44",padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+              <div>
+                <div className="px10" style={{ color:T.gold }}>LOGIN REWARD CALENDAR</div>
+                <div style={{ fontSize:11,color:T.textMid }}>Day {loginDay} of 60 completed</div>
+              </div>
+              <button onClick={function(){ setShowRewardCalendar(false); }} style={{ background:"transparent",border:"none",color:T.textMid,cursor:"pointer",fontSize:16 }}>✕</button>
+            </div>
+            {/* Calendar grid */}
+            <div style={{ overflowY:"auto",padding:"14px 16px" }}>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4 }}>
+                {LOGIN_REWARDS.map(function(r){
+                  var isPast    = r.day <= loginDay;
+                  var isToday   = r.day === loginDay + 1;
+                  var isMile    = r.day === 30 || r.day === 60;
+                  var isWeek7   = r.day % 7 === 0;
+                  var borderCol = isPast ? T.textDim : isToday ? T.teal : isMile ? T.gold : isWeek7 ? T.lavender : T.border;
+                  var bg        = isPast ? T.textDim+"10" : isToday ? T.teal+"18" : isMile ? T.gold+"18" : isWeek7 ? T.lavender+"12" : T.bgPanel;
+                  var icon      = r.digitamaSelector ? "🥚" : r.armorDigi ? "⚔️" : r.materialSelector ? "💫" : r.material ? (CREST_INFO[r.material.crest]?.icon || "💎") : "🪙";
+                  return (
+                    <div key={r.day} style={{ border:"1.5px solid "+borderCol,background:bg,padding:"6px 4px",textAlign:"center",position:"relative",opacity:isPast?0.5:1 }}>
+                      <div style={{ fontSize:9,color:isPast?T.textDim:isToday?T.teal:isMile?T.gold:T.textMid,fontWeight:isToday||isMile?900:400,marginBottom:2 }}>{r.day}</div>
+                      <div style={{ fontSize:14 }}>{isPast?"✓":icon}</div>
+                      {r.bits > 0 && !isPast && <div style={{ fontSize:8,color:T.gold,marginTop:1 }}>+{r.bits}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Legend */}
+              <div style={{ display:"flex",gap:10,flexWrap:"wrap",marginTop:12 }}>
+                {[
+                  { col:T.teal,    label:"Today" },
+                  { col:T.lavender,label:"Week Bonus" },
+                  { col:T.gold,    label:"Milestone (Day 30/60)" },
+                ].map(function(l){
+                  return <div key={l.label} style={{ display:"flex",alignItems:"center",gap:5,fontSize:10,color:T.textDim }}>
+                    <div style={{ width:10,height:10,background:l.col+"44",border:"1px solid "+l.col }}/>
+                    {l.label}
+                  </div>;
+                })}
+                <div style={{ fontSize:10,color:T.textDim,marginLeft:"auto" }}>💫 = Pick any crest · 🥚 = Choose egg</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── CATCH-UP MODAL (Jijimon — missed yesterday's tasks) ─────────── */}
       {showCatchupModal && catchupTasks.length > 0 && (function(){
         var jijiLine = catchupLineRef.current;
@@ -2705,7 +3054,7 @@ export default function App({ session }) {
               <div style={{ padding:"16px 18px 0",display:"flex",gap:14,alignItems:"flex-start" }}>
                 <div style={{ flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
                   <div style={{ width:56,height:56,border:"2px solid "+T.gold,background:"#1a1500",display:"grid",placeItems:"center",overflow:"hidden" }}>
-                    <img src="/sprites/jijimon.gif" alt="Jijimon" style={{ width:52,height:52,objectFit:"contain",imageRendering:"pixelated" }}/>
+                    <DigiSprite digimonId="jijimon" size={52} mood="happy" animate/>
                   </div>
                   <div className="px8" style={{ color:T.gold,fontSize:"9px",textAlign:"center" }}>JIJIMON</div>
                 </div>
@@ -2931,7 +3280,7 @@ export default function App({ session }) {
                                   <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
                                     {nReq.level&&<span className="px8" style={{ color:T.textMid,fontSize:"9px" }}>Lv.{nReq.level}</span>}
                                     {nReq.bond&&<span className="px8" style={{ color:T.teal,fontSize:"9px" }}>Bond {nReq.bond}</span>}
-                                    {nReq.crestMatch&&cr&&<span className="px8" style={{ color:CREST_INFO[cr.primary]?CREST_INFO[cr.primary].color:T.textMid,fontSize:"9px" }}>{Math.round(nReq.crestMatch*100)}% {cr.primary}</span>}
+                                    {nReq.crestStage&&cr&&(function(){ var sr=CREST_STAGE_EVO_REQ[ni.stage]||{}; return <span className="px8" style={{ color:CREST_INFO[cr.primary]?CREST_INFO[cr.primary].color:T.textMid,fontSize:"9px",display:"inline-flex",alignItems:"center",gap:2 }}><CrestIcon ci={CREST_INFO[cr.primary]} size={9}/> Stg {sr.primary||0}</span>; })()}
                                   </div>
                                 </div>
                                 <div style={{ color:nStCol,fontSize:12 }}>›</div>
@@ -3038,11 +3387,13 @@ export default function App({ session }) {
           </button>
         </div>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-          <div className="px8" style={{ color:T.textMid }}>LV.{activeDigi&&activeDigi.level}</div>
           <div style={{ width:34,height:34,border:"2px solid "+T.border,background:T.bgCard,display:"grid",placeItems:"center" }}>
             {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={26} animate={false}/>}
           </div>
-          <span style={{ fontWeight:800,fontSize:13,cursor:"pointer",borderBottom:"1px dashed "+T.textDim }} onClick={function(){ setShowTamerProfile(true); }}>{tamerName}</span>
+          <span style={{ cursor:"pointer" }} onClick={function(){ setShowTamerProfile(true); }}>
+            <span style={{ fontWeight:800,fontSize:13,borderBottom:"1px dashed "+T.textDim }}>{tamerName}</span>
+            <span className="px8" style={{ marginLeft:5,color:T.gold,fontSize:"10px" }}>Lv{tamerLevel}</span>
+          </span>
           <div className="px8" style={{ color:T.gold }}>🪙{bits}</div>
           <div className="px8" style={{ color:"#4ECDC4" }}>⚡{stamina}</div>
           <button onClick={function(){ supabase.auth.signOut(); }} style={{ fontFamily:"'Press Start 2P',monospace",fontSize:"11px",padding:"5px 9px",background:"transparent",border:"1px solid rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.35)",cursor:"pointer" }}>SIGN OUT</button>
@@ -3076,9 +3427,17 @@ export default function App({ session }) {
               : nlvl === "unstable" ? "linear-gradient(160deg,#0d0015 0%,#0a0012 50%,#0d000d 100%)"
               : nlvl === "dormant"  ? "linear-gradient(160deg,#0a0f16 0%,#080d14 50%,#0a0d14 100%)"
               : "linear-gradient(160deg,#0d1a2a 0%,#0a1520 50%,#120d20 100%)";
+            // Overlay tint applied on top of background images to keep neglect/sleep states readable
+            var bgOverlay = isSleeping ? "rgba(5,8,16,0.55)"
+              : nlvl === "critical"  ? "rgba(21,0,5,0.62)"
+              : nlvl === "unstable"  ? "rgba(13,0,21,0.58)"
+              : nlvl === "dormant"   ? "rgba(10,15,22,0.50)"
+              : "rgba(13,26,42,0.45)";
             var stageAccent = isSleeping ? T.lavender : isNeglected ? neglectBorderColor : T.border;
             return (
-              <div style={{ background:stageBg,border:"2px solid "+stageAccent,boxShadow:"3px 3px 0 "+stageAccent,height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
+              <div style={{ background:activeBg.url?undefined:stageBg, backgroundImage:activeBg.url?"url("+activeBg.url+")":undefined, backgroundSize:activeBg.url?"cover":undefined, backgroundPosition:activeBg.url?"center":undefined, border:"2px solid "+stageAccent,boxShadow:"3px 3px 0 "+stageAccent,height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
+                {/* Dark tint over background images — keeps neglect/sleep states readable */}
+                {activeBg.url && <div style={{ position:"absolute",inset:0,background:bgOverlay,zIndex:0,pointerEvents:"none" }}/>}
                 {/* Star field (always) / deeper at night */}
                 <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,"+(isSleeping?"0.28":"0.12")+") 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
                 {/* Moon when sleeping */}
@@ -3283,32 +3642,26 @@ export default function App({ session }) {
             </div>
           )}
 
-          {/* Evolution banner */}
-          {activeInfo && (function(){
-            var xpLeft = activeDigi ? (activeDigi.expNeeded - activeDigi.exp) : 0;
-            if (evoTargets.length > 0) {
-              var hasTrue = (activeInfo.evolvesTo||[]).some(function(id){
-                var t = DIGIMON_MAP[id]; if(!t||t.fusionOf) return false;
-                return checkEvoEligible(activeDigi, bond, crestProfile, id).eligible;
+          {/* Evolution banner — checks any party member, not just leader */}
+          {(function(){
+            var readyDigi = party.find(function(d){
+              var di = DIGIMON_MAP[d.speciesId];
+              if (!di || !di.evolvesTo) return false;
+              return di.evolvesTo.some(function(id){
+                var t = DIGIMON_MAP[id]; if (!t || t.fusionOf) return false;
+                return checkEvoEligible(d, d.bond || 0, crestProfile, id).eligible;
               });
-              return (
-                <div className="evo-banner" onClick={function(){ setPage("team"); }}>
-                  <span style={{ fontSize:18 }}>✨</span>
-                  <div style={{ flex:1 }}>
-                    <div className="px8" style={{ color:T.lavender }}>{hasTrue?"EVOLUTION READY":"PARTNER VOW"}</div>
-                    <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>Go to Team to evolve!</div>
-                  </div>
-                  <span style={{ color:T.lavender,fontWeight:900 }}>→</span>
-                </div>
-              );
-            }
+            });
+            if (!readyDigi) return null;
+            var readyInfo = DIGIMON_MAP[readyDigi.speciesId];
             return (
-              <div className="evo-banner" style={{ cursor:"default" }}>
+              <div className="evo-banner" onClick={function(){ setPage("team"); }}>
                 <span style={{ fontSize:18 }}>✨</span>
                 <div style={{ flex:1 }}>
-                  <div className="px8" style={{ color:T.lavender }}>EVOLUTION NEAR</div>
-                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>{xpLeft} XP · Bond {bond}/20</div>
+                  <div className="px8" style={{ color:T.lavender }}>EVOLUTION READY</div>
+                  <div style={{ fontSize:11,fontWeight:700,color:T.textMid,marginTop:3 }}>{readyInfo ? readyInfo.name : readyDigi.name} → Team tab</div>
                 </div>
+                <span style={{ color:T.lavender,fontWeight:900 }}>→</span>
               </div>
             );
           })()}
@@ -3488,14 +3841,14 @@ export default function App({ session }) {
 
             {/* ── CRESTS ───────────────────────────────────────────────── */}
             {page==="crests"&&(
-              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} isMobile={isMobile} onGoTeam={function(){ setPage("team"); }}/>
+              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} crestMaterials={crestMaterials} loginDay={loginDay} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} isMobile={isMobile} onGoTeam={function(){ setPage("team"); }} onShowCalendar={function(){ setShowRewardCalendar(true); }}/>
             )}
 
             {/* ── TEAM ─────────────────────────────────────────────────── */}
             {page==="team"&&(
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div className="px12">TEAM MANAGER</div>
+                  <div className="px12">P.E.T. — PARTNER EVOLUTION TERMINAL</div>
                   <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
                 </div>
                 {party.map(function(digi,i){
@@ -3583,6 +3936,44 @@ export default function App({ session }) {
                             </div>
                           )}
 
+                          {/* Crest stages + spend materials */}
+                          {inf2 && inf2.crestReq && (function(){
+                            var cr = inf2.crestReq;
+                            var stages = digi.crestStages || {};
+                            var crests = [cr.primary, cr.secondary].filter(Boolean);
+                            return (
+                              <div style={{ marginBottom:10 }}>
+                                <div className="px8" style={{ color:T.textDim,marginBottom:6,fontSize:"10px" }}>CREST STAGES</div>
+                                <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
+                                  {crests.map(function(cname){
+                                    var ci      = CREST_INFO[cname];
+                                    var stage   = stages[cname] || 0;
+                                    var maxStg  = CREST_STAGE_COSTS.length;
+                                    var cost    = stage < maxStg ? CREST_STAGE_COSTS[stage] : null;
+                                    var avail   = crestMaterials[cname] || 0;
+                                    var canSpend= cost !== null && avail >= cost;
+                                    return (
+                                      <div key={cname} style={{ display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.bgPanel,border:"1px solid "+T.border }}>
+                                        <CrestIcon ci={ci} size={14}/>
+                                        <span style={{ fontSize:11,fontWeight:800,color:ci.color,flex:1 }}>{cname}</span>
+                                        <span className="px8" style={{ fontSize:"10px",color:T.textMid }}>Stage {stage}</span>
+                                        {cost !== null && (
+                                          <button className="px8"
+                                            disabled={!canSpend}
+                                            onClick={function(){ spendCrestMaterial(digi.uid, cname); }}
+                                            style={{ padding:"3px 7px",background:canSpend?ci.color+"22":"transparent",border:"1.5px solid "+(canSpend?ci.color:T.border),color:canSpend?ci.color:T.textDim,cursor:canSpend?"pointer":"not-allowed",fontSize:"10px" }}>
+                                            +1 ({avail}/{cost})
+                                          </button>
+                                        )}
+                                        {cost === null && <span className="px8" style={{ fontSize:"10px",color:T.gold }}>MAX</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           {/* Evolutions */}
                           {evoList.length > 0 && (
                             <div style={{ marginBottom:8 }}>
@@ -3590,24 +3981,24 @@ export default function App({ session }) {
                               <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
                                 {evoList.map(function(evo){
                                   var canEvo  = evo.eligible;
-                                  var canVow  = evo.vow;
                                   var ci      = evo.info.crestReq ? CREST_INFO[evo.info.crestReq.primary] : null;
                                   var ci2     = evo.info.crestReq&&evo.info.crestReq.secondary ? CREST_INFO[evo.info.crestReq.secondary] : null;
                                   var req     = EVO_REQUIREMENTS[evo.info.stage] || {};
-                                  var btnCol  = canEvo ? T.gold : canVow ? T.lavender : T.textDim;
+                                  var stageReq = CREST_STAGE_EVO_REQ[evo.info.stage] || {};
+                                  var btnCol  = canEvo ? T.gold : T.textDim;
                                   return (
-                                    <div key={evo.id} style={{ background:T.bgPanel,border:"1.5px solid "+(canEvo?T.gold:canVow?T.lavender:T.border),padding:"8px 10px" }}>
+                                    <div key={evo.id} style={{ background:T.bgPanel,border:"1.5px solid "+(canEvo?T.gold:T.border),padding:"8px 10px" }}>
                                       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap" }}>
                                         <DigiSprite digimonId={evo.id} size={28} animate mood="walk"/>
                                         <div>
                                           <div style={{ fontSize:12,fontWeight:900,color:btnCol }}>{evo.info.name}</div>
                                           <div className="px8" style={{ color:STAGE_COLOR[evo.info.stage]||"#aaa",fontSize:"10px" }}>{evo.info.stage} · {evo.info.type}</div>
                                         </div>
-                                        {(canEvo||canVow)&&(
+                                        {canEvo&&(
                                           <button className="px8"
-                                            style={{ marginLeft:"auto",padding:"5px 10px",background:btnCol+"22",border:"2px solid "+btnCol,color:btnCol,cursor:"pointer",fontSize:"11px" }}
+                                            style={{ marginLeft:"auto",padding:"5px 10px",background:T.gold+"22",border:"2px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"11px" }}
                                             onClick={function(){ evolve(digi.uid,evo.id); }}>
-                                            {canVow&&!canEvo?"VOW →":"DIGIVOLVE →"}
+                                            DIGIVOLVE →
                                           </button>
                                         )}
                                       </div>
@@ -3616,12 +4007,21 @@ export default function App({ session }) {
                                         <span className="px8" style={{ fontSize:"10px",color:digi.level>=req.level?T.green:T.coral }}>
                                           Lv.{req.level} {digi.level>=req.level?"✓":"✗ ("+digi.level+")"}
                                         </span>
-                                        {req.bond>0&&<span className="px8" style={{ fontSize:"10px",color:bond>=req.bond?T.green:T.coral }}>
-                                          Bond {req.bond} {bond>=req.bond?"✓":"✗ ("+Math.round(bond)+")"}
+                                        {req.bond>0&&<span className="px8" style={{ fontSize:"10px",color:(digi.bond||0)>=req.bond?T.green:T.coral }}>
+                                          Bond {req.bond} {(digi.bond||0)>=req.bond?"✓":"✗ ("+Math.round(digi.bond||0)+")"}
                                         </span>}
-                                        {ci&&<span className="px8" style={{ fontSize:"10px",color:T.textMid,display:"inline-flex",alignItems:"center",gap:3 }}>
-                                          <CrestIcon ci={ci} size={11}/>{ci2&&<><span>+</span><CrestIcon ci={ci2} size={11}/></>} Crest {req.crestMatch?Math.round(req.crestMatch*100)+"%":""} {evo.matchPct!=null?(evo.matchPct+"% ✓"):""}
-                                        </span>}
+                                        {ci&&(function(){
+                                          var stg = (digi.crestStages||{})[evo.info.crestReq.primary]||0;
+                                          var need = stageReq.primary||0;
+                                          var met  = stg >= need;
+                                          return <span className="px8" style={{ fontSize:"10px",color:met?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={ci} size={11}/> Stage {need} {met?"✓":"✗("+stg+")"}</span>;
+                                        })()}
+                                        {ci2&&(function(){
+                                          var stg = (digi.crestStages||{})[evo.info.crestReq.secondary]||0;
+                                          var need = stageReq.secondary||0;
+                                          var met  = stg >= need;
+                                          return <span className="px8" style={{ fontSize:"10px",color:met?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={ci2} size={11}/> Stage {need} {met?"✓":"✗("+stg+")"}</span>;
+                                        })()}
                                         {!canEvo&&evo.reason&&<span className="px8" style={{ fontSize:"10px",color:T.coral }}>{evo.reason}</span>}
                                       </div>
                                     </div>
@@ -4264,7 +4664,7 @@ function RadarChart({ percentages, T }) {
 }
 
 // ── CrestsPage ────────────────────────────────────────────────────────────────
-function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, T, accent, isMobile, onGoTeam }) {
+function CrestsPage({ crestProfile, crestHistory, crestMaterials, loginDay, activeDigi, activeInfo, bond, T, accent, isMobile, onGoTeam, onShowCalendar }) {
   var windowDays = 14;
   var today = new Date().toISOString().split('T')[0];
   var todayEntries = crestHistory.filter(function(e){ return e.date===today; });
@@ -4373,7 +4773,33 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
         )}
       </div>
 
-      {/* Evolution path hint */}
+      {/* Crest materials stockpile */}
+      <div className="pcard" style={{ padding:14 }}>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+          <div className="px8" style={{ color:T.textMid,fontSize:"12px" }}>CREST MATERIALS</div>
+          <div style={{ fontSize:10,color:T.textDim }}>Login Day {loginDay}/60</div>
+        </div>
+        <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+          {Object.entries(CREST_INFO).map(function([name, ci]){
+            var amount = (crestMaterials && crestMaterials[name]) || 0;
+            return (
+              <div key={name} style={{ display:"flex",alignItems:"center",gap:5,padding:"5px 9px",border:"1.5px solid "+(amount>0?ci.color:T.border),background:amount>0?ci.color+"12":T.bgPanel }}>
+                <CrestIcon ci={ci} size={13}/>
+                <span style={{ fontSize:11,color:amount>0?ci.color:T.textDim,fontWeight:amount>0?800:400 }}>{name}</span>
+                <span className="px8" style={{ fontSize:"10px",color:amount>0?ci.color:T.textDim,marginLeft:2 }}>×{amount}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8 }}>
+          <div style={{ fontSize:10,color:T.textDim,fontStyle:"italic" }}>Spend on your partner's Crest Stages in the Team tab.</div>
+          <button className="px8" onClick={onShowCalendar} style={{ padding:"4px 10px",background:T.gold+"18",border:"1.5px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"10px" }}>
+            📅 VIEW CALENDAR
+          </button>
+        </div>
+      </div>
+
+      {/* Evolution path hint — now shows crest stage requirements */}
       {activeInfo&&activeInfo.evolvesTo&&activeInfo.evolvesTo.length>0&&(
         <div className="pcard" style={{ padding:14 }}>
           <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>EVOLUTION PATHS FROM {(activeDigi&&activeDigi.name)||"PARTNER"}</div>
@@ -4385,40 +4811,29 @@ function CrestsPage({ crestProfile, crestHistory, activeDigi, activeInfo, bond, 
               if (!cr) return null;
               var pci = CREST_INFO[cr.primary];
               var sci = cr.secondary ? CREST_INFO[cr.secondary] : null;
-              var pPct = (crestProfile.percentages&&crestProfile.percentages[cr.primary])||0;
-              var sPct = sci ? ((crestProfile.percentages&&crestProfile.percentages[cr.secondary])||0) : 0;
-              var matchScore = Math.round(cr.secondary ? pPct*0.7+sPct*0.3 : pPct);
+              var stageReq = CREST_STAGE_EVO_REQ[ti.stage] || {};
+              var digiStages = (activeDigi && activeDigi.crestStages) || {};
+              var pStage = digiStages[cr.primary] || 0;
+              var sStage = sci ? (digiStages[cr.secondary] || 0) : null;
+              var pMet   = pStage >= (stageReq.primary || 0);
+              var sMet   = sStage === null || sStage >= (stageReq.secondary || 0);
               return (
-                <div key={id} style={{ padding:"10px 12px",background:T.bgPanel,border:"2px solid "+T.border }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:6 }}>
+                <div key={id} style={{ padding:"10px 12px",background:T.bgPanel,border:"2px solid "+(pMet&&sMet?T.gold:T.border) }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8 }}>
                     <DigiSprite digimonId={id} size={36} animate mood="walk"/>
                     <div>
                       <div style={{ fontSize:13,fontWeight:800 }}>{ti.name}</div>
-                      <div className="px8" style={{ color:CREST_INFO[cr.primary].color,fontSize:"11px",marginTop:2,display:"flex",alignItems:"center",gap:4 }}><CrestIcon ci={pci} size={12}/> {cr.primary}{sci&&<><span> +</span><CrestIcon ci={sci} size={12}/><span> {cr.secondary}</span></>}</div>
+                      <div className="px8" style={{ color:STAGE_COLOR[ti.stage]||"#aaa",fontSize:"10px" }}>{ti.stage}</div>
                     </div>
-                    <div style={{ marginLeft:"auto",textAlign:"right" }}>
-                      <div style={{ fontSize:isMobile?13:18,fontWeight:900,color:matchScore>=70?T.green:matchScore>=40?T.gold:T.coral }}>{matchScore}%</div>
-                      <div className="px8" style={{ color:T.textDim,fontSize:"10px" }}>MATCH</div>
-                    </div>
+                    {pMet&&sMet&&<span className="px8" style={{ marginLeft:"auto",padding:"3px 8px",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"10px" }}>READY ✓</span>}
                   </div>
-                  {/* Mini bars */}
-                  <div style={{ display:"flex",flexDirection:"column",gap:3 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                      <span style={{ width:16,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={pci} size={12}/></span>
-                      <div style={{ flex:1,height:6,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden" }}>
-                        <div style={{ width:pPct+"%",height:"100%",background:pci.color,transition:"width 0.6s ease" }}/>
-                      </div>
-                      <span className="px8" style={{ color:T.textMid,fontSize:"10px",width:24,textAlign:"right" }}>{pPct}%</span>
-                    </div>
-                    {sci&&(
-                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <span style={{ width:16,display:"flex",alignItems:"center",justifyContent:"center" }}><CrestIcon ci={sci} size={12}/></span>
-                        <div style={{ flex:1,height:6,background:T.bgCard,border:"1px solid "+T.border,overflow:"hidden" }}>
-                          <div style={{ width:sPct+"%",height:"100%",background:sci.color,transition:"width 0.6s ease" }}/>
-                        </div>
-                        <span className="px8" style={{ color:T.textMid,fontSize:"10px",width:24,textAlign:"right" }}>{sPct}%</span>
-                      </div>
-                    )}
+                  <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                    <span className="px8" style={{ fontSize:"10px",color:pMet?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}>
+                      <CrestIcon ci={pci} size={11}/> Stage {stageReq.primary||0} {pMet?"✓":"✗("+pStage+")"}
+                    </span>
+                    {sci&&<span className="px8" style={{ fontSize:"10px",color:sMet?T.green:T.coral,display:"inline-flex",alignItems:"center",gap:3 }}>
+                      <CrestIcon ci={sci} size={11}/> Stage {stageReq.secondary||0} {sMet?"✓":"✗("+sStage+")"}
+                    </span>}
                   </div>
                 </div>
               );

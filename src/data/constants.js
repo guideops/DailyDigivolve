@@ -110,27 +110,133 @@ export const PRIORITY_COLORS = {
   Urgent: "#FF4444",
 };
 
-// ── Evolution requirements (bond replaces ABI) ────────────────────────────────
-// crestMatch: minimum fraction of ideal crest match (0–1)
-// partnerVow: minimum match fraction for bond to override crest requirement
+// ── Evolution requirements ────────────────────────────────────────────────────
 export const EVO_REQUIREMENTS = {
   "In-Training": { level: 3,  bond: 0  },
   "Rookie":      { level: 6,  bond: 5  },
-  "Champion":    { level: 10, bond: 20, crestMatch: 0.50, partnerVow: 0.25 },
-  "Ultimate":    { level: 25, bond: 40, crestMatch: 0.60, partnerVow: 0.30 },
-  "Mega":        { level: 50, bond: 60, crestMatch: 0.70, partnerVow: 0.35 },
-  "Ultra":       { level: 70, bond: 80, crestMatch: 0.75, partnerVow: 0.40 },
+  "Champion":    { level: 10, bond: 20, crestStage: true },
+  "Ultimate":    { level: 25, bond: 40, crestStage: true },
+  "Mega":        { level: 50, bond: 60, crestStage: true },
+  "Ultra":       { level: 70, bond: 80, crestStage: true },
 };
+
+// ── Crest stage system ────────────────────────────────────────────────────────
+// Cost in materials to advance from stage (index) to stage (index+1)
+export const CREST_STAGE_COSTS = [10, 20, 35, 55, 80, 110, 145, 185, 230, 280];
+
+// Stage requirements per evolution tier (primary / secondary crest)
+export const CREST_STAGE_EVO_REQ = {
+  Champion: { primary: 3, secondary: 1 },
+  Ultimate:  { primary: 5, secondary: 2 },
+  Mega:      { primary: 7, secondary: 3 },
+  Ultra:     { primary: 9, secondary: 4 },
+};
+
+// ── Login reward calendar (60 days, cumulative, once per calendar day after 5am) ─
+// material: { crest, amount } — specific crest material awarded
+// materialSelector: { amount } — player chooses which crest
+// digitamaSelector: opens egg selection modal
+// armorDigi: armor digivolution item count
+export const LOGIN_REWARDS = [
+  // Week 1
+  { day:1,  bits:150, material:{ crest:"Courage",    amount:3 } },
+  { day:2,  bits:100, material:{ crest:"Care",        amount:2 } },
+  { day:3,  bits:150, material:{ crest:"Hope",        amount:2 } },
+  { day:4,  bits:200, material:{ crest:"Friendship",  amount:3 } },
+  { day:5,  bits:100, material:{ crest:"Knowledge",   amount:2 } },
+  { day:6,  bits:150, material:{ crest:"Sincerity",   amount:2 } },
+  { day:7,  bits:300, materialSelector:{ amount:8 } },
+  // Week 2
+  { day:8,  bits:150, material:{ crest:"Reliability", amount:3 } },
+  { day:9,  bits:150, material:{ crest:"Light",        amount:3 } },
+  { day:10, bits:200, material:{ crest:"Courage",      amount:3 } },
+  { day:11, bits:150, material:{ crest:"Care",         amount:2 } },
+  { day:12, bits:200, material:{ crest:"Hope",         amount:3 } },
+  { day:13, bits:200, material:{ crest:"Friendship",   amount:3 } },
+  { day:14, bits:400, material:{ crest:"Knowledge",    amount:8 } },
+  // Week 3
+  { day:15, bits:200, material:{ crest:"Sincerity",    amount:3 } },
+  { day:16, bits:200, material:{ crest:"Reliability",  amount:3 } },
+  { day:17, bits:200, material:{ crest:"Light",         amount:3 } },
+  { day:18, bits:250, material:{ crest:"Courage",       amount:4 } },
+  { day:19, bits:200, material:{ crest:"Care",          amount:3 } },
+  { day:20, bits:250, material:{ crest:"Hope",          amount:4 } },
+  { day:21, bits:500, materialSelector:{ amount:12 } },
+  // Week 4
+  { day:22, bits:250, material:{ crest:"Friendship",    amount:4 } },
+  { day:23, bits:200, material:{ crest:"Sincerity",     amount:3 } },
+  { day:24, bits:300, material:{ crest:"Knowledge",     amount:4 } },
+  { day:25, bits:250, material:{ crest:"Reliability",   amount:4 } },
+  { day:26, bits:250, material:{ crest:"Light",          amount:4 } },
+  { day:27, bits:300, material:{ crest:"Courage",        amount:5 } },
+  { day:28, bits:600, material:{ crest:"Care",           amount:10 } },
+  // Days 29-30
+  { day:29, bits:300, material:{ crest:"Hope",           amount:4 } },
+  { day:30, bits:1000, digitamaSelector:true },
+  // Week 5
+  { day:31, bits:300, material:{ crest:"Friendship",     amount:4 } },
+  { day:32, bits:300, material:{ crest:"Sincerity",      amount:4 } },
+  { day:33, bits:350, material:{ crest:"Knowledge",      amount:5 } },
+  { day:34, bits:300, material:{ crest:"Reliability",    amount:4 } },
+  { day:35, bits:700, materialSelector:{ amount:15 } },
+  // Week 6
+  { day:36, bits:300, material:{ crest:"Light",           amount:4 } },
+  { day:37, bits:350, material:{ crest:"Courage",         amount:5 } },
+  { day:38, bits:350, material:{ crest:"Care",            amount:5 } },
+  { day:39, bits:300, material:{ crest:"Hope",            amount:5 } },
+  { day:40, bits:350, material:{ crest:"Friendship",      amount:5 } },
+  { day:41, bits:400, material:{ crest:"Sincerity",       amount:5 } },
+  { day:42, bits:750, material:{ crest:"Reliability",     amount:12 } },
+  // Week 7
+  { day:43, bits:350, material:{ crest:"Knowledge",       amount:5 } },
+  { day:44, bits:350, material:{ crest:"Light",            amount:5 } },
+  { day:45, bits:400, material:{ crest:"Courage",          amount:6 } },
+  { day:46, bits:400, material:{ crest:"Care",             amount:6 } },
+  { day:47, bits:400, material:{ crest:"Hope",             amount:6 } },
+  { day:48, bits:450, material:{ crest:"Friendship",       amount:6 } },
+  { day:49, bits:800, materialSelector:{ amount:20 } },
+  // Week 8
+  { day:50, bits:400, material:{ crest:"Sincerity",        amount:6 } },
+  { day:51, bits:400, material:{ crest:"Knowledge",        amount:6 } },
+  { day:52, bits:450, material:{ crest:"Reliability",      amount:6 } },
+  { day:53, bits:400, material:{ crest:"Light",             amount:6 } },
+  { day:54, bits:500, material:{ crest:"Courage",           amount:7 } },
+  { day:55, bits:500, material:{ crest:"Care",              amount:7 } },
+  { day:56, bits:900, material:{ crest:"Hope",              amount:15 } },
+  // Days 57-60
+  { day:57, bits:500, material:{ crest:"Friendship",        amount:7 } },
+  { day:58, bits:500, material:{ crest:"Sincerity",         amount:7 } },
+  { day:59, bits:600, material:{ crest:"Knowledge",         amount:8 } },
+  { day:60, bits:2000, armorDigi:1, digitamaSelector:true },
+];
 
 // ── Stamina ───────────────────────────────────────────────────────────────────
 export const STAMINA_MAX            = 100;
-export const STAMINA_REGEN_PER_HOUR = 10;
+export const STAMINA_REGEN_PER_HOUR = 40; // full refill from 0 in ~2.5h — adjust when shop is finalised
 export const STAMINA_FOOD_CAP       = 100; // max stamina from food per day
 
 export const STAMINA_COSTS = {
   bot_easy:   10,
   bot_medium: 15,
   bot_hard:   20,
+};
+
+// ── Tamer level system ────────────────────────────────────────────────────────
+// XP per level threshold (flat 200 per level for now, scales later)
+export const TAMER_XP_PER_LEVEL = 200;
+// XP awarded per completed task (difficulty scales)
+export const TAMER_TASK_XP = { Easy: 10, Medium: 20, Hard: 35 };
+// Content unlock levels — referenced throughout the app for gating
+export const TAMER_UNLOCKS = {
+  shop:        1,   // available immediately
+  team:        1,
+  digifarm:    2,
+  crests:      3,
+  raid:        5,
+  chat:        4,
+  digidex:     2,
+  sleep:       3,
+  pomodoro:    4,
 };
 
 // ── Food items (shown in Shop) ────────────────────────────────────────────────
