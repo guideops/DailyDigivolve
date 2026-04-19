@@ -33,7 +33,7 @@ export const ATTR_COLOR = {
 // ── Task templates (replaces categories) ─────────────────────────────────────
 export const TASK_TEMPLATES = [
   "Workout", "Deep Work", "Recovery", "Maintenance",
-  "Social", "Reflection", "Challenge", "Neutral",
+  "Social", "Reflection", "Challenge", "Wellness", "Neutral",
 ];
 
 // Template → Crest map
@@ -44,7 +44,8 @@ export const TEMPLATE_CREST_MAP = {
   "Maintenance":{ primary: "Reliability", secondary: "Light" },
   "Social":     { primary: "Friendship",  secondary: "Care" },
   "Reflection": { primary: "Sincerity",   secondary: "Knowledge" },
-  "Challenge":  { primary: "Courage",     secondary: "Hope" },
+  "Challenge":  { primary: "Hope",        secondary: "Courage" },
+  "Wellness":   { primary: "Light",       secondary: "Sincerity" },
   "Neutral":    { primary: null,          secondary: null },
 };
 
@@ -212,6 +213,7 @@ export const TEMPLATE_RAID_STAT = {
   "Maintenance": "guard",
   "Recovery":    "guard",
   "Social":      "momentum",
+  "Wellness":    "guard",
   "Neutral":     null,  // contributes average of all stats
 };
 

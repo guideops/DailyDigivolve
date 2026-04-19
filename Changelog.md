@@ -910,23 +910,162 @@ Types:
 
 ---
 
+---
+
+## Session 10 — 2026-04-19
+
+### Party Overflow — Universal Fix
+
+[FIX] Party capacity overflow — any Digimon could exceed the 9-slot cap on load
+      Root cause: load() and refreshData() both called setParty(all in_farm:false rows) with no cap,
+      so DB records with stale in_farm:false (from historical insert bugs) inflated the party on every
+      app open or visibility-change sync
+      Fix: self-healing overflow block added to both load() and refreshData()
+        - Detects partyRows.length > MAX_PARTY_SIZE after mapping
+        - Slices excess into farmRows, updates in_farm:true in DB for each overflow record
+        - No user-visible disruption — corrupt state is silently repaired on next load
+      Fix is universal (no Digimon-specific logic) and a no-op for clean DBs (fresh users unaffected)
+
+[FIX] recallFromFarm stale closure — rapid double-tap could push party past 9
+      Fix: capacity check now runs inside setParty functional update (reads live state, not closure)
+      Secondary guard: closure check still provides fast-path rejection for the common case
+
+### Task Templates
+
+[FEAT] Wellness template added — 8th task template, maps to Light (primary) + Sincerity (secondary)
+       Completes the full crest set: all 8 crests now have a corresponding task template
+       Raid stat: guard (same as Recovery/Maintenance)
+       Visible in: task form, pomodoro picker, filter tabs, week view, raid stat guide
+
+[FIX] Challenge template crest corrected — was Courage (primary) / Hope (secondary)
+      Now: Hope (primary) / Courage (secondary)
+
+### Weekly Planner
+
+[FEAT] Today always leftmost — week view rotates so current day is always the first column
+       Prevents users having to scroll to find today (previously Sunday was always column 1)
+       Rotation resets at local midnight
+
+[FIX] Daily and recurring tasks no longer appear in the Unscheduled section
+      Unscheduled filter now limited to type === 'once'; daily/recurring always have a schedule
+
+### Pomodoro — Cross-Device Sync & Reliability
+
+[FEAT] pomodoro_state JSONB column added to profiles table (migration 20260419_pomodoro_state.sql)
+       Stores: { phase, endTime, totalSeconds, template, duration } when a session is running
+       Cleared to null on reward claim or session abandon
+
+[FEAT] Pomodoro timer persists across app kills — on load, if pomodoro_state.phase === 'running':
+       - Remaining time recomputed from endTime (not a stored countdown)
+       - If endTime already passed → session immediately completes, notification available
+       - If time remains → timer resumes from correct position
+
+[FEAT] Cross-device Pomodoro sync — starting on PWA now mirrors on webapp and vice versa
+       Supabase realtime fires applyProfilePayload on the other device; handler reads pomodoro_state
+       and either resumes the timer or marks it done (5-second grace window prevents flip-flopping)
+
+### Service Worker — Background Notifications
+
+[FEAT] public/sw.js — new service worker for best-effort background notifications
+       Handles SCHEDULE_TIMER message: schedules setTimeout-based notification at exact endTime
+       Handles CANCEL_TIMER message: clears pending timeout and closes any shown notification
+       Vibration: longer alarm pattern for sleep-wake (300ms bursts), short for pomodoro
+       notificationclick: focuses existing window or opens new one at /
+       SW registered in main.jsx on load
+
+[FEAT] Pomodoro notifications fire when timer completes (not only when reward is claimed)
+       SW notification is scheduled whenever pomodoroState.endTime changes
+       Notification brings user into app to claim rewards — no action required before they appear
+
+[FEAT] Sleep/rest alarm notification via SW — scheduled on BEGIN REST at exact wake timestamp
+       SW CANCEL_TIMER fired on handleWakeUp so alarm is cleared when app wakes naturally
+
+### Rest / Sleep Alarm Improvements
+
+[FEAT] Same-day nap and siesta support — rest modal now defaults to 2 hours from now
+       Previous default "07:00" would push to next day for any afternoon nap
+       New presets: +30m / +1h / +2h / +4h / +8h (relative to current time, calculated at modal open)
+       next-day rollover only triggers when wake time is at or before sleep-start time
+
+[FIX] Short rest notifications not firing — wake alarm polling interval was 60 seconds
+      For a 2-minute nap the first poll could fire at t+3min (1 minute late)
+      Fix: polling interval reduced to 15 seconds
+      Fix: immediate wake check runs after countdown → sleeping phase transition
+           so a rest where wake time == countdown duration triggers instantly
+
+[FEAT] Native alarm button — Android: pre-fills Clock app via intent URL; iOS: opens Clock app
+       Shown below BEGIN REST on mobile devices as a backup alarm option
+
+[FEAT] Wake chime — three-note rising sine-wave chime plays on automatic wake (Web Audio API)
+       Does not play on manual "WAKE UP EARLY" tap
+
+### Streak System — Gap Detection
+
+[FIX] Task streaks not resetting on skipped days
+      Previous: streak always incremented by 1 regardless of last_completed_date
+      Fix: yestLocal computed in local time; streak = lastCompletedDate === yestLocal ? +1 : 1
+      Fresh users: lastCompletedDate is null → first completion correctly starts streak at 1
+      Daily/recurring tasks: stale done resets each day but lastCompletedDate persists in DB —
+      the consecutive check works correctly across the reset
+
+[FIX] Catchup reward streaks not resetting on gaps
+      Catchup tasks are credited as yesterday — streak continues only if lastCompletedDate was
+      the day before yesterday (consecutive). Any earlier date resets to 1.
+      lastCompletedDate field added to catchup task object so the claim function can access it
+
+[FIX] Login streak was already correct (resets to 1 if lastLogin !== yesterday) — no change needed
+
+### Bond — Per-Digimon
+
+[FEAT] Bond is now unique to each tamer-digimon pair
+       Migration: digimon.bond NUMERIC DEFAULT 0 (20260420_digimon_bond.sql)
+       bond React state removed; replaced with derived value: party[0]?.bond ?? 0
+       All bond gains write to digimon table (supabase.from('digimon').update({ bond })) via
+       updateActiveBond() helper; profiles.bond kept in sync for friends leaderboard only
+
+[FEAT] Farm digimon cannot gain bond — updateActiveBond() only ever targets party[0]
+       A digimon in the farm never occupies party[0], so their bond is frozen until recalled
+
+[FEAT] New hatches start at bond 0 — no existing bond carries over from prior partners
+       All digimon INSERT paths omit the bond field; DB DEFAULT 0 applies automatically
+
+[FEAT] Evolution eligibility per digimon — team view now passes digi.bond (not global bond)
+       to checkEvoEligible() so each party member's evo requirements are checked against
+       their own bond, not the active slot's bond
+
+[FEAT] Rotation incentive — focusing attention on a specific partner grows their bond;
+       benching them in the farm freezes it; swapping back resumes from where it left off
+
+### DB Migrations (manual — run in Supabase SQL editor)
+
+[DEPLOY] ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pomodoro_state JSONB DEFAULT NULL;
+[DEPLOY] ALTER TABLE digimon ADD COLUMN IF NOT EXISTS bond NUMERIC DEFAULT 0;
+
+### Deploy
+
+[DEPLOY] DV_VER bumped 9 → 10 — forces PWA hard reload for all installed instances
+[DEPLOY] Pushed to main → Cloudflare Pages auto-deploy
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
 
-[ ] Sleep wake-up notification — wire existing sleepState.wakeTime to a Web Notification
-    Small change (~10 lines in handleSleep): setTimeout fires Notification at exact wake timestamp
-    Works when PWA is backgrounded; requires notification permission (already requested by Pomodoro)
-
-[ ] Service worker + Web Push — true background push notifications when PWA is fully closed
-    Required for: reliable Pomodoro alerts, sleep alarms, 5am catch-up prompt when app not open
-    Stack: VAPID key pair + Supabase Edge Function (push sender) + service worker (receiver)
-    Estimated effort: one full session
-    Unlocks: all notification types work even after user swipes PWA away from app switcher
+[x] Sleep wake-up notification — SW notification scheduled at exact wake timestamp ✅ Session 10
+[x] Service worker — background timer notifications for Pomodoro and sleep alarm ✅ Session 10
+[x] Wellness task template — Light crest now has a matching template ✅ Session 10
+[x] Same-day nap/siesta support — rest modal defaults and presets are now relative ✅ Session 10
 
 [ ] Google Calendar export — "Add to Calendar" button on scheduled once tasks
     Creates Google Calendar event via Calendar API or .ics file download
     OAuth required for direct API sync; .ics file is simpler (manual import, no auth)
+
+[ ] Bond display per digimon in team view — show each party member's individual bond bar
+    Currently only the active (slot 0) bond is shown in the left panel
+
+[ ] Per-digimon bond on friends leaderboard — currently shows profiles.bond snapshot;
+    could be labelled as "partner bond" to clarify it reflects the active digimon
 
 [ ] De-digivolution — slide evolution back when crest alignment diverges significantly
 [ ] DNA Digivolution — fusion evolution requiring two Digimon in party

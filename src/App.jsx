@@ -147,7 +147,7 @@ export default function App({ session }) {
   var [evoAnim,          setEvoAnim]          = useState(null);
   var [battleState,      setBattleState]      = useState(null);
   // New systems
-  var [bond,             setBond]             = useState(0);
+  // bond is per-digimon — derived from the active (party[0]) digimon's bond field
   var [stamina,          setStamina]          = useState(STAMINA_MAX);
   var [lastStaminaUpdate,setLastStaminaUpdate]= useState(null);
   var [crestHistory,     setCrestHistory]     = useState([]);
@@ -216,11 +216,18 @@ export default function App({ session }) {
   var navCloseTimer = useRef(null); // delay before closing a nav dropdown on mouse-leave
   var userId  = session.user.id;
 
+  // Posts a message to the SW if it's active — used to schedule/cancel background notifications
+  function postToSW(msg) {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage(msg);
+    }
+  }
+
   // ── Load data ───────────────────────────────────────────────────────────────
   useEffect(function() {
     async function load() {
       // Version check — forces PWA to reload fresh code when the app is updated
-      var DV_VER = '9';
+      var DV_VER = '10';
       var stored = localStorage.getItem('dv_ver');
       localStorage.setItem('dv_ver', DV_VER);
       if (stored && stored !== DV_VER) { window.location.reload(); return; }
@@ -236,7 +243,6 @@ export default function App({ session }) {
         setBits(profile.bits || 350);
         setTamerName(profile.display_name || "Tamer");
         setWeeklyDigimon(profile.weekly_digimon || {});
-        setBond(profile.bond || 0);
 
         // Stamina with regen
         var lastUpd = profile.last_stamina_update || new Date().toISOString();
@@ -324,11 +330,16 @@ export default function App({ session }) {
           curStreak = (lastLogin === yest) ? curStreak + 1 : 1;
           var earned = Math.floor(curStreak / 30) - prevMilestone;
           if (earned > 0) { curCreds += earned; setShowDigitamaModal(true); }
-          var loginBond = clampBond((profile.bond || 0) + 2);
-          setBond(loginBond);
+          // Login +2 bond goes to the active digimon (party[0] by sort_order), not the profile
+          var activeRaw = digimonData && digimonData.filter(function(d){ return !d.in_farm; })[0];
+          if (activeRaw) {
+            var loginBond = clampBond((activeRaw.bond || 0) + 2);
+            await supabase.from('digimon').update({ bond: loginBond }).eq('id', activeRaw.id);
+            await supabase.from('profiles').update({ bond: loginBond }).eq('id', userId); // leaderboard snapshot
+          }
           await supabase.from('profiles').update({
             last_login_date: today, login_streak: curStreak,
-            digitama_credits: curCreds, bond: loginBond,
+            digitama_credits: curCreds,
           }).eq('id', userId);
         }
         setLoginStreak(curStreak);
@@ -342,17 +353,52 @@ export default function App({ session }) {
         // Sleep state
         setSleepLog(profile.sleep_log || []);
         var ss = profile.sleep_state || null;
+        // If app was killed during the 2-min countdown, promote to sleeping on restore
+        if (ss && ss.phase === 'countdown') {
+          var countdownElapsed = Date.now() - new Date(ss.startedAt).getTime();
+          if (countdownElapsed >= 2 * 60 * 1000) {
+            ss = Object.assign({}, ss, { phase: 'sleeping' });
+            await supabase.from('profiles').update({ sleep_state: ss }).eq('id', userId);
+          } else {
+            setSleepState(ss);
+            var countdownLeft = 2 * 60 * 1000 - countdownElapsed;
+            setTimeout(async function() {
+              var sleeping = Object.assign({}, ss, { phase: 'sleeping' });
+              setSleepState(sleeping);
+              await supabase.from('profiles').update({ sleep_state: sleeping }).eq('id', userId);
+            }, countdownLeft);
+          }
+        }
         if (ss && ss.phase === 'sleeping') {
           var now = new Date();
           var [wh, wm] = (ss.wakeTime || "07:00").split(':').map(Number);
-          var wakeToday = new Date(now); wakeToday.setHours(wh, wm, 0, 0);
-          // If wake time is earlier than current time, it may be AM the next day context — check sleepDate
-          if (ss.sleepDate !== today) { wakeToday.setDate(wakeToday.getDate()); }
-          if (now >= wakeToday) {
-            // Wake time has passed — greet and clear sleep
+          var wakeDateTime = new Date(now); wakeDateTime.setHours(wh, wm, 0, 0);
+          // Anchor wake time to after bedtime — alarm for "07:00" set at 11 PM is next-day
+          if (wakeDateTime.getTime() <= new Date(ss.startedAt).getTime()) {
+            wakeDateTime.setDate(wakeDateTime.getDate() + 1);
+          }
+          if (now >= wakeDateTime) {
             handleWakeUp(ss, profile.sleep_log || [], false);
           } else {
             setSleepState(ss);
+          }
+        }
+
+        // Restore pomodoro state — handles app killed mid-session or cross-device sync
+        var ps = profile.pomodoro_state || null;
+        if (ps && ps.phase === 'running') {
+          var pomoRemaining = Math.max(0, Math.floor((ps.endTime - Date.now()) / 1000));
+          if (pomoRemaining <= 0) {
+            // Timer expired while app was closed — mark done and notify
+            setPomodoroState(Object.assign({}, ps, { phase:'done', timeLeft:0 }));
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification('Session Complete! 🎉', {
+                body: (ps.template || 'Focus') + ' session done — claim your reward!',
+                icon: '/icon-192.png',
+              });
+            }
+          } else {
+            setPomodoroState(Object.assign({}, ps, { timeLeft: pomoRemaining }));
           }
         }
       }
@@ -363,9 +409,19 @@ export default function App({ session }) {
           exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
           personality: d.personality, bonusStats: d.bonus_stats || {},
           discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
+          bond: d.bond || 0,
         }; });
-        setParty(mapped.filter(function(d){ return !d.inFarm; }));
-        setFarm(mapped.filter(function(d){ return d.inFarm; }));
+        var partyRows = mapped.filter(function(d){ return !d.inFarm; });
+        var farmRows  = mapped.filter(function(d){ return d.inFarm; });
+        // Self-heal: corrupt in_farm=false rows from old bugs can inflate party past cap
+        if (partyRows.length > MAX_PARTY_SIZE) {
+          var overflow = partyRows.slice(MAX_PARTY_SIZE);
+          partyRows = partyRows.slice(0, MAX_PARTY_SIZE);
+          farmRows = farmRows.concat(overflow.map(function(d){ return Object.assign({}, d, { inFarm:true }); }));
+          overflow.forEach(function(d){ supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); });
+        }
+        setParty(partyRows);
+        setFarm(farmRows);
         var allD = [...new Set(digimonData.flatMap(function(d){ return d.discovered || []; }))];
         setAllDisc(allD);
       } else {
@@ -440,6 +496,7 @@ export default function App({ session }) {
                 id: t.id, title: t.title, template: t.category || 'Neutral',
                 priority: t.priority, difficulty: t.difficulty, type: t.type,
                 streak: t.streak || 0, dueDate: t.due_date || null,
+                lastCompletedDate: t.last_completed_date || null,
               };
             }));
             catchupLineRef.current = CATCHUP_LINES[Math.floor(Math.random() * CATCHUP_LINES.length)];
@@ -471,7 +528,6 @@ export default function App({ session }) {
     ]);
     if (profile) {
       setBits(profile.bits || 350);
-      setBond(profile.bond || 0);
       if (profile.display_name) setTamerName(profile.display_name);
       setCrestHistory(profile.crest_history || []);
       setWeeklyDigimon(profile.weekly_digimon || {});
@@ -487,6 +543,19 @@ export default function App({ session }) {
       if (rs && rs.raidId !== CURRENT_RAID.id) rs = null;
       setRaidState(rs || { raidId: CURRENT_RAID.id, totalDamage: 0, raidLog: [] });
       setSleepLog(profile.sleep_log || []);
+      // Check if sleep alarm fired while app was backgrounded (interval was killed)
+      var ss3 = profile.sleep_state || null;
+      if (ss3 && ss3.phase === 'sleeping') {
+        var now3 = new Date();
+        var [wh3, wm3] = (ss3.wakeTime || "07:00").split(':').map(Number);
+        var wakeDT3 = new Date(now3); wakeDT3.setHours(wh3, wm3, 0, 0);
+        if (wakeDT3.getTime() <= new Date(ss3.startedAt).getTime()) wakeDT3.setDate(wakeDT3.getDate() + 1);
+        if (now3 >= wakeDT3) {
+          handleWakeUp(ss3, profile.sleep_log || [], false);
+        } else {
+          setSleepState(ss3);
+        }
+      }
     }
     if (digimonData && digimonData.length > 0) {
       var mapped = digimonData.map(function(d) { return {
@@ -494,9 +563,18 @@ export default function App({ session }) {
         exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
         personality: d.personality, bonusStats: d.bonus_stats || {},
         discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
+        bond: d.bond || 0,
       }; });
-      setParty(mapped.filter(function(d){ return !d.inFarm; }));
-      setFarm(mapped.filter(function(d){ return d.inFarm; }));
+      var partyRows2 = mapped.filter(function(d){ return !d.inFarm; });
+      var farmRows2  = mapped.filter(function(d){ return d.inFarm; });
+      if (partyRows2.length > MAX_PARTY_SIZE) {
+        var overflow2 = partyRows2.slice(MAX_PARTY_SIZE);
+        partyRows2 = partyRows2.slice(0, MAX_PARTY_SIZE);
+        farmRows2 = farmRows2.concat(overflow2.map(function(d){ return Object.assign({}, d, { inFarm:true }); }));
+        overflow2.forEach(function(d){ supabase.from('digimon').update({ in_farm:true }).eq('id', d.uid); });
+      }
+      setParty(partyRows2);
+      setFarm(farmRows2);
       var allD = [...new Set(digimonData.flatMap(function(d){ return d.discovered || []; }))];
       setAllDisc(allD);
     }
@@ -547,7 +625,6 @@ export default function App({ session }) {
     if (!p) return;
     var today = new Date().toISOString().split('T')[0];
     setBits(p.bits ?? 350);
-    setBond(p.bond ?? 0);
     if (p.display_name) setTamerName(p.display_name);
     setCrestHistory(p.crest_history || []);
     setWeeklyDigimon(p.weekly_digimon || {});
@@ -563,6 +640,20 @@ export default function App({ session }) {
     if (rs && rs.raidId !== CURRENT_RAID.id) rs = null;
     setRaidState(rs || { raidId: CURRENT_RAID.id, totalDamage: 0, raidLog: [] });
     setSleepLog(p.sleep_log || []);
+    // Cross-device pomodoro sync — another tab/device started or claimed a session
+    var ps2 = p.pomodoro_state || null;
+    if (ps2 && ps2.phase === 'running') {
+      var rem2 = Math.max(0, Math.floor((ps2.endTime - Date.now()) / 1000));
+      setPomodoroState(function(cur) {
+        // Don't overwrite if this is the same session (same endTime within 5s)
+        if (cur && cur.phase === 'running' && Math.abs((cur.endTime||0) - ps2.endTime) < 5000) return cur;
+        if (rem2 <= 0) return Object.assign({}, ps2, { phase:'done', timeLeft:0 });
+        return Object.assign({}, ps2, { timeLeft: rem2 });
+      });
+    } else if (!ps2) {
+      // Reward was claimed on another device — clear done state here too
+      setPomodoroState(function(cur) { return (cur && cur.phase === 'done') ? null : cur; });
+    }
   }
 
   function applyTaskPayload(payload) {
@@ -619,6 +710,7 @@ export default function App({ session }) {
       exp: d.exp, expNeeded: d.exp_needed, abi: d.abi || 0,
       personality: d.personality, bonusStats: d.bonus_stats || {},
       discovered: d.discovered || [], inFarm: d.in_farm, isXForm: d.is_x_form,
+      bond: d.bond || 0,
     };
     if (d.in_farm) {
       setParty(function(p) { return p.filter(function(x) { return x.uid !== mapped.uid; }); });
@@ -630,7 +722,9 @@ export default function App({ session }) {
       setFarm(function(f) { return f.filter(function(x) { return x.uid !== mapped.uid; }); });
       setParty(function(p) {
         var idx = p.findIndex(function(x) { return x.uid === mapped.uid; });
-        return idx >= 0 ? p.map(function(x) { return x.uid === mapped.uid ? mapped : x; }) : p.concat([mapped]);
+        if (idx >= 0) return p.map(function(x) { return x.uid === mapped.uid ? mapped : x; });
+        if (p.length >= MAX_PARTY_SIZE) return p; // safety: never exceed cap via realtime
+        return p.concat([mapped]);
       });
     }
     if (d.discovered && d.discovered.length) {
@@ -704,7 +798,19 @@ export default function App({ session }) {
     return function() { clearTimeout(id); };
   }, [pomodoroState]);
 
-  // Correct timer immediately when returning to the app from background
+  // Schedule SW notification whenever a new pomodoro session starts or is restored
+  var _pomoEndTime = pomodoroState && pomodoroState.phase === 'running' ? pomodoroState.endTime : null;
+  useEffect(function() {
+    if (!_pomoEndTime) return;
+    var template = pomodoroState ? pomodoroState.template : 'Focus';
+    postToSW({
+      type: 'SCHEDULE_TIMER', id: 'pomodoro', endTime: _pomoEndTime,
+      title: 'Session Complete! 🎉',
+      body: (template || 'Focus') + ' session done — open DailyDigivolve to claim your reward!',
+    });
+  }, [_pomoEndTime]);
+
+  // Correct timer and fire notification immediately when returning from background
   useEffect(function() {
     function onVisible() {
       if (document.visibilityState !== 'visible') return;
@@ -733,12 +839,16 @@ export default function App({ session }) {
     var interval = setInterval(function() {
       var now = new Date();
       var [wh, wm] = (sleepState.wakeTime || "07:00").split(':').map(Number);
-      var wakeTime = new Date(now); wakeTime.setHours(wh, wm, 0, 0);
-      if (now >= wakeTime) {
+      var wakeDateTime = new Date(now); wakeDateTime.setHours(wh, wm, 0, 0);
+      // Anchor wake time to after bedtime — alarm for "07:00" set at 11 PM is next-day
+      if (wakeDateTime.getTime() <= new Date(sleepState.startedAt).getTime()) {
+        wakeDateTime.setDate(wakeDateTime.getDate() + 1);
+      }
+      if (now >= wakeDateTime) {
         clearInterval(interval);
         handleWakeUp(sleepState, sleepLog, false);
       }
-    }, 60000);
+    }, 15000);
     return function() { clearInterval(interval); };
   }, [sleepState, sleepLog]);
 
@@ -784,6 +894,22 @@ export default function App({ session }) {
   // ── Derived ─────────────────────────────────────────────────────────────────
   var activeDigi  = party[0];
   var activeInfo  = activeDigi ? DIGIMON_MAP[activeDigi.speciesId] : null;
+  // Bond is per-digimon; only party[0] (activeDigi) can gain bond — farm digimon cannot
+  var bond = activeDigi ? (activeDigi.bond || 0) : 0;
+
+  // Updates the active digimon's bond in both React state and DB.
+  // Only call when activeDigi is present (party has at least one member).
+  function updateActiveBond(newBond) {
+    if (!activeDigi) return;
+    setParty(function(p) {
+      if (!p.length) return p;
+      return [Object.assign({}, p[0], { bond: newBond })].concat(p.slice(1));
+    });
+    supabase.from('digimon').update({ bond: newBond }).eq('id', activeDigi.uid);
+    // Keep profiles.bond in sync for friends leaderboard display
+    supabase.from('profiles').update({ bond: newBond }).eq('id', userId);
+  }
+
   var streak      = tasks.reduce(function(m,t){ return Math.max(m, t.streak||0); }, 0);
   var accent      = activeInfo ? (ATTR_COLOR[activeInfo.attr]||T.teal) : T.teal;
   var pendTasks       = tasks.filter(function(t){ return !t.done; });
@@ -850,8 +976,7 @@ export default function App({ session }) {
     setParty([]);
     setFarm([]);
     setAllDisc([]);
-    // Reset bond back to zero
-    setBond(0);
+    // Reset bond back to zero for all digimon (fresh start)
     await supabase.from('profiles').update({ bond: 0 }).eq('id', userId);
     // Clear onboarding flag so the Jijimon quiz + egg selection fires again
     localStorage.removeItem('dv_onboarding_' + userId);
@@ -912,6 +1037,9 @@ export default function App({ session }) {
   }
 
   async function startRest(wakeTime) {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
     var now = new Date();
     var ss = {
       phase: 'countdown',
@@ -923,15 +1051,53 @@ export default function App({ session }) {
     setShowRestModal(false);
     showSpeechBubble(getSleepMsg(SLEEP_GOODNIGHT, "good night... 💤"));
     await supabase.from('profiles').update({ sleep_state: ss }).eq('id', userId);
-    // After 2 minutes, transition to sleeping phase
+    // After 2 minutes, transition to sleeping phase; immediately wake if alarm already passed (short naps)
     setTimeout(async function() {
       var sleeping = Object.assign({}, ss, { phase: 'sleeping' });
       setSleepState(sleeping);
       await supabase.from('profiles').update({ sleep_state: sleeping }).eq('id', userId);
+      var now2 = new Date();
+      var _wh = wakeTime.split(':').map(Number)[0]; var _wm = wakeTime.split(':').map(Number)[1];
+      var wakeCheck = new Date(now2); wakeCheck.setHours(_wh, _wm, 0, 0);
+      if (wakeCheck.getTime() <= new Date(ss.startedAt).getTime()) wakeCheck.setDate(wakeCheck.getDate() + 1);
+      if (now2 >= wakeCheck) { handleWakeUp(sleeping, null, false); }
     }, 2 * 60 * 1000);
+    // Schedule SW notification for wake time (best-effort background alarm)
+    var [wh, wm] = wakeTime.split(':').map(Number);
+    var wakeDate = new Date(now); wakeDate.setHours(wh, wm, 0, 0);
+    // Push to next day only if wake time is at or before sleep start (overnight case)
+    if (wakeDate.getTime() <= now.getTime()) wakeDate.setDate(wakeDate.getDate() + 1);
+    postToSW({
+      type: 'SCHEDULE_TIMER', id: 'sleep-wake',
+      endTime: wakeDate.getTime(),
+      title: 'Rise and shine! 🌅',
+      body: 'Your rest is complete — open DailyDigivolve to start your day!',
+    });
+  }
+
+  function playWakeChime() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Three rising tones — gentle morning chime
+      [[523, 0], [659, 0.18], [784, 0.36]].forEach(function(pair) {
+        var freq = pair[0]; var when = pair[1];
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, ctx.currentTime + when);
+        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + when + 0.05);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + when + 0.6);
+        osc.start(ctx.currentTime + when);
+        osc.stop(ctx.currentTime + when + 0.7);
+      });
+    } catch (_) {}
   }
 
   async function handleWakeUp(ss, log, isManual) {
+    postToSW({ type: 'CANCEL_TIMER', id: 'sleep-wake' });
+    if (!isManual) playWakeChime();
     var now = new Date();
     var bedtimeDate = new Date(ss.startedAt);
     var durationMins = Math.round((now - bedtimeDate) / 60000);
@@ -982,7 +1148,7 @@ export default function App({ session }) {
     setNeglectData(null);
     await supabase.from('profiles').update({ neglect_state: null }).eq('id', userId);
     toast_("Bond restored! Your partner is back. 💗", T.pink);
-    setBond(function(b){ var nb = clampBond(b + 15); supabase.from('profiles').update({ bond: nb }).eq('id', userId); return nb; });
+    updateActiveBond(clampBond(bond + 15));
     addLog("💗", activeDigi ? activeDigi.name + " reconnection arc complete!" : "Reconnection arc complete!");
   }
 
@@ -1056,6 +1222,10 @@ export default function App({ session }) {
     var xp         = hasBoost ? Math.floor(baseXp * 1.5) : baseXp;
     var today      = new Date().toISOString().split('T')[0]; // UTC — for bond/crest/profile dates
     var _ctd = new Date(); var todayLocal = _ctd.getFullYear()+'-'+String(_ctd.getMonth()+1).padStart(2,'0')+'-'+String(_ctd.getDate()).padStart(2,'0');
+    var _yd = new Date(_ctd); _yd.setDate(_yd.getDate()-1);
+    var yestLocal = _yd.getFullYear()+'-'+String(_yd.getMonth()+1).padStart(2,'0')+'-'+String(_yd.getDate()).padStart(2,'0');
+    // Streak only continues if completed yesterday; any gap resets to 1
+    var newStreak = (task.lastCompletedDate === yestLocal) ? (task.streak||0)+1 : 1;
 
     // Silent daily cap — task completion still records but yields no stat gains above 300
     var completedTodayCount = tasks.filter(function(t){ return t.done && t.lastCompletedDate === todayLocal; }).length;
@@ -1078,13 +1248,12 @@ export default function App({ session }) {
       setCrestHistory(newHistory);
     }
 
-    // Bond gain (max 5 task bonds/day)
+    // Bond gain (max 5 task bonds/day) — only active digimon (party[0]) gains bond
     var newBond = bond;
     var newTaskBond = taskBondToday;
     if (statGainAllowed && taskBondToday < 5) {
       newBond = clampBond(bond + 0.5);
       newTaskBond = taskBondToday + 1;
-      setBond(newBond);
     }
 
     var newBAT = Object.assign({}, bondActionsToday, { tasks: newTaskBond, date: today });
@@ -1092,11 +1261,11 @@ export default function App({ session }) {
 
     // Update task — use local date so week view column comparison (also local) matches
     await supabase.from('tasks').update({
-      done: true, streak: (task.streak||0)+1,
+      done: true, streak: newStreak,
       last_completed_date: todayLocal,
     }).eq('id', id);
     var applyComplete = function(t) {
-      return t.id===id ? Object.assign({},t,{done:true,streak:(t.streak||0)+1,lastCompletedDate:todayLocal}) : t;
+      return t.id===id ? Object.assign({},t,{done:true,streak:newStreak,lastCompletedDate:todayLocal}) : t;
     };
     setTasks(function(ts){ return ts.map(applyComplete); });
     setAllTasks(function(ts){ return ts.map(applyComplete); });
@@ -1132,9 +1301,11 @@ export default function App({ session }) {
       setTimeout(function(){ setRaidHit(null); }, 2200);
     }
 
+    // Apply bond gain to active digimon
+    if (newBond !== bond) updateActiveBond(newBond);
+
     // Save profile updates
     var profileUpdate = {
-      bond: newBond,
       bond_actions_today: newBAT,
       crest_history: newHistory,
     };
@@ -1169,6 +1340,10 @@ export default function App({ session }) {
     setShowCatchupModal(false);
     if (claimed.length === 0) return;
 
+    var _ydC = new Date(); _ydC.setDate(_ydC.getDate()-1);
+    var yestLocalC = _ydC.getFullYear()+'-'+String(_ydC.getMonth()+1).padStart(2,'0')+'-'+String(_ydC.getDate()).padStart(2,'0');
+    var _d2C = new Date(); _d2C.setDate(_d2C.getDate()-2);
+    var dayB4YestC = _d2C.getFullYear()+'-'+String(_d2C.getMonth()+1).padStart(2,'0')+'-'+String(_d2C.getDate()).padStart(2,'0');
     var yest       = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     var totalXp    = 0;
     var newBond    = bond;
@@ -1177,7 +1352,9 @@ export default function App({ session }) {
 
     for (var i = 0; i < claimed.length; i++) {
       var ct = claimed[i];
-      totalXp += calcXpReward(ct, ct.streak);
+      // Streak continues only if last completed the day before yesterday (consecutive with yesterday)
+      var ctStreak = (ct.lastCompletedDate === dayB4YestC) ? (ct.streak||0)+1 : 1;
+      totalXp += calcXpReward(ct, ctStreak);
 
       var cg = calcCrestGain(ct.template, ct.difficulty);
       if (cg) {
@@ -1193,8 +1370,8 @@ export default function App({ session }) {
       if (newTaskBond < 5) { newBond = clampBond(newBond + 0.5); newTaskBond++; }
 
       await supabase.from('tasks').update({
-        last_completed_date: yest,
-        streak: (ct.streak || 0) + 1,
+        last_completed_date: yestLocalC,
+        streak: ctStreak,
       }).eq('id', ct.id);
     }
 
@@ -1202,7 +1379,7 @@ export default function App({ session }) {
     var cutoff = Date.now() - 60 * 86400000;
     newHistory = newHistory.filter(function(e){ return new Date(e.date).getTime() >= cutoff; });
     setCrestHistory(newHistory);
-    setBond(newBond);
+    if (newBond !== bond) updateActiveBond(newBond);
     var today = new Date().toISOString().split('T')[0];
     var newBAT = Object.assign({}, bondActionsToday, { tasks: newTaskBond, date: today });
     setBondActionsToday(newBAT);
@@ -1217,7 +1394,7 @@ export default function App({ session }) {
       setParty(function(p){ return p.map(function(d, idx){ return Object.assign({}, d, partyResults[idx]); }); });
     }
 
-    await supabase.from('profiles').update({ bond: newBond, crest_history: newHistory, bond_actions_today: newBAT }).eq('id', userId);
+    await supabase.from('profiles').update({ crest_history: newHistory, bond_actions_today: newBAT }).eq('id', userId);
 
     addLog("🌟", "Yesterday's rewards claimed! +" + totalXp + " XP across " + claimed.length + " task(s)");
     toast_("Catch-up rewards claimed! +" + totalXp + " XP 🌟", T.gold);
@@ -1229,7 +1406,7 @@ export default function App({ session }) {
     if (!info) return;
     var digi = party.find(function(d){ return d.uid===uid; });
     if (!digi) return;
-    var { eligible, vow } = checkEvoEligible(digi, bond, crestProfile, targetId);
+    var { eligible, vow } = checkEvoEligible(digi, digi.bond || 0, crestProfile, targetId);
     if (!eligible && !vow) return;
     if (vow) {
       // Consume Partner Vow item check could go here
@@ -1262,13 +1439,14 @@ export default function App({ session }) {
     var newFoodCap = foodStaminaToday + addable;
     var today = new Date().toISOString().split('T')[0];
 
-    setStamina(newStam); setBond(newBond); setBits(newBits);
+    setStamina(newStam); setBits(newBits);
     setFoodStaminaToday(newFoodCap); setShowFeedPanel(false);
     showSpeechBubble(food.type==="treat" ? "best tamer ever 🎉" : "nom nom nom 🍎");
+    updateActiveBond(newBond);
 
     await supabase.from('profiles').update({
       stamina: newStam, last_stamina_update: new Date().toISOString(),
-      bond: newBond, bits: newBits, food_stamina_today: newFoodCap,
+      bits: newBits, food_stamina_today: newFoodCap,
     }).eq('id', userId);
 
     addLog("🍎", "Fed " + food.name + " +" + addable + " Stamina");
@@ -1282,12 +1460,12 @@ export default function App({ session }) {
     var newBond = clampBond(bond + 1);
     var today = new Date().toISOString().split('T')[0];
     var newBAT = Object.assign({}, bondActionsToday, { play: playUsedToday + 1, date: today });
-    setBond(newBond); setBondActionsToday(newBAT);
+    updateActiveBond(newBond); setBondActionsToday(newBAT);
     showSpeechBubble("yay let's play! 🎮");
     addLog("🎮", "Played with " + (activeDigi ? activeDigi.name : "partner") + " +1 Bond");
     toast_("+1 Bond 🎮  " + (2-playUsedToday) + " plays left today", T.teal);
     await supabase.from('profiles').update({
-      bond: newBond, bond_actions_today: newBAT,
+      bond_actions_today: newBAT,
     }).eq('id', userId);
   }
 
@@ -1296,17 +1474,21 @@ export default function App({ session }) {
     setPomodoroState({ phase:'setup', template:'Deep Work', duration:25 });
   }
   function beginPomodoro() {
-    // Request notification permission on first timer start
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-    setPomodoroState(function(ps) {
-      if (!ps) return ps;
-      var secs = (ps.duration || 25) * 60;
-      return { phase:'running', timeLeft:secs, totalSeconds:secs,
-               endTime: Date.now() + secs * 1000,
-               template:ps.template||'Deep Work', duration:ps.duration||25 };
-    });
+    var ps = pomodoroState;
+    if (!ps) return;
+    var secs = (ps.duration || 25) * 60;
+    var newState = {
+      phase: 'running', timeLeft: secs, totalSeconds: secs,
+      endTime: Date.now() + secs * 1000,
+      template: ps.template || 'Deep Work', duration: ps.duration || 25,
+    };
+    setPomodoroState(newState);
+    // Persist for cross-device sync and survival across app restarts
+    var persisted = { phase:'running', endTime:newState.endTime, totalSeconds:newState.totalSeconds, template:newState.template, duration:newState.duration };
+    supabase.from('profiles').update({ pomodoro_state: persisted }).eq('id', userId);
   }
   async function claimPomodoroReward() {
     if (!pomodoroState || pomodoroState.phase !== 'done') return;
@@ -1324,13 +1506,14 @@ export default function App({ session }) {
     var newBond = clampBond(bond + 1);
     var xpGain  = Math.floor((pomodoroState.totalSeconds / 60) * 3); // 3 XP per minute
     var newBits = bits + 75;
-    setBond(newBond); setBits(newBits);
+    updateActiveBond(newBond); setBits(newBits);
     if (activeDigi) {
       var result = applyXpGain(activeDigi, xpGain);
       await supabase.from('digimon').update({ exp:result.exp, level:result.level, exp_needed:result.expNeeded }).eq('id', activeDigi.uid);
       setParty(function(p){ return p.map(function(d,i){ return i===0?Object.assign({},d,result):d; }); });
     }
-    await supabase.from('profiles').update({ bond:newBond, bits:newBits, crest_history:newHistory }).eq('id', userId);
+    await supabase.from('profiles').update({ bits:newBits, crest_history:newHistory, pomodoro_state:null }).eq('id', userId);
+    postToSW({ type: 'CANCEL_TIMER', id: 'pomodoro' });
     showSpeechBubble("training complete! 💪");
     addLog("⏱", "Focus session: " + template + "  +" + xpGain + " XP  +1💗" + (cg?"  "+CREST_INFO[cg.primaryCrest].icon:""));
     toast_("Session complete! +" + xpGain + " XP  +1 Bond  +75🪙", T.mint);
@@ -1353,7 +1536,7 @@ export default function App({ session }) {
     if (!d) return;
     supabase.from('digimon').update({ in_farm:false }).eq('id', uid);
     setFarm(function(f){ return f.filter(function(x){ return x.uid!==uid; }); });
-    setParty(function(p){ return p.concat([Object.assign({},d,{inFarm:false})]); });
+    setParty(function(p){ return p.length >= MAX_PARTY_SIZE ? p : p.concat([Object.assign({},d,{inFarm:false})]); });
     toast_(d.name + " recalled!");
   }
 
@@ -1419,8 +1602,7 @@ export default function App({ session }) {
     });
     var newStam = Math.max(0, stamina - cost);
     setStamina(newStam);
-    // Include bits+bond so the realtime event carries current values and can't clobber recent rewards
-    supabase.from('profiles').update({ stamina:newStam, last_stamina_update:new Date().toISOString(), bits:bits, bond:bond }).eq('id', userId);
+    supabase.from('profiles').update({ stamina:newStam, last_stamina_update:new Date().toISOString(), bits:bits }).eq('id', userId);
     setBattleState({ playerTeam, enemyTeam:enemies, log:[], phase:"fight", selected:0, difficulty:diff });
   }
 
@@ -1485,25 +1667,28 @@ export default function App({ session }) {
   async function onAdoptHatched() {
     var speciesId = adoptEggSel.hatchId;
     var s = newDigimon(speciesId, {});
+    // Determine farm placement BEFORE the INSERT so the DB row has the correct
+    // in_farm value from the start — avoids a realtime race where the INSERT
+    // event (always in_farm:false) triggers applyDigimonPayload to add the
+    // Digimon to the party before the follow-up update can correct it.
+    var partyFull = party.length >= MAX_PARTY_SIZE;
     var { data:newDigi } = await supabase.from('digimon').insert({
       user_id: userId, species_id: speciesId, name: s.name,
       level: 1, exp: 0, exp_needed: 100, abi: 0,
       personality: s.personality, bonus_stats: s.bonusStats || {},
-      discovered: [speciesId], in_farm: false, sort_order: party.length,
+      discovered: [speciesId], in_farm: partyFull, sort_order: partyFull ? farm.length : party.length,
     }).select().single();
     if (!newDigi) { toast_("Something went wrong.", "#FF8080"); setShowAdoptEgg(false); return; }
 
-    var hatched = Object.assign({}, s, { uid: newDigi.id, inFarm: false });
+    var hatched = Object.assign({}, s, { uid: newDigi.id, inFarm: partyFull });
     setAdoptHatchedDigi(hatched);
     setAdoptEggPhase('hatched');
     setAllDisc(function(d){ return d.includes(speciesId) ? d : d.concat([speciesId]); });
 
-    var partyFull = party.length >= MAX_PARTY_SIZE;
     if (!partyFull) {
       setParty(function(p){ return p.concat([hatched]); });
     } else {
-      setFarm(function(f){ return f.concat([Object.assign({}, hatched, { inFarm:true })]); });
-      await supabase.from('digimon').update({ in_farm:true }).eq('id', newDigi.id);
+      setFarm(function(f){ return f.concat([hatched]); });
     }
 
     toast_('Welcome, ' + s.name + '! 🥚→✨', T.gold);
@@ -1985,7 +2170,7 @@ export default function App({ session }) {
                 <div>
                   <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>TRAINING TYPE</div>
                   <div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
-                    {["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge"].map(function(t){
+                    {["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Wellness"].map(function(t){
                       var cg = calcCrestGain(t,'Medium');
                       var ci = cg ? CREST_INFO[cg.primaryCrest] : null;
                       var sel = pomodoroState.template === t;
@@ -3321,7 +3506,7 @@ export default function App({ session }) {
                   // Eligible evolutions
                   var evoList = (inf2&&inf2.evolvesTo||[]).map(function(id){
                     var ti = DIGIMON_MAP[id]; if(!ti||ti.fusionOf) return null;
-                    var check = checkEvoEligible(digi, bond, crestProfile, id);
+                    var check = checkEvoEligible(digi, digi.bond || 0, crestProfile, id);
                     return { id, info:ti, ...check };
                   }).filter(Boolean);
 
@@ -3786,7 +3971,7 @@ export default function App({ session }) {
                           {[
                             ["Workout / Challenge","power"],
                             ["Deep Work / Reflection","focus"],
-                            ["Maintenance / Recovery","guard"],
+                            ["Maintenance / Recovery / Wellness","guard"],
                             ["Social","momentum"],
                           ].map(function(row){
                             var isDom = !defeated && phase && phase.dominant === row[1];
@@ -4494,6 +4679,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
     "Social":     CREST_INFO["Friendship"],
     "Reflection": CREST_INFO["Sincerity"],
     "Challenge":  CREST_INFO["Hope"],
+    "Wellness":   CREST_INFO["Light"],
     "Neutral":    null,
   };
 
@@ -4502,7 +4688,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
       {/* Template filter — crest images; type filter — original readable text */}
       <div style={{ display:"flex",gap:4,flexWrap:"wrap",alignItems:"center" }}>
         <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,flexShrink:0,flexWrap:"wrap" }}>
-          {["All","Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"].map(function(c){
+          {["All","Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Wellness","Neutral"].map(function(c){
             var a=filterTpl===c;
             var ci=TPL_CREST_CI[c];
             return (
@@ -4617,12 +4803,11 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
   var [showRecurring, setShowRecurring] = useState(true);
   var [showDone,      setShowDone]      = useState(false);
   var today = new Date();
-  var dayOfWeek = today.getDay();
-  var mondayOffset = dayOfWeek===0?-6:1-dayOfWeek;
-  var monday = new Date(today);
-  monday.setDate(today.getDate()+mondayOffset);
-  var DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  var weekDates = DAYS.map(function(_,i){ var d=new Date(monday); d.setDate(monday.getDate()+i); return d; });
+  var todayDayIdx = today.getDay(); // 0=Sun … 6=Sat
+  var ALL_DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  // Rotate so today is always leftmost; show today + next 6 days
+  var DAYS = Array.from({length:7}, function(_,i){ return ALL_DAYS[(todayDayIdx+i)%7]; });
+  var weekDates = Array.from({length:7}, function(_,i){ var d=new Date(today); d.setDate(today.getDate()+i); return d; });
   // Use local date strings to avoid UTC-shift bugs (e.g. Sunday midnight local = Saturday UTC)
   function localISO(d) {
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -4637,7 +4822,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
         <div>
           <div className="px12">WEEKLY PLANNER</div>
           <div style={{ fontSize:10,fontWeight:700,color:T.textMid,marginTop:4 }}>
-            {monday.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {weekDates[6].toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+            {weekDates[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {weekDates[6].toLocaleDateString('en-US',{month:'short',day:'numeric'})}
           </div>
         </div>
         <div style={{ display:"flex",alignItems:"center",gap:6 }}>
@@ -4664,7 +4849,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
       </div>
       {(function(){
         var pending = tasks.filter(function(t){ return !t.done&&t.dueDate; });
-        var unscheduled = tasks.filter(function(t){ return !t.done&&!t.dueDate; });
+        var unscheduled = tasks.filter(function(t){ return !t.done&&!t.dueDate&&t.type==='once'; });
         return (
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
             <div style={{ background:T.coral+"18",border:"2px solid "+T.coral,padding:"10px 14px" }}>
@@ -4767,7 +4952,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
         })}
       </div>
       {(function(){
-        var unscheduled = tasks.filter(function(t){ return !t.done&&!t.dueDate; });
+        var unscheduled = tasks.filter(function(t){ return !t.done&&!t.dueDate&&t.type==='once'; });
         if (!unscheduled.length) return null;
         return (
           <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
@@ -4798,7 +4983,7 @@ function WeeklyPlannerPage({ tasks, party, farm, weeklyDigimon, onAssignDigimon,
 function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
   var inputSt = { background:T.bgPanel,border:"2px solid "+T.border,padding:"9px 12px",color:T.text,fontSize:16,outline:"none",width:"100%",fontFamily:"'Nunito',sans-serif",boxSizing:"border-box" };
   var selSt   = Object.assign({},inputSt,{cursor:"pointer"});
-  var TEMPLATES = ["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Neutral"];
+  var TEMPLATES = ["Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Wellness","Neutral"];
   var cg = calcCrestGain(form.template, form.difficulty);
   var PCOL = { Low:"#C3B1E1", Medium:"#4ECDC4", High:"#FF6B6B", Urgent:"#FF4444" };
 
@@ -4857,21 +5042,55 @@ function TaskForm({ form, setForm, onSubmit, onCancel, label, accent, T }) {
 
 // ── REST Modal ────────────────────────────────────────────────────────────────
 function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWake, onClose }) {
-  var [wakeTime, setWakeTime] = useState("07:00");
+  function defaultWake() {
+    var d = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    d.setSeconds(0, 0);
+    d.setMinutes(d.getMinutes() < 30 ? 0 : 30);
+    return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+  }
+  var [wakeTime, setWakeTime] = useState(defaultWake);
   var isSleeping = sleepState && (sleepState.phase === 'sleeping' || sleepState.phase === 'countdown');
 
-  var PRESETS = [
-    { label:"5:30", val:"05:30" },
-    { label:"6:00", val:"06:00" },
-    { label:"6:30", val:"06:30" },
-    { label:"7:00", val:"07:00" },
-    { label:"7:30", val:"07:30" },
-    { label:"8:00", val:"08:00" },
-  ];
+  var PRESETS = (function() {
+    var now = Date.now();
+    return [
+      { label:"+30m", mins:30 },
+      { label:"+1h",  mins:60 },
+      { label:"+2h",  mins:120 },
+      { label:"+4h",  mins:240 },
+      { label:"+8h",  mins:480 },
+    ].map(function(p) {
+      var d = new Date(now + p.mins * 60 * 1000);
+      d.setSeconds(0, 0);
+      var val = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+      return { label: p.label, val: val };
+    });
+  }());
 
   function fmtDuration(mins) {
     if (mins < 60) return mins + "m";
     return Math.floor(mins/60) + "h " + (mins%60) + "m";
+  }
+
+  var isAndroid = /Android/i.test(navigator.userAgent);
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  function openNativeAlarm() {
+    var parts = wakeTime.split(':').map(Number);
+    var h = parts[0]; var m = parts[1];
+    if (isAndroid) {
+      // Android intent — opens Clock app with alarm pre-filled; user taps Save
+      var url = 'intent://set_alarm#Intent;action=android.intent.action.SET_ALARM;' +
+        'S.android.intent.extra.alarm.MESSAGE=DailyDigivolve%20Wake%20Up;' +
+        'i.android.intent.extra.alarm.HOUR=' + h + ';' +
+        'i.android.intent.extra.alarm.MINUTES=' + m + ';' +
+        'B.android.intent.extra.alarm.SKIP_UI=false;end';
+      window.location.href = url;
+    } else if (isIOS) {
+      // iOS has no alarm creation URL — just open Clock so user can set it manually
+      window.location.href = 'clock://';
+    }
   }
 
   return (
@@ -4944,11 +5163,26 @@ function RestModal({ sleepState, sleepLog, activeDigi, T, accent, onStart, onWak
             ☀ WAKE UP EARLY
           </button>
         ) : (
-          <button className="px8"
-            style={{ padding:"10px",background:T.lavender+"22",border:"2px solid "+T.lavender,color:T.lavender,cursor:"pointer",fontSize:"12px" }}
-            onClick={function(){ onStart(wakeTime); }}>
-            🌙 BEGIN REST — ALARM {wakeTime}
-          </button>
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            <button className="px8"
+              style={{ padding:"10px",background:T.lavender+"22",border:"2px solid "+T.lavender,color:T.lavender,cursor:"pointer",fontSize:"12px" }}
+              onClick={function(){ onStart(wakeTime); }}>
+              🌙 BEGIN REST — ALARM {wakeTime}
+            </button>
+            {(isAndroid || isIOS) && (
+              <button className="px8"
+                onClick={openNativeAlarm}
+                style={{ padding:"9px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"11px",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
+                <span>⏰</span>
+                <span>{isAndroid ? 'SET IN CLOCK APP — ' + wakeTime : 'OPEN CLOCK APP (SET MANUALLY)'}</span>
+              </button>
+            )}
+            {isIOS && (
+              <div style={{ fontSize:10,color:T.textDim,textAlign:"center",lineHeight:1.6 }}>
+                iOS doesn't allow apps to create alarms automatically. Set {wakeTime} manually in Clock as a backup.
+              </div>
+            )}
+          </div>
         )}
 
         {/* Sleep log */}
