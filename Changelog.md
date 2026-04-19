@@ -1048,27 +1048,213 @@ Types:
 
 ---
 
+## Session 11 — 2026-04-19
+
+### Crest Stage System
+
+[FEAT] Crest Stages — crests now level up through stages (0–5) as points accumulate
+       Each stage requires more total points; stage thresholds defined in CREST_STAGE_COSTS
+       Stage upgrades visible in Crests page and gated on evolution eligibility
+       crestStages object persisted on profiles row (JSONB)
+
+[FEAT] Crest-gated evolution — Champion+ evolutions now require minimum crest stage levels
+       CREST_STAGE_EVO_REQ defines primary/secondary stage minimums per evolution tier
+       checkEvoEligible() updated to validate crestStages against requirements
+       Stage shortfall shown in evo button tooltip ("Courage Stage 2 needed")
+
+### Login Reward Calendar
+
+[FEAT] Daily login rewards — 30-day calendar of escalating rewards
+       LOGIN_REWARDS array: bits, crest materials, armor digi credits, material selectors
+       Reward claimed once per calendar day via Jijimon prompt
+       Calendar modal shows all 30 days, claimed days ticked, today highlighted
+       Material selector rewards let tamer choose which crest material to receive
+       Persisted: login_day (int), last_login_reward_date (date), crest_materials (JSONB)
+
+### Tamer Level
+
+[FEAT] Tamer XP and level system — separate from partner Digimon XP
+       Tamer gains XP on task completion, Pomodoro sessions, and daily login
+       TAMER_XP_PER_LEVEL: flat 500 XP per level (no scaling)
+       TAMER_UNLOCKS: milestone features unlock at specific tamer levels
+       Tamer level shown in Tamer Profile modal header
+
+### Backgrounds
+
+[FEAT] Background selector — tamers can pick a stage background image
+       BACKGROUNDS array: Digital Dark (default), Morning Blue, Night Purple
+       Selected background applied to left-panel stage viewport
+       Preference persisted to profiles.selected_bg
+       Unlockable backgrounds gated behind tamer level milestones (TAMER_UNLOCKS)
+
+### Sprites
+
+[FEAT] Additional Digimon sprites added to public/sprites/
+       Grid-mode PNG spritesheets added for several Digimon lines
+       sprites.js updated with new entries
+
+### Deploy
+
+[DEPLOY] DV_VER bumped 10 → 11 — forces PWA hard reload for all installed instances
+[DEPLOY] Pushed to main → Cloudflare Pages auto-deploy
+
+---
+
+## Session 12 — 2026-04-20
+
+### Battle System Overhaul
+
+[FEAT] Auto-battler replaces manual tap-to-attack
+       Rounds auto-advance every 2.2 seconds via useEffect + setTimeout
+       Every 2nd round triggers a brain game minigame
+       Odd rounds auto-resolve immediately
+       No more tap-enemy grid — battle is now a spectator experience with optional input
+
+[FEAT] Brain game minigames — three types, one fires each even round
+       DigiCode (Focus Check):
+         - 4 tiles display with symbols (★ ◈ ▲ ◆)
+         - One tile glows for 900ms (reveal phase), then hides
+         - Player has 2.5s to tap the correct tile
+         - Success → focus_success: crit chance raised to 80% on next attack
+       Momentum Burst (Timing):
+         - Horizontal bar with a green zone (32–68%)
+         - Animated dot slides left-to-right over 2 seconds
+         - Tap to stop the dot; position calculated from timestamp delta (no animation state)
+         - Hit zone → momentum_success: guaranteed double-strike next round
+       Guard Wall (Direction Block):
+         - 4 direction arrows (↑ ↓ ← →)
+         - One glows for 900ms then hides
+         - Player has 2.5s to tap the correct direction
+         - Success → guard_success: incoming enemy damage reduced to 18% of normal
+       Auto-fail after 2.5s with no answer → resolves round with "fail" (no bonus, no penalty)
+
+[FEAT] All 4 battle stats now mechanically active
+       Power:    base attack damage (1.2 × Power − 0.8 × defender Guard)
+       Guard:    reduces incoming enemy damage (used in defender calc)
+       Focus:    crit chance (Focus / 200, max 30%); DigiCode success pushes to 80%
+       Momentum: double-strike chance (Momentum / 200, max 35%); Timing success guarantees it
+
+[FEAT] Smolder passive — burn DoT applied when attacker has "smolder" in passive text
+       Defender takes 12% of attacker Power per round for 3 rounds
+       Burn ticks appear in battle log with 🔥 icon
+
+[FEAT] Signature skill — fires automatically once when attacker drops below 50% HP
+       Deals 2.2 × attacker Power to first alive enemy
+       Logged with 💫 icon and skill name from digimon.js signature field
+
+[FEAT] calcBattleDamage updated to return { damage, crit } with opts parameter
+       opts.focusBonus: pushes crit chance to 80%
+       Replaces old single-number return; all callers updated
+
+[REFACTOR] resolveRoundLogic() — pure module-level function
+           Takes battleState snapshot + mgResult string, returns new battleState
+           Handles: player attack, crit, double-strike, burn DoT, enemy counter, signature, end check
+           buildMinigame(type) — pure factory, returns minigame state object
+
+### P.E.T. Compact Cards + Digimon Summary Modal
+
+[UI] P.E.T. team page redesigned — compact card layout
+     52px sprite + stage/level/personality badges + thin XP bar + INFO ▸ button
+     Cards fit 3-per-row on mobile; tappable to open full summary modal
+
+[FEAT] Digimon Summary Modal — Pokémon-style species profile popup
+       Sections: PROFILE (lore description), COMBAT (all 4 stats with coloured bars),
+       GROWTH (current XP / level, evolution path), DIGIVOLUTION (evo options)
+       renderStatBar() used as a plain function (not React component) to avoid render-time
+       component definition warnings
+
+### Digimon Lore Descriptions
+
+[FEAT] desc field added to digimon.js entries
+       Plain-language species lore shown in:
+         - Digimon Summary Modal (P.E.T. INFO button)
+         - Evolution animation overlay (below hatch animation)
+         - DigiDex detail modal (PROFILE section before BATTLE STATS)
+       Descriptions written for fans and newcomers alike
+
+[FEAT] Mokumon description added — ethereal smoke-body Baby, ember core, fire alignment
+[FEAT] PetiMeramon description added — fierce Digicore, fire bullets, weak to Water/Ice
+
+### Crest Visualisation
+
+[UI] Tamer Profile crest radar replaced with Crest Compass (SVG octagonal radar)
+     CrestCompass component: uses actual crest PNG icons at each axis node
+     Per-crest glow filters with feGaussianBlur; polygon fill scales by alignment %
+     Icons placed at outerR = 76% of half-size; polygon at 65% — icons sit outside the web
+     Filter IDs scoped per-instance by appending size to prevent SVG ID collisions
+
+[UI] Homepage crest widget replaced — was 160px CrestCompass (icons too small to read)
+     Now shows Tendency Strips: horizontal bars with raw point totals, sorted by value
+     Top crest bar fills 100%; all others scale relative; zero-point crests hidden
+
+[UI] Crests page ALIGNMENT PROFILE — replaced % bars with Tendency Strips
+     Shows raw point totals from crestProfile.totals (not percentages)
+     Rationale: % bars always look "incomplete" since crests are relative effort scores;
+     raw totals read as earned effort with no "unfilled" feeling
+
+### Digivolution Animation
+
+[FIX] Evo animation auto-closed after 3.2s — too fast to read the new desc text
+      Fix: removed auto-timeout entirely; overlay now requires a tap to dismiss
+      Entire overlay is a click target; "TAP TO CONTINUE" hint at bottom
+      evoIn keyframe changed from fade loop to one-shot scale-in (forwards fill)
+      New Digimon description shown below hatch animation when desc field exists
+
+### Jijimon 5am Recap
+
+[FIX] Jijimon catch-up recap was including tasks already completed yesterday
+      Fix: incomplete task filter now only surfaces tasks with no lastCompletedDate
+      matching yesterday — completed tasks are excluded from the recap list
+
+[FIX] Jijimon in catch-up prompt used mood="happy"; changed to mood="idle" (walk frames)
+      Reason: Jijimon standing alert/neutral is more appropriate for a solemn recap
+
+### Digivolve Race Condition
+
+[FIX] Evolution being undone — Realtime UPDATE event or refreshData() arriving during
+      digivolve() overwrote the optimistic party state with stale pre-evolution data
+      Fix: digiMutRef counter incremented before DB write; decremented after 3s timeout
+      Both applyDigimonPayload and refreshData check digiMutRef > 0 and skip party update
+      while a mutation is in flight — prevents any stale echo from reverting the evolution
+
+### Deploy
+
+[DEPLOY] DV_VER not yet bumped — do before next Cloudflare push
+[DEPLOY] Pushed to main (commit 3c447e7) → Cloudflare Pages deploy pending
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
 
-[x] Sleep wake-up notification — SW notification scheduled at exact wake timestamp ✅ Session 10
-[x] Service worker — background timer notifications for Pomodoro and sleep alarm ✅ Session 10
-[x] Wellness task template — Light crest now has a matching template ✅ Session 10
-[x] Same-day nap/siesta support — rest modal defaults and presets are now relative ✅ Session 10
+[x] Sleep wake-up notification ✅ Session 10
+[x] Service worker background timer notifications ✅ Session 10
+[x] Wellness task template ✅ Session 10
+[x] Same-day nap/siesta support ✅ Session 10
+[x] Crest stage system ✅ Session 11
+[x] Login reward calendar ✅ Session 11
+[x] Tamer level + unlocks ✅ Session 11
+[x] Auto-battler with brain games ✅ Session 12
+[x] All 4 battle stats mechanically active ✅ Session 12
+[x] Crest Compass + Tendency Strips ✅ Session 12
+[x] Digimon Summary Modal (P.E.T. INFO) ✅ Session 12
+[x] Digimon lore descriptions (desc field) ✅ Session 12 (Mokumon + PetiMeramon; others pending)
 
-[ ] Google Calendar export — "Add to Calendar" button on scheduled once tasks
-    Creates Google Calendar event via Calendar API or .ics file download
-    OAuth required for direct API sync; .ics file is simpler (manual import, no auth)
+[ ] Roster lore descriptions — add desc field to all remaining Digimon entries
+    Currently only Mokumon and PetiMeramon have desc; all others show no PROFILE section
 
-[ ] Bond display per digimon in team view — show each party member's individual bond bar
-    Currently only the active (slot 0) bond is shown in the left panel
+[ ] Minigame expansion — integrate brain games into PLAY button as standalone daily games
+    Concept: DigiCode / Timing Burst / Guard Wall playable outside battle for small bond/bit rewards
+    Future expansion: Wordle-style word game, pattern memory, reaction tests
+    These could become daily mini-challenges with streak bonuses
 
-[ ] Per-digimon bond on friends leaderboard — currently shows profiles.bond snapshot;
-    could be labelled as "partner bond" to clarify it reflects the active digimon
+[ ] Google Calendar export — "Add to Calendar" on scheduled once tasks (.ics or Calendar API)
 
-[ ] De-digivolution — slide evolution back when crest alignment diverges significantly
-[ ] DNA Digivolution — fusion evolution requiring two Digimon in party
+[ ] Bond display per digimon in team view — individual bond bar per party member card
+
+[ ] De-digivolution — slide evolution back when crest alignment diverges
+[ ] DNA Digivolution — fusion evolution requiring two party Digimon
 [ ] Pomodoro sessions tracked over time — weekly focus stats on Tamer Profile
 [ ] PvP sparring — async challenge between two tamers
 
@@ -1076,12 +1262,10 @@ Types:
 
 [ ] Campaign mode — story stages with escalating difficulty (beyond single raid event)
 [ ] Raid state as true community pool — shared totalDamage across all users via Supabase
-[ ] Crest Catalyst shop item — +3 to lowest active crest (1 per week) [defined, not yet in Store UI]
-[ ] Partner Vow shop item — enables vow evolution path [defined, not yet in Store UI]
-[ ] Onboarding: Jijimon animated sprite (replace placeholder GIF)
+[ ] Crest Catalyst shop item — +3 to lowest active crest (1 per week)
+[ ] Partner Vow shop item — enables vow evolution path
 [ ] Weekly focus stats — Pomodoro session history on Tamer Profile
-[ ] Apple Calendar / Reminders — .ics file export from task due dates (no auth needed)
-    Note: direct Apple Calendar API not accessible from web; .ics is the only browser path
+[ ] Apple Calendar / Reminders — .ics file export (.ics is the only browser path; no direct Apple Calendar API)
 
 ### Long-term
 
