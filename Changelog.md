@@ -1224,6 +1224,71 @@ Types:
 
 ---
 
+## Session 13 — 2026-04-28
+
+### Bond System Fix
+
+[FIX] Play action only updating bond for party[0], not all party members
+      Root cause: updateActiveBond() used setParty(p => ...) patching only p[0],
+      and supabase update targeted activeDigi.uid — both referencing the first slot only
+      Fix: rewrite playAction() to map over all party members, apply +1 bond to each,
+      use Promise.all() for parallel DB updates across the full party
+      Result: PetitMeramon, Renamon, and any non-leader partner now gain bond correctly
+
+### Task View — Quest Board Style
+
+[UI] Stripped visual clutter from task cards — removed: template name, type badge,
+     XP reward, crest reward tags, priority/urgency label
+     Rationale: cards should communicate "what to do" not "what you'll get"
+
+[UI] Crest icon now always visible on every task card (bottom-left)
+     Crest symbol shown without label — serves as a quest board reward hint
+
+[UI] ◈ toggle button per card — reveals full reward inline when tapped
+     Expanded state shows: type badge, XP, crest+amount, priority label
+     State tracked per card id in expandedCards object; does not persist on refresh
+
+[UI] Tap card body → opens detail popup (bottom sheet)
+     Popup shows: title, notes, full tag set, Complete + Edit quick actions
+     detailTask state; clicking outside or × closes it
+
+### Digimon Lore Descriptions — Batch 1
+
+[FEAT] desc field added to all 21 Baby stage Digimon
+       Mokumon description shortened from 68 words to 38 (was overflowing profile modal)
+       All others: 28-36 words, 2 sentences, lore-accurate + fan-accessible tone
+
+[FEAT] desc field added to all 26 In-Training stage Digimon
+       PetitMeramon desc retained from Session 12
+
+[FEAT] desc field added to Agumon full line (Agumon → VictoryGreymon, 9 entries)
+       Betamon, Seadramon, Airdramon descs added
+
+### Profile Modal — UX Fixes
+
+[FIX] Digimon profile modal close button (✕) unreachable on long descriptions
+      Root cause: outer backdrop was the scroll container; button scrolled off-screen
+      Fix: move overflowY:auto + flex:1 to the body div inside the card;
+      card itself is now display:flex + flexDirection:column + maxHeight:90vh
+      Close button stays pinned at top of card regardless of content length
+
+[UI] Modal backdrop padding adjusted for equal visual clearance
+     paddingTop:68px (52px nav height + 16px matching gap)
+     Bottom remains 16px — equal gap feel top and bottom
+     backdrop inset:0 preserved so overlay covers nav area cleanly
+
+### Heading
+
+[UI] Team view section heading changed from "P.E.T. — PARTNER EVOLUTION TERMINAL"
+     to "PARTNER EVOLUTION TERMINAL" — cleaner, no redundant prefix
+
+### Deploy
+
+[DEPLOY] Commit 57f0830 pushed to main → Cloudflare Pages auto-deploy triggered
+[DEPLOY] GitHub: securityguidebook/DailyDigivolve (note: repo casing updated by GitHub)
+
+---
+
 ## Features Pipeline
 
 ### Near-term (next sessions)
@@ -1241,8 +1306,14 @@ Types:
 [x] Digimon Summary Modal (P.E.T. INFO) ✅ Session 12
 [x] Digimon lore descriptions (desc field) ✅ Session 12 (Mokumon + PetiMeramon; others pending)
 
-[ ] Roster lore descriptions — add desc field to all remaining Digimon entries
-    Currently only Mokumon and PetiMeramon have desc; all others show no PROFILE section
+[x] Bond fix — play action now updates all party members ✅ Session 13
+[x] Task view cleanup — quest board style, crest icon always visible, ◈ expand toggle ✅ Session 13
+[x] Profile modal scrollable with pinned close button ✅ Session 13
+[x] Digimon lore descs — Baby + In-Training stages complete; Agumon line + Betamon/Airdramon ✅ Session 13
+
+[ ] Roster lore descriptions — complete remaining ~80 Digimon entries
+    Done: Baby (21), In-Training (26), Agumon line (9), Betamon/Seadramon/Airdramon (3)
+    Remaining: full Betamon line, Gabumon, Gaomon, Guilmon, all Rookie-Mega lines
 
 [ ] Minigame expansion — integrate brain games into PLAY button as standalone daily games
     Concept: DigiCode / Timing Burst / Guard Wall playable outside battle for small bond/bit rewards
