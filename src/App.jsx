@@ -1824,16 +1824,21 @@ export default function App({ session }) {
   // ── Play ──────────────────────────────────────────────────────────────────────
   async function playAction() {
     if (!playAvailable) return;
-    var newBond = clampBond(bond + 1);
     var today = new Date().toISOString().split('T')[0];
     var newBAT = Object.assign({}, bondActionsToday, { play: playUsedToday + 1, date: today });
-    await updateActiveBond(newBond); setBondActionsToday(newBAT);
+    var bonded = party.map(function(d) {
+      return Object.assign({}, d, { bond: clampBond((d.bond || 0) + 1) });
+    });
+    setParty(bonded);
+    await Promise.all(bonded.map(function(d) {
+      return supabase.from('digimon').update({ bond: d.bond }).eq('id', d.uid);
+    }));
+    if (bonded.length > 0) supabase.from('profiles').update({ bond: bonded[0].bond }).eq('id', userId);
+    setBondActionsToday(newBAT);
     showSpeechBubble("yay let's play! 🎮");
     addLog("🎮", "Played with " + (activeDigi ? activeDigi.name : "partner") + " +1 Bond");
     toast_("+1 Bond 🎮  " + (2-playUsedToday) + " plays left today", T.teal);
-    await supabase.from('profiles').update({
-      bond_actions_today: newBAT,
-    }).eq('id', userId);
+    await supabase.from('profiles').update({ bond_actions_today: newBAT }).eq('id', userId);
   }
 
   // ── Pomodoro ──────────────────────────────────────────────────────────────────
@@ -4144,7 +4149,7 @@ export default function App({ session }) {
             {page==="team"&&(
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div className="px12">P.E.T. — PARTNER EVOLUTION TERMINAL</div>
+                  <div className="px12">PARTNER EVOLUTION TERMINAL</div>
                   <span className="px8" style={{ color:accent }}>{party.length}/{MAX_PARTY_SIZE}</span>
                 </div>
                 {party.map(function(digi,i){
@@ -4220,8 +4225,8 @@ export default function App({ session }) {
                   };
 
                   return (
-                    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:640,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto" }}>
-                      <div style={{ background:T.bgCard,border:"2px solid "+(partyIdx===0?accent:T.border),boxShadow:"4px 4px 0 "+(partyIdx===0?accent:T.border),maxWidth:440,width:"100%",position:"relative" }}>
+                    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:640,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"68px 16px 16px" }}>
+                      <div style={{ background:T.bgCard,border:"2px solid "+(partyIdx===0?accent:T.border),boxShadow:"4px 4px 0 "+(partyIdx===0?accent:T.border),maxWidth:440,width:"100%",position:"relative",display:"flex",flexDirection:"column",maxHeight:"90vh" }}>
 
                         {/* Close */}
                         <button onClick={function(){ setPetSummary(null); }}
@@ -4245,7 +4250,7 @@ export default function App({ session }) {
                           </div>
                         </div>
 
-                        <div style={{ padding:"14px 20px",display:"flex",flexDirection:"column",gap:16 }}>
+                        <div style={{ padding:"14px 20px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto",flex:1 }}>
 
                           {/* Description */}
                           {inf2&&inf2.desc&&(
@@ -5539,12 +5544,19 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
   var [showAdd,        setShowAdd]        = useState(false);
   var [editId,         setEditId]         = useState(null);
   var [visibleDone,    setVisibleDone]    = useState(5);
+  var [detailTask,     setDetailTask]     = useState(null);
+  var [expandedCards,  setExpandedCards]  = useState({});
   var [form, setForm] = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
+
+  function toggleCardExpand(id, e) {
+    e.stopPropagation();
+    setExpandedCards(function(prev){ return Object.assign({}, prev, { [id]: !prev[id] }); });
+  }
 
   function reset(){ setForm({title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:""}); }
   function submitAdd(){ if(!form.title.trim())return; document.activeElement?.blur(); window.scrollTo(0,0); onAdd(form); reset(); setShowAdd(false); }
   function submitEdit(){ if(!editId||!form.title.trim())return; document.activeElement?.blur(); window.scrollTo(0,0); onEdit(editId,form); setEditId(null); reset(); }
-  function startEdit(t){ setEditId(t.id); setForm({title:t.title,template:t.template||"Neutral",priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
+  function startEdit(t){ setDetailTask(null); setEditId(t.id); setForm({title:t.title,template:t.template||"Neutral",priority:t.priority,difficulty:t.difficulty,type:t.type,notes:t.notes||"",daysOfWeek:t.daysOfWeek||[],dueDate:t.dueDate||""}); }
 
   var typeColor = { once:T.lavender, daily:T.teal, recurring:T.mint };
   var PRIO_ORDER = { Urgent:0, High:1, Medium:2, Low:3 };
@@ -5553,15 +5565,13 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
     return (PRIO_ORDER[a.priority]??99) - (PRIO_ORDER[b.priority]??99);
   });
   var compTasks = filtered.filter(function(t){ return t.done; }).sort(function(a,b){
-    // Newest completed first; tasks with no date sort to the very bottom
     var da = a.lastCompletedDate || '0000-00-00';
     var db = b.lastCompletedDate || '0000-00-00';
-    if (da > db) return -1; // a is more recent → a first
-    if (da < db) return 1;  // b is more recent → b first
+    if (da > db) return -1;
+    if (da < db) return 1;
     return 0;
   });
   var MAX_DONE  = 50;
-  // Template → primary crest image (via CREST_INFO) for compact filter tabs
   var TPL_CREST_CI = {
     "Workout":    CREST_INFO["Courage"],
     "Deep Work":  CREST_INFO["Knowledge"],
@@ -5574,9 +5584,15 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
     "Neutral":    null,
   };
 
+  // Detail popup for a pending task
+  var dt = detailTask;
+  var dtXp   = dt ? calcXpReward(dt, streak) : 0;
+  var dtCg   = dt ? calcCrestGain(dt.template, dt.difficulty) : null;
+  var dtStars = dt ? (dt.difficulty==="Hard"?3:dt.difficulty==="Medium"?2:1) : 0;
+
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-      {/* Template filter — crest images; type filter — original readable text */}
+      {/* Template filter */}
       <div style={{ display:"flex",gap:4,flexWrap:"wrap",alignItems:"center" }}>
         <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,flexShrink:0,flexWrap:"wrap" }}>
           {["All","Workout","Deep Work","Recovery","Maintenance","Social","Reflection","Challenge","Wellness","Neutral"].map(function(c){
@@ -5588,18 +5604,16 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
                 onClick={function(){ setFilterTpl(c); setVisibleDone(5); }}>
                 {c==="All"
                   ? <span className="px8" style={{ color:a?accent:T.textMid,fontSize:"10px" }}>ALL</span>
-                  : ci
-                    ? <CrestIcon ci={ci} size={18}/>
-                    : <span style={{ fontSize:13,color:a?accent:T.textDim }}>○</span>
+                  : ci ? <CrestIcon ci={ci} size={18}/> : <span style={{ fontSize:13,color:a?accent:T.textDim }}>○</span>
                 }
               </button>
             );
           })}
         </div>
         <div style={{ display:"flex",gap:0,border:"2px solid "+T.border,boxShadow:"2px 2px 0 "+T.border,flexShrink:0 }}>
-          {["All","once","daily","recurring"].map(function(t){
-            var a=filterType===t;
-            return <button key={t} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(t); setVisibleDone(5); }}>{t==="once"?"ONE-TIME":t.toUpperCase()}</button>;
+          {["All","once","daily","recurring"].map(function(tp){
+            var a=filterType===tp;
+            return <button key={tp} className="task-tab" style={{ background:a?T.bg:T.bgCard,color:a?accent:T.textMid }} onClick={function(){ setFilterType(tp); setVisibleDone(5); }}>{tp==="once"?"ONE-TIME":tp.toUpperCase()}</button>;
           })}
         </div>
       </div>
@@ -5612,37 +5626,45 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
       {filtered.length===0&&<div className="pcard" style={{ padding:40,textAlign:"center",color:T.textMid }}>No tasks found.</div>}
 
       {pendTasks.map(function(t){
-        var xp    = calcXpReward(t,streak);
-        var cg    = calcCrestGain(t.template, t.difficulty);
-        var stars = t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
+        var tci  = TPL_CREST_CI[t.template];
+        var txp  = calcXpReward(t, streak);
+        var tcg  = calcCrestGain(t.template, t.difficulty);
+        var expanded = !!expandedCards[t.id];
         return (
           <div key={t.id}>
             {editId===t.id
               ? <TaskForm form={form} setForm={setForm} onSubmit={submitEdit} onCancel={function(){document.activeElement?.blur();setEditId(null);reset();}} label="SAVE" accent={accent} T={T}/>
               : (
-                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()}>
-                  <div className="task-check" onClick={function(){ onComplete(t.id); }}>
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:14,fontWeight:800 }}>{t.title}</div>
-                    {t.notes&&<div style={{ fontSize:11,color:T.textMid,marginTop:2 }}>{t.notes}</div>}
-                    <div style={{ display:"flex",gap:6,marginTop:6,flexWrap:"wrap",alignItems:"center" }}>
-                      {cg&&<span style={{ display:"inline-flex",alignItems:"center" }}><CrestIcon ci={CREST_INFO[cg.primaryCrest]} size={14}/></span>}
-                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"11px" }}>{t.template}</span>
-                      <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"11px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
-                      <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"11px" }}>+{xp} XP</span>
-                      {cg&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(CREST_INFO[cg.primaryCrest]?.color||T.border),color:CREST_INFO[cg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"11px" }}>+{cg.primary} {cg.primaryCrest}</span>}
-                      <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"11px" }}>{t.priority.toUpperCase()}</span>
-                      {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px" }}>🔥 {t.streak}D</span>}
-                      {t.dueDate&&t.type==='once'&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+T.teal,color:T.teal,background:T.bgPanel,fontSize:"11px" }}>📅 {t.dueDate}</span>}
+                <div className={"task-card tc-"+(t.priority||"low").toLowerCase()} style={{ cursor:"pointer" }}
+                  onClick={function(e){
+                    if (e.target.closest('.task-check')||e.target.closest('button')) return;
+                    setDetailTask(detailTask&&detailTask.id===t.id ? null : t);
+                  }}>
+                  <div className="task-check" onClick={function(e){ e.stopPropagation(); onComplete(t.id); }}></div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      {tci&&<CrestIcon ci={tci} size={14}/>}
+                      <div style={{ fontSize:14,fontWeight:800 }}>{t.title}</div>
                     </div>
+                    {expanded&&(
+                      <div style={{ display:"flex",gap:5,marginTop:6,flexWrap:"wrap",alignItems:"center" }}>
+                        <span className="px8" style={{ padding:"2px 6px",background:T.bgPanel,border:"1.5px solid "+(typeColor[t.type]||T.border),color:typeColor[t.type]||T.textMid,fontSize:"10px" }}>{t.type==="once"?"ONE-TIME":t.type.toUpperCase()}</span>
+                        <span className="px8" style={{ padding:"2px 6px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"10px" }}>+{txp} XP</span>
+                        {tcg&&<span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(CREST_INFO[tcg.primaryCrest]?.color||T.border),color:CREST_INFO[tcg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"10px",display:"inline-flex",alignItems:"center",gap:3 }}><CrestIcon ci={CREST_INFO[tcg.primaryCrest]} size={10}/>+{tcg.primary} {tcg.primaryCrest}</span>}
+                        <span className="px8" style={{ padding:"2px 6px",border:"1.5px solid "+(PCOL[t.priority]||T.border),color:PCOL[t.priority]||T.text,background:T.bgPanel,fontSize:"10px" }}>{t.priority.toUpperCase()}</span>
+                      </div>
+                    )}
+                    {((t.streak||0)>0||t.dueDate)&&(
+                      <div style={{ display:"flex",gap:6,marginTop:4,alignItems:"center" }}>
+                        {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px" }}>🔥 {t.streak}D</span>}
+                        {t.dueDate&&t.type==='once'&&<span className="px8" style={{ color:T.teal,fontSize:"11px" }}>📅 {t.dueDate}</span>}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
-                    <div style={{ display:"flex",gap:2 }}>{[1,2,3,4].map(function(n){return <span key={n} style={{ fontSize:13,color:n<=stars?T.gold:T.textDim }}>★</span>;})}</div>
-                    <div style={{ display:"flex",gap:4 }}>
-                      <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:14,padding:"2px 4px" }} onClick={function(){startEdit(t);}}>✏</button>
-                      <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }} onClick={function(){onDelete(t.id);}}>×</button>
-                    </div>
+                  <div style={{ display:"flex",gap:2,alignItems:"center",flexShrink:0 }}>
+                    <button style={{ background:"none",border:"none",color:expanded?accent:T.textDim,cursor:"pointer",fontSize:13,padding:"2px 5px",lineHeight:1 }} title="Toggle rewards" onClick={function(e){ toggleCardExpand(t.id,e); }}>◈</button>
+                    <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:14,padding:"2px 4px" }} onClick={function(e){e.stopPropagation();startEdit(t);}}>✏</button>
+                    <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }} onClick={function(e){e.stopPropagation();onDelete(t.id);}}>×</button>
                   </div>
                 </div>
               )
@@ -5651,12 +5673,46 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
         );
       })}
 
-      {/* ── Completed tasks (paginated, max 15) ─────────────────────────── */}
+      {/* ── Task detail popup ─────────────────────────────────────────────── */}
+      {dt&&!editId&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:800,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 28px" }}
+          onClick={function(){ setDetailTask(null); }}>
+          <div style={{ background:T.bgCard,border:"2px solid "+T.border,boxShadow:"4px 4px 0 "+T.border,maxWidth:480,width:"calc(100% - 32px)",padding:20,display:"flex",flexDirection:"column",gap:14 }}
+            onClick={function(e){ e.stopPropagation(); }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12 }}>
+              <div style={{ fontSize:15,fontWeight:900,color:T.text,lineHeight:1.4 }}>{dt.title}</div>
+              <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:20,padding:0,lineHeight:1,flexShrink:0 }} onClick={function(){ setDetailTask(null); }}>×</button>
+            </div>
+            {dt.notes&&<div style={{ fontSize:12,color:T.textMid,lineHeight:1.6 }}>{dt.notes}</div>}
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap",alignItems:"center" }}>
+              <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+T.border,color:T.textMid,background:T.bgPanel,fontSize:"11px" }}>{dt.template}</span>
+              <span className="px8" style={{ padding:"3px 8px",background:T.bgPanel,border:"1.5px solid "+(typeColor[dt.type]||T.border),color:typeColor[dt.type]||T.textMid,fontSize:"11px" }}>{dt.type==="once"?"ONE-TIME":dt.type.toUpperCase()}</span>
+              <span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+(PCOL[dt.priority]||T.border),color:PCOL[dt.priority]||T.text,background:T.bgPanel,fontSize:"11px" }}>{dt.priority.toUpperCase()}</span>
+              <span className="px8" style={{ padding:"3px 8px",background:"#1a1500",border:"1.5px solid "+T.gold,color:T.gold,fontSize:"11px" }}>+{dtXp} XP</span>
+              {dtCg&&<span className="px8" style={{ padding:"3px 8px",border:"1.5px solid "+(CREST_INFO[dtCg.primaryCrest]?.color||T.border),color:CREST_INFO[dtCg.primaryCrest]?.color||T.textMid,background:T.bgPanel,fontSize:"11px",display:"inline-flex",alignItems:"center",gap:4 }}><CrestIcon ci={CREST_INFO[dtCg.primaryCrest]} size={12}/>+{dtCg.primary} {dtCg.primaryCrest}</span>}
+              <span style={{ display:"inline-flex",gap:2 }}>{[1,2,3].map(function(n){return <span key={n} style={{ fontSize:12,color:n<=dtStars?T.gold:T.textDim }}>★</span>;})}</span>
+              {(dt.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px" }}>🔥 {dt.streak}D streak</span>}
+              {dt.dueDate&&dt.type==='once'&&<span className="px8" style={{ color:T.teal,fontSize:"11px" }}>📅 {dt.dueDate}</span>}
+            </div>
+            <div style={{ display:"flex",gap:8 }}>
+              <button className="px8" style={{ flex:1,padding:"10px",background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",fontSize:"12px",fontWeight:800 }}
+                onClick={function(){ onComplete(dt.id); setDetailTask(null); }}>
+                ✓ COMPLETE
+              </button>
+              <button className="px8" style={{ padding:"10px 14px",background:"transparent",border:"2px solid "+T.border,color:T.textMid,cursor:"pointer",fontSize:"12px" }}
+                onClick={function(){ startEdit(dt); }}>
+                ✏ EDIT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Completed tasks ───────────────────────────────────────────────── */}
       {compTasks.length>0&&(
         <div style={{ display:"flex",flexDirection:"column",gap:8,marginTop:4 }}>
           <div className="sec-label">✓ COMPLETED ({compTasks.length})</div>
           {compTasks.slice(0, visibleDone).map(function(t){
-            var stars = t.difficulty==="Hard"?3:t.difficulty==="Medium"?2:1;
             return (
               <div key={t.id} className="task-card done tc-low">
                 <div className="task-check checked"><span style={{ fontSize:13,fontWeight:900,color:"white",lineHeight:1 }}>✓</span></div>
@@ -5664,10 +5720,7 @@ function TasksPage({ tasks, onComplete, onAdd, onEdit, onDelete, onReschedule, a
                   <div style={{ fontSize:14,fontWeight:800,color:T.textMid,textDecoration:"line-through" }}>{t.title}</div>
                   {(t.streak||0)>0&&<span className="px8" style={{ color:T.coral,fontSize:"11px",marginTop:2,display:"block" }}>🔥 {t.streak}D streak</span>}
                 </div>
-                <div style={{ display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6 }}>
-                  <div style={{ display:"flex",gap:2 }}>{[1,2,3,4].map(function(n){return <span key={n} style={{ fontSize:11,color:n<=stars?T.gold:T.textDim }}>★</span>;})}</div>
-                  <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }} onClick={function(){onDelete(t.id);}}>×</button>
-                </div>
+                <button style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:18,padding:"2px 4px",lineHeight:1 }} onClick={function(){onDelete(t.id);}}>×</button>
               </div>
             );
           })}
