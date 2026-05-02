@@ -211,6 +211,7 @@ export const SPRITE_CONFIG = {
   whamon:              { ...G },
   marinangemon:        { ...G },
   jijimon:             { mode:"frames", frameCount:12, fps:6 },
+  babamon:             { mode:"frames", frameCount:12, fps:6 },
 
   // ── Betamon line — Sea Dragon ─────────────────────────────────────────────
   betamon:             { mode:"frames", frameCount:12, fps:6 },

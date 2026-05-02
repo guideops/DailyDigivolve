@@ -6,6 +6,7 @@ import DigiEgg from "./components/DigiEgg.jsx";
 import OnboardingFlow from "./components/OnboardingFlow.jsx";
 import { Bar } from "./components/ui.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
+import HearthPage from "./pages/HearthPage.jsx";
 import { DIGIMON_MAP } from "./data/digimon.js";
 import {
   STAGE_COLOR, ATTR_COLOR, PRIORITY_COLORS, TASK_TEMPLATES, DAYS_OF_WEEK,
@@ -32,9 +33,22 @@ var PCOL = { Low:T.lavender, Medium:T.teal, High:T.coral, Urgent:T.red };
 
 // ── Background definitions ─────────────────────────────────────────────────────
 var BACKGROUNDS = [
-  { id:"default",      label:"Digital Dark",  thumb:null,                     url:null,                           category:"default" },
-  { id:"morning_blu",  label:"Morning Blue",  thumb:"/backgrounds/bg_morning_blu.jpg", url:"/backgrounds/bg_morning_blu.jpg", category:"morning" },
-  { id:"night_pur",    label:"Night Purple",  thumb:"/backgrounds/bg_night_pur.jpg",   url:"/backgrounds/bg_night_pur.jpg",   category:"night" },
+  { id:"default",        label:"Digital Dark",   thumb:null,                              url:null,                              category:"default",
+    story:"In the beginning there was only data and darkness. The first Digimon arose from these primordial streams, and the Digital World bloomed from that quiet void into everything we know today." },
+  { id:"morning_blu",    label:"Morning Blue",   thumb:"/backgrounds/bg_morning_blu.jpg", url:"/backgrounds/bg_morning_blu.jpg", category:"morning",
+    story:"In the age of Morning Blue skies, Angemon descended from the Server Continent and peace-loving Digimon came out to greet the dawn. Birdramon soared overhead, her great wings catching the first golden light of a new era." },
+  { id:"night_pur",      label:"Night Purple",   thumb:"/backgrounds/bg_night_pur.jpg",   url:"/backgrounds/bg_night_pur.jpg",   category:"night",
+    story:"During the Night Purple hours, Wizardmon would wander the data streams alone — a curious wanderer who carried every secret of the Digital World in his heart, yet never once forgot a single friend he made along the way." },
+  { id:"file_island",    label:"File Island",    thumb:"/backgrounds/bg_file_island.jpg", url:"/backgrounds/bg_file_island.jpg", category:"forest",
+    story:"Ah, File Island... the cradle of so many stories. It is where Agumon first met his Tamer, where Gabumon sang to the frozen wind, and where the bonds between humans and Digimon were first truly forged. I always feel at home when I think of it." },
+  { id:"server_savanna", label:"Server Savanna", thumb:"/backgrounds/bg_server_savanna.jpg", url:"/backgrounds/bg_server_savanna.jpg", category:"plains",
+    story:"The Server Continent stretches wide and golden under an open sky, where Garurumon runs free on silver paws. Not far from here, Elecmon tends lovingly to the in-training Digimon of Primary Village — a warm and bustling nursery full of life." },
+  { id:"net_ocean",      label:"Net Ocean",      thumb:"/backgrounds/bg_net_ocean.jpg",   url:"/backgrounds/bg_net_ocean.jpg",   category:"ocean",
+    story:"The Net Ocean holds more mysteries than even I can count, little one. Gomamon makes friends with every wave that crosses its path, and somewhere deep in the ancient currents, Seadramon guards secrets older than the Digital World itself." },
+  { id:"folder_tundra",  label:"Folder Tundra",  thumb:"/backgrounds/bg_folder_tundra.jpg", url:"/backgrounds/bg_folder_tundra.jpg", category:"snow",
+    story:"The Folder Continent's northern tundra is cold, but its heart is always warm. Frigimon and Yukidarumon keep each other company through the long winters, sharing stories much like you and I do now. Good company makes any cold bearable." },
+  { id:"ancient_ruins",  label:"Ancient Ruins",  thumb:"/backgrounds/bg_ancient_ruins.jpg", url:"/backgrounds/bg_ancient_ruins.jpg", category:"ruins",
+    story:"These ruins speak of an age before Tamers, when Leomon stood alone as guardian of justice and Meramon's eternal flames lit the sky red. Much was lost in the ancient wars... but the courage those Digimon showed endures in every heart to this day." },
 ];
 
 function px(c){ return { border:"2px solid "+(c||T.pixelBorder), boxShadow:"3px 3px 0 "+(c||T.pixelBorder) }; }
@@ -64,6 +78,7 @@ var NAV_GROUPS = [
       { id:"campaign", label:"BREACH",    icon:"☠" },
       { id:"store",    label:"STORE",     icon:"🛒" },
       { id:"network",  label:"NETWORK",   icon:"🔗" },
+      { id:"hearth",   label:"HEARTH",    icon:"🏡" },
     ]
   },
 ];
@@ -374,6 +389,8 @@ export default function App({ session }) {
   var [showTamerProfile, setShowTamerProfile] = useState(false);
   var [tamerName,        setTamerName]        = useState("Tamer");
   var [editingName,      setEditingName]      = useState(false);
+  var [tamerLocation,    setTamerLocation]    = useState("");
+  var [editingLocation,  setEditingLocation]  = useState(false);
   var [petX,             setPetX]             = useState(0);   // horizontal offset px in pet stage
   var [petFacingRight,   setPetFacingRight]   = useState(false);
   var [digidexEntry,     setDigidexEntry]     = useState(null); // selected digimon for detail modal
@@ -413,7 +430,7 @@ export default function App({ session }) {
     if (localStorage.getItem('dv_force_mobile') === 'true') return true;
     return window.innerWidth <= 768;
   });
-  var [showMobileMore, setShowMobileMore] = useState(false);
+  var [mobilePopup, setMobilePopup] = useState(null);
   // Quick-add task modal (launched from dashboard)
   var [showQuickAdd,     setShowQuickAdd]     = useState(false);
   var [quickAddForm,     setQuickAddForm]     = useState({ title:"",template:"Workout",priority:"Medium",difficulty:"Medium",type:"once",notes:"",daysOfWeek:[],dueDate:"" });
@@ -433,6 +450,7 @@ export default function App({ session }) {
   var [pendingLoginReward,   setPendingLoginReward]   = useState(null);
   var [loginRewardSel,       setLoginRewardSel]       = useState(null); // chosen crest for selector rewards
   var [showRewardCalendar,   setShowRewardCalendar]   = useState(false);
+  var [calendarPage,         setCalendarPage]         = useState(0); // 0 = days 1-30, 1 = days 31-60
   // Tamer level
   var [tamerLevel,           setTamerLevel]           = useState(1);
   var [tamerXp,              setTamerXp]              = useState(0);
@@ -472,6 +490,7 @@ export default function App({ session }) {
       if (profile) {
         setBits(profile.bits || 350);
         setTamerName(profile.display_name || "Tamer");
+        setTamerLocation(profile.location || "");
         setSelectedBg(profile.background_id || "default");
         setWeeklyDigimon(profile.weekly_digimon || {});
 
@@ -713,28 +732,29 @@ export default function App({ session }) {
         }).map(mapTask));
         setAllTasks(tasksData.map(mapTask)); // full list for week view
       }
-      // ── Catch-up prompt (past 5am, once per day, if tasks were missed yesterday) ─
+      // ── Carryover tasks prompt (past 5am local time, once per day) ───────────
       if (tasksData) {
         var nowLocal   = new Date();
         var localHour  = nowLocal.getHours();
-        var todayISO   = nowLocal.toISOString().split('T')[0];                              // UTC today — matches last_completed_date storage
-        var yestDate   = new Date(nowLocal.getTime() - 86400000);
-        var yestISO    = yestDate.toISOString().split('T')[0];                              // UTC yesterday
-        var yestDay    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][yestDate.getDay()];    // local day name for recurring task check
+        // Local date strings — consistent with how task last_completed_date is stored
+        var todayLocalStr = nowLocal.getFullYear()+'-'+String(nowLocal.getMonth()+1).padStart(2,'0')+'-'+String(nowLocal.getDate()).padStart(2,'0');
+        var _ydCup = new Date(nowLocal); _ydCup.setDate(_ydCup.getDate()-1);
+        var yestLocalStr  = _ydCup.getFullYear()+'-'+String(_ydCup.getMonth()+1).padStart(2,'0')+'-'+String(_ydCup.getDate()).padStart(2,'0');
+        var yestDay    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][_ydCup.getDay()];
         var catchupKey = 'dv_catchup_' + userId;
         // Check both localStorage (fast, device-local) AND Supabase profile (cross-device)
         var lastCatchupLocal = localStorage.getItem(catchupKey);
         var lastCatchupServer = profile ? (profile.catchup_last_seen || null) : null;
-        var alreadySeenToday = (lastCatchupLocal === todayISO) || (lastCatchupServer === todayISO);
+        var alreadySeenToday = (lastCatchupLocal === todayLocalStr) || (lastCatchupServer === todayLocalStr);
 
         if (localHour >= 5 && !alreadySeenToday) {
           var missedRaw = tasksData.filter(function(t) {
-            if (t.type === 'daily') return t.last_completed_date !== yestISO;
+            if (t.type === 'daily') return t.last_completed_date !== yestLocalStr;
             if (t.type === 'recurring') {
               var days = t.days_of_week || [];
-              return days.includes(yestDay) && t.last_completed_date !== yestISO;
+              return days.includes(yestDay) && t.last_completed_date !== yestLocalStr;
             }
-            if (t.type === 'once') return t.due_date === yestISO && !t.done;
+            if (t.type === 'once') return t.due_date === yestLocalStr && !t.done;
             return false;
           });
           if (missedRaw.length > 0) {
@@ -749,9 +769,9 @@ export default function App({ session }) {
             catchupLineRef.current = CATCHUP_LINES[Math.floor(Math.random() * CATCHUP_LINES.length)];
             setCatchupChecked({});
             setShowCatchupModal(true);
-            // Persist seen-date to both localStorage and Supabase so it's cross-device
-            localStorage.setItem(catchupKey, todayISO);
-            supabase.from('profiles').update({ catchup_last_seen: todayISO }).eq('id', userId);
+            // Mark seen for today in both localStorage and Supabase — skipping won't re-show it
+            localStorage.setItem(catchupKey, todayLocalStr);
+            supabase.from('profiles').update({ catchup_last_seen: todayLocalStr }).eq('id', userId);
           }
         }
       }
@@ -776,6 +796,7 @@ export default function App({ session }) {
     if (profile) {
       setBits(profile.bits || 350);
       if (profile.display_name) setTamerName(profile.display_name);
+      if (profile.location !== undefined) setTamerLocation(profile.location || "");
       setSelectedBg(profile.background_id || "default");
       setCrestHistory(profile.crest_history || []);
       setCrestMaterials(profile.crest_materials || {});
@@ -1460,6 +1481,14 @@ export default function App({ session }) {
     if (error) toast_("Name save failed — try again", T.coral);
   }
 
+  // ── Tamer location ──────────────────────────────────────────────────────────
+  async function saveTamerLocation(loc) {
+    var trimmed = (loc || "").trim().slice(0, 50);
+    setTamerLocation(trimmed);
+    setEditingLocation(false);
+    await supabase.from('profiles').update({ location: trimmed }).eq('id', userId);
+  }
+
   // ── Set party leader ────────────────────────────────────────────────────────
   async function setLeader(uid) {
     var idx = party.findIndex(function(d){ return d.uid === uid; });
@@ -1762,8 +1791,8 @@ export default function App({ session }) {
 
     await supabase.from('profiles').update({ crest_history: newHistory, bond_actions_today: newBAT }).eq('id', userId);
 
-    addLog("🌟", "Yesterday's rewards claimed! +" + totalXp + " XP across " + claimed.length + " task(s)");
-    toast_("Catch-up rewards claimed! +" + totalXp + " XP 🌟", T.gold);
+    addLog("🌟", "Carryover tasks claimed! +" + totalXp + " XP across " + claimed.length + " task(s)");
+    toast_("Carryover rewards claimed! +" + totalXp + " XP 🌟", T.gold);
   }
 
   // ── Evolution ─────────────────────────────────────────────────────────────────
@@ -2274,7 +2303,7 @@ export default function App({ session }) {
 
     /* PET tab — left-col fills the screen, main-content hidden */
     .is-mobile.pet-page .left-col,
-    .pet-page .left-col { display:flex !important; flex:1 !important; min-height:0 !important; overflow-y:auto !important; border-right:none !important; padding:14px 14px 16px !important; }
+    .pet-page .left-col { display:flex !important; flex:1 !important; min-height:0 !important; overflow-y:auto !important; border-right:none !important; padding:0 !important; }
     .is-mobile.pet-page .main-content,
     .pet-page .main-content { display:none !important; }
 
@@ -2785,6 +2814,26 @@ export default function App({ session }) {
                 </div>
               </div>
 
+              {/* Location */}
+              <div style={{ background:T.bgPanel,border:"1.5px solid "+T.border,padding:"10px 14px" }}>
+                <div className="px8" style={{ color:T.textDim,fontSize:"10px",marginBottom:6 }}>TAMER LOCATION</div>
+                {editingLocation ? (
+                  <form style={{ display:"flex",gap:6,alignItems:"center" }}
+                    onSubmit={function(e){ e.preventDefault(); saveTamerLocation(e.target.elements.loc.value); }}>
+                    <input name="loc" defaultValue={tamerLocation} maxLength={50} autoFocus placeholder="e.g. Tokyo, Japan"
+                      style={{ fontFamily:"'Press Start 2P',monospace",fontSize:10,color:T.text,background:T.bgCard,border:"2px solid "+accent,padding:"4px 8px",outline:"none",flex:1,minWidth:0 }}/>
+                    <button type="submit" style={{ background:accent+"22",border:"2px solid "+accent,color:accent,cursor:"pointer",padding:"4px 8px",fontFamily:"'Press Start 2P',monospace",fontSize:"10px" }}>✓</button>
+                    <button type="button" onClick={function(){ setEditingLocation(false); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:14,padding:"0 2px" }}>×</button>
+                  </form>
+                ) : (
+                  <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                    <div style={{ fontSize:12,color:tamerLocation?T.text:T.textDim }}>{tamerLocation || "Not set"}</div>
+                    <button onClick={function(){ setEditingLocation(true); }} style={{ background:"none",border:"none",color:T.textDim,cursor:"pointer",fontSize:11,padding:0 }} title="Edit location">✏</button>
+                  </div>
+                )}
+                <div style={{ fontSize:"9px",color:T.textDim,marginTop:5,lineHeight:1.5 }}>Used to identify your local time zone for carryover tasks</div>
+              </div>
+
               {/* Stats grid */}
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                 {[
@@ -2832,24 +2881,6 @@ export default function App({ session }) {
                 </div>
               </div>
 
-              {/* DigiDestined journey */}
-              {allDisc.length > 0 && (
-                <div>
-                  <div className="px8" style={{ color:T.textMid,marginBottom:8,fontSize:"12px" }}>DIGIVOLUTION JOURNEY</div>
-                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                    {allDisc.map(function(id){
-                      var di = DIGIMON_MAP[id]; if(!di) return null;
-                      return (
-                        <div key={id} title={di.name} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"6px 8px",border:"1.5px solid "+T.border,background:T.bgPanel }}>
-                          <DigiSprite digimonId={id} size={28} animate mood="walk"/>
-                          <div className="px8" style={{ color:T.textMid,fontSize:"10px" }}>{di.name}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {/* Lore flavour */}
               <div style={{ background:"linear-gradient(135deg,#1a1400,#1a1a00)",border:"1.5px solid "+T.gold+"44",padding:"12px 14px" }}>
                 <div className="px8" style={{ color:T.gold,marginBottom:6,fontSize:"11px" }}>✦ TAMER'S OATH</div>
@@ -2858,27 +2889,15 @@ export default function App({ session }) {
                 </div>
               </div>
 
-              {/* Background picker */}
-              <div>
-                <div className="px8" style={{ color:T.textMid,marginBottom:10,fontSize:"12px" }}>BACKGROUND</div>
-                <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                  {BACKGROUNDS.map(function(bg){
-                    var isActive = selectedBg === bg.id;
-                    return (
-                      <div key={bg.id} onClick={function(){ saveBackground(bg.id); }}
-                        style={{ cursor:"pointer",border:"2px solid "+(isActive?accent:T.border),boxShadow:isActive?"3px 3px 0 "+accent:"none",borderRadius:0,overflow:"hidden",width:90,flexShrink:0,transition:"border-color 0.1s,box-shadow 0.1s" }}>
-                        {bg.url ? (
-                          <img src={bg.url} alt={bg.label} style={{ width:"100%",height:54,objectFit:"cover",display:"block" }}/>
-                        ) : (
-                          <div style={{ width:"100%",height:54,background:"#0d0f14",display:"grid",placeItems:"center" }}>
-                            <span style={{ fontSize:18 }}>🌑</span>
-                          </div>
-                        )}
-                        <div className="px8" style={{ padding:"4px 5px",fontSize:"9px",color:isActive?accent:T.textMid,background:T.bgPanel,textAlign:"center" }}>{bg.label}</div>
-                      </div>
-                    );
-                  })}
-                </div>
+              {/* Hearth callout — Journey & Background moved to Babamon's Hearth */}
+              <div style={{ background:"linear-gradient(135deg,#1a0f00,#1a1400)",border:"1.5px solid #FFB34744",padding:"14px 16px",display:"flex",flexDirection:"column",gap:8 }}>
+                <div className="px8" style={{ color:"#FFB347",fontSize:"11px" }}>🏡 BABAMON'S HEARTH</div>
+                <div style={{ fontSize:11,color:"#c8b89a",lineHeight:1.6 }}>Visit Babamon to relive your Digivolution Journey, hear Digimon tales, and set your world backdrop.</div>
+                <button className="px8"
+                  onClick={function(){ setShowTamerProfile(false); setPage("hearth"); }}
+                  style={{ alignSelf:"flex-start",padding:"6px 12px",background:"#FFB34722",border:"1.5px solid #FFB34788",color:"#FFB347",cursor:"pointer",fontSize:"10px" }}>
+                  Go to Hearth →
+                </button>
               </div>
 
               {/* Danger zone */}
@@ -3275,19 +3294,37 @@ export default function App({ session }) {
             </div>
             {/* Calendar grid */}
             <div style={{ overflowY:"auto",padding:"14px 16px" }}>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4 }}>
-                {LOGIN_REWARDS.map(function(r){
+              {/* Page nav */}
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
+                <button onClick={function(){ setCalendarPage(0); }} disabled={calendarPage===0}
+                  style={{ background:"transparent",border:"1.5px solid "+(calendarPage===0?T.border:T.gold),color:calendarPage===0?T.textDim:T.gold,cursor:calendarPage===0?"default":"pointer",padding:"3px 10px",fontSize:13,lineHeight:1 }}>◀</button>
+                <span style={{ fontSize:11,color:T.textMid }}>Days {calendarPage===0?"1–30":"31–60"}</span>
+                <button onClick={function(){ setCalendarPage(1); }} disabled={calendarPage===1}
+                  style={{ background:"transparent",border:"1.5px solid "+(calendarPage===1?T.border:T.gold),color:calendarPage===1?T.textDim:T.gold,cursor:calendarPage===1?"default":"pointer",padding:"3px 10px",fontSize:13,lineHeight:1 }}>▶</button>
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:4 }}>
+                {LOGIN_REWARDS.filter(function(r){ return calendarPage===0 ? r.day<=30 : r.day>30; }).map(function(r){
                   var isPast    = r.day <= loginDay;
                   var isToday   = r.day === loginDay + 1;
                   var isMile    = r.day === 30 || r.day === 60;
                   var isWeek7   = r.day % 7 === 0;
                   var borderCol = isPast ? T.textDim : isToday ? T.teal : isMile ? T.gold : isWeek7 ? T.lavender : T.border;
                   var bg        = isPast ? T.textDim+"10" : isToday ? T.teal+"18" : isMile ? T.gold+"18" : isWeek7 ? T.lavender+"12" : T.bgPanel;
-                  var icon      = r.digitamaSelector ? "🥚" : r.armorDigi ? "⚔️" : r.materialSelector ? "💫" : r.material ? (CREST_INFO[r.material.crest]?.icon || "💎") : "🪙";
+                  var iconEl = isPast
+                    ? <span style={{ fontSize:14 }}>✓</span>
+                    : r.digitamaSelector
+                      ? <span style={{ fontSize:14 }}>🥚</span>
+                      : r.armorDigi
+                        ? <span style={{ fontSize:14 }}>⚔️</span>
+                        : r.materialSelector
+                          ? <span style={{ fontSize:14 }}>💫</span>
+                          : r.material
+                            ? <CrestIcon ci={CREST_INFO[r.material.crest]} size={16} />
+                            : <span style={{ fontSize:14 }}>🪙</span>;
                   return (
                     <div key={r.day} style={{ border:"1.5px solid "+borderCol,background:bg,padding:"6px 4px",textAlign:"center",position:"relative",opacity:isPast?0.5:1 }}>
                       <div style={{ fontSize:9,color:isPast?T.textDim:isToday?T.teal:isMile?T.gold:T.textMid,fontWeight:isToday||isMile?900:400,marginBottom:2 }}>{r.day}</div>
-                      <div style={{ fontSize:14 }}>{isPast?"✓":icon}</div>
+                      <div style={{ lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",minHeight:16 }}>{iconEl}</div>
                       {r.bits > 0 && !isPast && <div style={{ fontSize:8,color:T.gold,marginTop:1 }}>+{r.bits}</div>}
                     </div>
                   );
@@ -3324,7 +3361,7 @@ export default function App({ session }) {
               <div style={{ background:T.gold+"18",borderBottom:"2px solid "+T.gold+"44",padding:"14px 18px",display:"flex",alignItems:"center",gap:12 }}>
                 <div style={{ fontSize:30 }}>📋</div>
                 <div>
-                  <div className="px10" style={{ color:T.gold }}>YESTERDAY'S QUESTS</div>
+                  <div className="px10" style={{ color:T.gold }}>CARRYOVER TASKS</div>
                   <div className="px8" style={{ color:T.textMid,fontSize:"10px",marginTop:2 }}>Uncollected rewards — claim what's yours</div>
                 </div>
               </div>
@@ -3702,6 +3739,7 @@ export default function App({ session }) {
 
           {/* Pet stage */}
           {(function(){
+            var isMobileHome = isMobile && page === "dashboard";
             var isSleeping  = sleepState && sleepState.phase === 'sleeping';
             var isCountdown = sleepState && sleepState.phase === 'countdown';
             // Neglect visual state
@@ -3729,11 +3767,33 @@ export default function App({ session }) {
               : "rgba(13,26,42,0.45)";
             var stageAccent = isSleeping ? T.lavender : isNeglected ? neglectBorderColor : T.border;
             return (
-              <div style={{ background:activeBg.url?undefined:stageBg, backgroundImage:activeBg.url?"url("+activeBg.url+")":undefined, backgroundSize:activeBg.url?"cover":undefined, backgroundPosition:activeBg.url?"center":undefined, border:"2px solid "+stageAccent,boxShadow:"3px 3px 0 "+stageAccent,height:200,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
+              <div style={{ background:activeBg.url?undefined:stageBg, backgroundImage:activeBg.url?"url("+activeBg.url+")":undefined, backgroundSize:activeBg.url?(isMobileHome?"170%":"cover"):undefined, backgroundPosition:activeBg.url?(isMobileHome?"center 30%":"center"):undefined, border:isMobileHome?"none":"2px solid "+stageAccent, boxShadow:isMobileHome?"none":"3px 3px 0 "+stageAccent, height:isMobileHome?"calc(100vh - 60px)":200, display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
                 {/* Dark tint over background images — keeps neglect/sleep states readable */}
                 {activeBg.url && <div style={{ position:"absolute",inset:0,background:bgOverlay,zIndex:0,pointerEvents:"none" }}/>}
                 {/* Star field (always) / deeper at night */}
                 <div style={{ position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,rgba(126,184,247,"+(isSleeping?"0.28":"0.12")+") 1px,transparent 1px)",backgroundSize:"16px 16px",pointerEvents:"none" }}/>
+                {/* Mobile home: stats overlay at top */}
+                {isMobileHome && (
+                  <div style={{ position:"absolute",top:0,left:0,right:0,background:"rgba(13,15,20,0.78)",padding:"8px 12px",zIndex:4,display:"flex",flexDirection:"column",gap:5 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <span className="px10" style={{ color:T.text,fontSize:"10px",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{activeDigi&&activeDigi.name}</span>
+                      <span className="px8" style={{ background:accent,border:"1px solid "+T.border,padding:"2px 6px",color:T.bg,flexShrink:0,fontSize:"8px" }}>LV.{activeDigi&&activeDigi.level}</span>
+                      <span className="px8" style={{ fontSize:"8px",color:"#4ECDC4",flexShrink:0 }}>⚡{stamina}</span>
+                      <span className="px8" style={{ fontSize:"8px",color:T.pink,flexShrink:0 }}>💗{Math.round(bond)}</span>
+                    </div>
+                    <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                      <span className="px8" style={{ fontSize:"8px",color:T.gold,flexShrink:0 }}>⭐XP</span>
+                      <div style={{ height:4,background:"rgba(255,255,255,0.15)",border:"1px solid "+T.border,overflow:"hidden",flex:1 }}>
+                        <div style={{ width:activeDigi?Math.min((activeDigi.exp/activeDigi.expNeeded)*100,100)+"%":"0%",height:"100%",background:T.gold }}/>
+                      </div>
+                    </div>
+                    {neglectData && (
+                      <div className="px8" style={{ fontSize:"8px",color:neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textDim }}>
+                        {neglectData.level==="critical"?"⚠ CORRUPTION RISK":neglectData.level==="unstable"?"💀 PARTNER UNSTABLE":neglectData.level==="dormant"?"😶 PARTNER DORMANT":"... PARTNER QUIET"}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Moon when sleeping */}
                 {isSleeping && (
                   <div style={{ position:"absolute",top:10,right:14,fontSize:20,opacity:0.85,zIndex:2 }}>🌙</div>
@@ -3778,7 +3838,7 @@ export default function App({ session }) {
                 {/* Sprite — walks left/right when idle, sleepy when resting */}
                 <div style={{
                     position:"absolute",
-                    bottom:36, zIndex:2,
+                    bottom:isMobileHome?80:36, zIndex:2,
                     left:"50%",
                     transform:"translateX(calc(-50% + "+petX+"px)) scaleX("+((!isSleeping&&!isCountdown&&petFacingRight)?-1:1)+")",
                     transition:isSleeping?"none":"transform 0.9s ease-in-out",
@@ -3790,7 +3850,7 @@ export default function App({ session }) {
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
                     showSpeechBubble(null); // show current speech for 30 s
                   }}>
-                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={84}
+                  {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={isMobileHome?130:84}
                     mood={isSleeping||isCountdown?"sleepy"
                       :showFeedPanel?"eat"
                       :nlvl==="critical"||nlvl==="unstable"?"hurt"
@@ -3798,6 +3858,26 @@ export default function App({ session }) {
                       :bond>=90?"happy"
                       :"walk"}/>}
                 </div>
+                {/* Mobile home: action button overlay above ground strip */}
+                {isMobileHome && (
+                  <div style={{ position:"absolute",bottom:44,left:0,right:0,zIndex:4,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,padding:"0 10px" }}>
+                    {[
+                      { icon:"🍎", label:"FEED",  color:T.pink,    onClick:function(){ setShowFeedPanel(true); }, disabled:false },
+                      { icon:"🎮", label:playUsedToday>=3?"DONE":("PLAY("+(3-playUsedToday)+")"), color:playAvailable?T.teal:T.textDim, onClick:playAction, disabled:!playAvailable },
+                      { icon:"💤", label:sleepState?"ZZZ":"REST",  color:T.lavender, onClick:function(){ setShowRestModal(true); }, disabled:false },
+                      { icon:"⏱", label:"TRAIN", color:T.mint,    onClick:openPomodoroSetup, disabled:false },
+                    ].map(function(b){
+                      return (
+                        <button key={b.label} disabled={b.disabled}
+                          onClick={b.onClick}
+                          style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"6px 2px",background:"rgba(13,15,20,0.82)",border:"1.5px solid "+(b.disabled?T.border:b.color),color:b.disabled?T.textDim:b.color,cursor:b.disabled?"default":"pointer",fontFamily:"inherit",opacity:b.disabled?0.5:1 }}>
+                          <span style={{ fontSize:18 }}>{b.icon}</span>
+                          <span className="px8" style={{ fontSize:"6px",lineHeight:1.1 }}>{b.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {/* Ground strip */}
                 <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
                 {/* Wake hint when sleeping */}
@@ -3811,12 +3891,15 @@ export default function App({ session }) {
           })()}
 
           {/* Name + Level */}
+          {!(isMobile && page==="dashboard") && (
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <div className="px10" style={{ color:T.text }}>{activeDigi&&activeDigi.name}</div>
             <div className="px8" style={{ background:accent,border:"2px solid "+T.border,padding:"3px 8px",boxShadow:"2px 2px 0 "+T.border,color:T.bg }}>LV.{activeDigi&&activeDigi.level}</div>
           </div>
+          )}
 
           {/* Stat bars: XP / Stamina / Bond */}
+          {!(isMobile && page==="dashboard") && (
           <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
             {[
               { label:"⭐ XP",      val:activeDigi?activeDigi.exp:0,  max:activeDigi?activeDigi.expNeeded:100, color:T.gold },
@@ -3836,9 +3919,10 @@ export default function App({ session }) {
               );
             })}
           </div>
+          )}
 
           {/* Raid mini-widget */}
-          {(function(){
+          {!(isMobile && page==="dashboard") && (function(){
             var rs2   = raidState || { totalDamage:0 };
             var frac2 = Math.min(1, (rs2.totalDamage||0) / CURRENT_RAID.bossHp);
             var phaseIdx2 = CURRENT_RAID.phases.findIndex(function(p){ return frac2 < p.threshold; });
@@ -3860,7 +3944,7 @@ export default function App({ session }) {
           })()}
 
           {/* Neglect / Reconnection Arc widget */}
-          {neglectData && (
+          {!(isMobile && page==="dashboard") && neglectData && (
             <div style={{ background:neglectData.level==="critical"?"linear-gradient(135deg,#1a0005,#150010)":neglectData.level==="unstable"?"linear-gradient(135deg,#0d0015,#110010)":"linear-gradient(135deg,#0d0d0d,#111118)", border:"2px solid "+(neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textDim), padding:"10px 12px" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
                 <div className="px8" style={{ color:neglectData.level==="critical"?"#cc2222":neglectData.level==="unstable"?"#9B59B6":T.textMid, fontSize:"10px" }}>
@@ -3890,7 +3974,7 @@ export default function App({ session }) {
           )}
 
           {/* Crest alignment mini */}
-          <div style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 12px" }}>
+          {!(isMobile && page==="dashboard") && <div style={{ background:T.bgCard,border:"2px solid "+T.border,padding:"10px 12px" }}>
             <div className="px8" style={{ color:T.textMid,marginBottom:8 }}>CREST ALIGNMENT</div>
             {crestProfile.primary ? (
               <div>
@@ -3910,10 +3994,10 @@ export default function App({ session }) {
             ) : (
               <div style={{ fontSize:11,color:T.textDim,fontStyle:"italic" }}>Complete tasks to build alignment.</div>
             )}
-          </div>
+          </div>}
 
           {/* Pet action buttons */}
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+          {!(isMobile && page==="dashboard") && <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
             <button className="pet-btn" style={{ background:T.pink+"22",borderColor:T.pink,color:T.pink }} onClick={function(){ setShowFeedPanel(true); }}>
               🍎 FEED
             </button>
@@ -3929,15 +4013,15 @@ export default function App({ session }) {
               onClick={openPomodoroSetup}>
               ⏱ TRAIN
             </button>
-          </div>
-          {!playAvailable && doneToday.length < 3 && (
+          </div>}
+          {!(isMobile && page==="dashboard") && !playAvailable && doneToday.length < 3 && (
             <div style={{ fontSize:11,color:T.textDim,textAlign:"center",fontStyle:"italic" }}>
               Complete {3-doneToday.length} more task{3-doneToday.length!==1?"s":""} to unlock Play
             </div>
           )}
 
           {/* Evolution banner — checks any party member, not just leader */}
-          {(function(){
+          {!(isMobile && page==="dashboard") && (function(){
             var readyDigi = party.find(function(d){
               var di = DIGIMON_MAP[d.speciesId];
               if (!di || !di.evolvesTo) return false;
@@ -4142,7 +4226,7 @@ export default function App({ session }) {
 
             {/* ── CRESTS ───────────────────────────────────────────────── */}
             {page==="crests"&&(
-              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} crestMaterials={crestMaterials} loginDay={loginDay} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} isMobile={isMobile} onGoTeam={function(){ setPage("team"); }} onShowCalendar={function(){ setShowRewardCalendar(true); }}/>
+              <CrestsPage crestProfile={crestProfile} crestHistory={crestHistory} crestMaterials={crestMaterials} loginDay={loginDay} activeDigi={activeDigi} activeInfo={activeInfo} bond={bond} T={T} accent={accent} isMobile={isMobile} onGoTeam={function(){ setPage("team"); }}/>
             )}
 
             {/* ── TEAM ─────────────────────────────────────────────────── */}
@@ -4937,6 +5021,24 @@ export default function App({ session }) {
               <NetworkPage userId={userId} accent={accent} T={T}/>
             )}
 
+            {/* ── HEARTH ───────────────────────────────────────────────── */}
+            {page==="hearth"&&(
+              <HearthPage
+                allDisc={allDisc}
+                party={party}
+                farm={farm}
+                selectedBg={selectedBg}
+                saveBackground={saveBackground}
+                DIGIMON_MAP={DIGIMON_MAP}
+                BACKGROUNDS={BACKGROUNDS}
+                tamerName={tamerName}
+                setPage={setPage}
+                loginDay={loginDay}
+                LOGIN_REWARDS={LOGIN_REWARDS}
+                CREST_INFO={CREST_INFO}
+              />
+            )}
+
           </div>
         </main>
 
@@ -5003,38 +5105,83 @@ export default function App({ session }) {
         </aside>
       </div>
 
-      {/* ── MOBILE MORE SHEET (slides up above tab bar) ──────────────── */}
-      {isMobile && showMobileMore && (
+      {/* ── MOBILE GROUP POPUPS (slides up above tab bar) ──────────────── */}
+      {isMobile && mobilePopup && (
         <>
           <div style={{ position:"fixed",inset:0,zIndex:230,background:"rgba(0,0,0,0.55)" }}
-            onClick={function(){ setShowMobileMore(false); }}/>
+            onClick={function(){ setMobilePopup(null); }}/>
           <div style={{ position:"fixed",bottom:60,left:0,right:0,zIndex:235,background:T.bgPanel,borderTop:"2px solid "+T.border,padding:"16px 16px 20px",animation:"slideUp 0.2s ease" }}>
-            <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:12 }}>MORE PAGES</div>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-              {[
-                { id:"team",     icon:"◈",  label:"TEAM" },
-                { id:"digifarm", icon:"🌿", label:"FARM" },
-                { id:"digidex",  icon:"📖", label:"DIGIDEX" },
-                { id:"crests",   icon:"💎", label:"CRESTS" },
-                { id:"store",    icon:"🛒", label:"STORE" },
-                { id:"network",  icon:"🔗", label:"NETWORK" },
-                { id:"battle",   icon:"⚔",  label:"PATCH" },
-                { id:"chat",     icon:"💬", label:"CHAT" },
-              ].map(function(item){
-                var isAct = page === item.id;
-                return (
-                  <button key={item.id}
-                    onClick={function(){ setPage(item.id); setShowMobileMore(false); }}
-                    style={{ display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:isAct?accent+"22":T.bgCard,border:"1.5px solid "+(isAct?accent:T.border),cursor:"pointer",color:isAct?accent:T.textMid,fontFamily:"inherit",transition:"all 0.1s" }}>
-                    <span style={{ fontSize:20 }}>{item.icon}</span>
-                    <span className="px8" style={{ fontSize:"9px" }}>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {mobilePopup === "pet" && (
+              <>
+                <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:12 }}>P.E.T.</div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                  {[
+                    { id:"team",     icon:"◈",  label:"TEAM" },
+                    { id:"digifarm", icon:"🌿", label:"FARM" },
+                    { id:"digidex",  icon:"📖", label:"DIGIDEX" },
+                  ].map(function(item){
+                    var isAct = page === item.id;
+                    return (
+                      <button key={item.id}
+                        onClick={function(){ setPage(item.id); setMobilePopup(null); }}
+                        style={{ display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:isAct?accent+"22":T.bgCard,border:"1.5px solid "+(isAct?accent:T.border),cursor:"pointer",color:isAct?accent:T.textMid,fontFamily:"inherit",transition:"all 0.1s" }}>
+                        <span style={{ fontSize:20 }}>{item.icon}</span>
+                        <span className="px8" style={{ fontSize:"9px" }}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {mobilePopup === "filehaven" && (
+              <>
+                <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:12 }}>FILEHAVEN</div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                  {[
+                    { id:"tasks",  icon:"☑",  label:"TASKS" },
+                    { id:"weekly", icon:"📅", label:"WEEK" },
+                    { id:"crests", icon:"💎", label:"CRESTS" },
+                  ].map(function(item){
+                    var isAct = page === item.id;
+                    return (
+                      <button key={item.id}
+                        onClick={function(){ setPage(item.id); setMobilePopup(null); }}
+                        style={{ display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:isAct?accent+"22":T.bgCard,border:"1.5px solid "+(isAct?accent:T.border),cursor:"pointer",color:isAct?accent:T.textMid,fontFamily:"inherit",transition:"all 0.1s" }}>
+                        <span style={{ fontSize:20 }}>{item.icon}</span>
+                        <span className="px8" style={{ fontSize:"9px" }}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {mobilePopup === "cyberspace" && (
+              <>
+                <div className="px8" style={{ color:T.textDim,fontSize:"9px",marginBottom:12 }}>CYBERSPACE</div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+                  {[
+                    { id:"battle",   icon:"⚔",  label:"PATCH" },
+                    { id:"campaign", icon:"☠",  label:"BREACH" },
+                    { id:"store",    icon:"🛒", label:"STORE" },
+                    { id:"network",  icon:"🔗", label:"NETWORK" },
+                    { id:"hearth",   icon:"🏡", label:"HEARTH" },
+                  ].map(function(item){
+                    var isAct = page === item.id;
+                    return (
+                      <button key={item.id}
+                        onClick={function(){ setPage(item.id); setMobilePopup(null); }}
+                        style={{ display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:isAct?accent+"22":T.bgCard,border:"1.5px solid "+(isAct?accent:T.border),cursor:"pointer",color:isAct?accent:T.textMid,fontFamily:"inherit",transition:"all 0.1s" }}>
+                        <span style={{ fontSize:20 }}>{item.icon}</span>
+                        <span className="px8" style={{ fontSize:"9px" }}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
             {localStorage.getItem('dv_force_mobile') === 'true' && (
               <button className="px8"
-                onClick={function(){ toggleMobileView(); setShowMobileMore(false); }}
+                onClick={function(){ toggleMobileView(); setMobilePopup(null); }}
                 style={{ marginTop:14,width:"100%",padding:"10px",background:"transparent",border:"2px solid "+T.textDim,color:T.textDim,cursor:"pointer",fontSize:"10px",display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
                 🖥 SWITCH TO DESKTOP VIEW
               </button>
@@ -5045,26 +5192,40 @@ export default function App({ session }) {
 
       {/* ── MOBILE BOTTOM TAB BAR ────────────────────────────────────── */}
       {(function(){
-        var morePageIds = ["team","digifarm","digidex","crests","store","network","battle","chat"];
+        var petPageIds       = ["team","digifarm","digidex"];
+        var filehavenPageIds = ["tasks","weekly","crests"];
+        var cyberspacePageIds= ["battle","campaign","store","network","hearth"];
         var TABS = [
-          { id:"dashboard", icon:"🐾", label:"PET" },
-          { id:"tasks",     icon:"✅", label:"TASKS" },
-          { id:"weekly",    icon:"📅", label:"WEEK" },
-          { id:"campaign",  icon:"☠",  label:"BREACH" },
-          { id:"more",      icon:"☰",  label:"MORE"  },
+          { id:"pet",        icon:"📟", label:"P.E.T.",    popup:"pet" },
+          { id:"filehaven",  icon:"🗂", label:"FILEHAVEN", popup:"filehaven" },
+          { id:"cyberspace", icon:"🌐", label:"CYBERSPACE",popup:"cyberspace" },
+          { id:"chat",       icon:"💬", label:"CHAT",      page:"chat" },
+          { id:"home",       icon:"🐾", label:"HOME",      page:"dashboard" },
         ];
         return (
           <div className="mob-tab-bar" style={{ background:T.bgPanel,borderTop:"2px solid "+T.border }}>
             {TABS.map(function(tab){
-              var isActive = tab.id === 'more'
-                ? (showMobileMore || morePageIds.includes(page))
-                : (!showMobileMore && page === tab.id);
+              var isActive;
+              if (tab.popup) {
+                isActive = mobilePopup === tab.popup ||
+                  (!mobilePopup && (
+                    (tab.popup==="pet"        && petPageIds.includes(page)) ||
+                    (tab.popup==="filehaven"  && filehavenPageIds.includes(page)) ||
+                    (tab.popup==="cyberspace" && cyberspacePageIds.includes(page))
+                  ));
+              } else {
+                isActive = !mobilePopup && page === tab.page;
+              }
               return (
                 <button key={tab.id} className="mob-tab-btn"
                   style={{ borderTopColor:isActive?accent:"transparent",color:isActive?accent:T.textMid }}
                   onClick={function(){
-                    if (tab.id === 'more') { setShowMobileMore(function(v){ return !v; }); }
-                    else { setPage(tab.id); setShowMobileMore(false); }
+                    if (tab.popup) {
+                      setMobilePopup(function(v){ return v===tab.popup ? null : tab.popup; });
+                    } else {
+                      setPage(tab.page);
+                      setMobilePopup(null);
+                    }
                   }}>
                   <div style={{ fontSize:21 }}>{tab.icon}</div>
                   <div className="px8" style={{ fontSize:"8px" }}>{tab.label}</div>
@@ -5126,7 +5287,7 @@ function RadarChart({ percentages, T }) {
 }
 
 // ── CrestsPage ────────────────────────────────────────────────────────────────
-function CrestsPage({ crestProfile, crestHistory, crestMaterials, loginDay, activeDigi, activeInfo, bond, T, accent, isMobile, onGoTeam, onShowCalendar }) {
+function CrestsPage({ crestProfile, crestHistory, crestMaterials, loginDay, activeDigi, activeInfo, bond, T, accent, isMobile, onGoTeam }) {
   var windowDays = 14;
   var today = new Date().toISOString().split('T')[0];
   var todayEntries = crestHistory.filter(function(e){ return e.date===today; });
@@ -5272,11 +5433,8 @@ function CrestsPage({ crestProfile, crestHistory, crestMaterials, loginDay, acti
             );
           })}
         </div>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8 }}>
+        <div style={{ marginTop:8 }}>
           <div style={{ fontSize:10,color:T.textDim,fontStyle:"italic" }}>Spend on your partner's Crest Stages in the Team tab.</div>
-          <button className="px8" onClick={onShowCalendar} style={{ padding:"4px 10px",background:T.gold+"18",border:"1.5px solid "+T.gold,color:T.gold,cursor:"pointer",fontSize:"10px" }}>
-            📅 VIEW CALENDAR
-          </button>
         </div>
       </div>
 
