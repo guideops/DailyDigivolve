@@ -3767,7 +3767,7 @@ export default function App({ session }) {
               : "rgba(13,26,42,0.45)";
             var stageAccent = isSleeping ? T.lavender : isNeglected ? neglectBorderColor : T.border;
             return (
-              <div style={{ background:activeBg.url?undefined:stageBg, backgroundImage:activeBg.url?"url("+activeBg.url+")":undefined, backgroundSize:activeBg.url?(isMobileHome?"170%":"cover"):undefined, backgroundPosition:activeBg.url?(isMobileHome?"center 30%":"center"):undefined, border:isMobileHome?"none":"2px solid "+stageAccent, boxShadow:isMobileHome?"none":"3px 3px 0 "+stageAccent, height:isMobileHome?"calc(100vh - 60px)":200, display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
+              <div style={{ background:activeBg.url?undefined:stageBg, backgroundImage:activeBg.url?"url("+activeBg.url+")":undefined, backgroundSize:activeBg.url?"cover":undefined, backgroundPosition:activeBg.url?"center top":undefined, backgroundRepeat:activeBg.url?"no-repeat":undefined, border:isMobileHome?"none":"2px solid "+stageAccent, boxShadow:isMobileHome?"none":"3px 3px 0 "+stageAccent, height:isMobileHome?"58vh":200, display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",position:"relative",overflow:"hidden",paddingBottom:14,filter:isSleeping?"none":neglectFilter }}>
                 {/* Dark tint over background images — keeps neglect/sleep states readable */}
                 {activeBg.url && <div style={{ position:"absolute",inset:0,background:bgOverlay,zIndex:0,pointerEvents:"none" }}/>}
                 {/* Star field (always) / deeper at night */}
@@ -3838,7 +3838,7 @@ export default function App({ session }) {
                 {/* Sprite — walks left/right when idle, sleepy when resting */}
                 <div style={{
                     position:"absolute",
-                    bottom:isMobileHome?80:36, zIndex:2,
+                    bottom:isMobileHome?"20%":36, zIndex:2,
                     left:"50%",
                     transform:"translateX(calc(-50% + "+petX+"px)) scaleX("+((!isSleeping&&!isCountdown&&petFacingRight)?-1:1)+")",
                     transition:isSleeping?"none":"transform 0.9s ease-in-out",
@@ -3858,34 +3858,91 @@ export default function App({ session }) {
                       :bond>=90?"happy"
                       :"walk"}/>}
                 </div>
-                {/* Mobile home: action button overlay above ground strip */}
-                {isMobileHome && (
-                  <div style={{ position:"absolute",bottom:44,left:0,right:0,zIndex:4,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,padding:"0 10px" }}>
-                    {[
-                      { icon:"🍎", label:"FEED",  color:T.pink,    onClick:function(){ setShowFeedPanel(true); }, disabled:false },
-                      { icon:"🎮", label:playUsedToday>=3?"DONE":("PLAY("+(3-playUsedToday)+")"), color:playAvailable?T.teal:T.textDim, onClick:playAction, disabled:!playAvailable },
-                      { icon:"💤", label:sleepState?"ZZZ":"REST",  color:T.lavender, onClick:function(){ setShowRestModal(true); }, disabled:false },
-                      { icon:"⏱", label:"TRAIN", color:T.mint,    onClick:openPomodoroSetup, disabled:false },
-                    ].map(function(b){
-                      return (
-                        <button key={b.label} disabled={b.disabled}
-                          onClick={b.onClick}
-                          style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"6px 2px",background:"rgba(13,15,20,0.82)",border:"1.5px solid "+(b.disabled?T.border:b.color),color:b.disabled?T.textDim:b.color,cursor:b.disabled?"default":"pointer",fontFamily:"inherit",opacity:b.disabled?0.5:1 }}>
-                          <span style={{ fontSize:18 }}>{b.icon}</span>
-                          <span className="px8" style={{ fontSize:"6px",lineHeight:1.1 }}>{b.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {/* Ground strip */}
-                <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",borderTop:"2px solid "+T.border,zIndex:1 }}/>
+                {/* Mobile home: action buttons on left + right sides */}
+                {isMobileHome && (function(){
+                  var leftBtns = [
+                    { icon:"🍎", label:"FEED",  color:T.pink,    onClick:function(){ setShowFeedPanel(true); }, disabled:false },
+                    { icon:"💤", label:sleepState?"ZZZ":"REST",  color:T.lavender, onClick:function(){ setShowRestModal(true); }, disabled:false },
+                  ];
+                  var rightBtns = [
+                    { icon:"🎮", label:playUsedToday>=3?"DONE":("PLAY("+(3-playUsedToday)+")"), color:playAvailable?T.teal:T.textDim, onClick:playAction, disabled:!playAvailable },
+                    { icon:"⏱", label:"TRAIN", color:T.mint,    onClick:openPomodoroSetup, disabled:false },
+                  ];
+                  var btnStyle = function(b){ return { display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,width:52,padding:"7px 4px",background:"rgba(13,15,20,0.82)",border:"1.5px solid "+(b.disabled?T.border:b.color),color:b.disabled?T.textDim:b.color,cursor:b.disabled?"default":"pointer",fontFamily:"inherit",opacity:b.disabled?0.5:1 }; };
+                  return (
+                    <>
+                      <div style={{ position:"absolute",left:8,top:"42%",transform:"translateY(-50%)",zIndex:4,display:"flex",flexDirection:"column",gap:8 }}>
+                        {leftBtns.map(function(b){ return (
+                          <button key={b.label} disabled={b.disabled} onClick={b.onClick} style={btnStyle(b)}>
+                            <span style={{ fontSize:18 }}>{b.icon}</span>
+                            <span className="px8" style={{ fontSize:"6px",lineHeight:1.1,textAlign:"center" }}>{b.label}</span>
+                          </button>
+                        ); })}
+                      </div>
+                      <div style={{ position:"absolute",right:8,top:"42%",transform:"translateY(-50%)",zIndex:4,display:"flex",flexDirection:"column",gap:8 }}>
+                        {rightBtns.map(function(b){ return (
+                          <button key={b.label} disabled={b.disabled} onClick={b.onClick} style={btnStyle(b)}>
+                            <span style={{ fontSize:18 }}>{b.icon}</span>
+                            <span className="px8" style={{ fontSize:"6px",lineHeight:1.1,textAlign:"center" }}>{b.label}</span>
+                          </button>
+                        ); })}
+                      </div>
+                    </>
+                  );
+                })()}
+                {/* Ground strip — no border to avoid the thin line artifact */}
+                <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",zIndex:1 }}/>
                 {/* Wake hint when sleeping */}
                 {isSleeping && (
                   <div style={{ position:"absolute",bottom:42,left:0,right:0,textAlign:"center",zIndex:3 }}>
                     <span className="px8" style={{ color:T.lavender,fontSize:"10px",opacity:0.7 }}>tap to wake early</span>
                   </div>
                 )}
+              </div>
+            );
+          })()}
+
+          {/* Mobile home: task preview panel below the background scene */}
+          {(isMobile && page==="dashboard") && (function(){
+            var prioOrder = { Urgent:0, High:1, Medium:2, Low:3 };
+            var prioColor = { Urgent:"#FF4444", High:T.pink, Medium:T.gold, Low:T.teal };
+            var prioBadge = { Urgent:"URG", High:"HIGH", Medium:"MED", Low:"LOW" };
+            var mobilePendTasks = tasks.filter(function(t){ return !t.done; }).sort(function(a,b){ return ((prioOrder[a.priority]??99)-(prioOrder[b.priority]??99)); });
+            return (
+              <div style={{ height:"calc(42vh - 0px)",background:T.bgCard,borderTop:"1px solid "+T.border,display:"flex",flexDirection:"column",overflow:"hidden" }}>
+                {/* Header */}
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:"1px solid "+T.border,flexShrink:0 }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                    <span className="px8" style={{ color:T.text,fontSize:"10px",letterSpacing:"0.05em" }}>TASKS</span>
+                    <span className="px8" style={{ color:T.textDim,fontSize:"9px" }}>{mobilePendTasks.length} pending</span>
+                  </div>
+                  <button onClick={function(){ setShowQuickAdd(true); }}
+                    style={{ display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(13,15,20,0.6)",border:"1.5px solid "+accent,color:accent,cursor:"pointer",fontFamily:"inherit" }}>
+                    <span style={{ fontSize:12 }}>+</span>
+                    <span className="px8" style={{ fontSize:"8px" }}>NEW</span>
+                  </button>
+                </div>
+                {/* Scrollable task list */}
+                <div style={{ overflowY:"auto",flex:1,padding:"4px 0" }}>
+                  {mobilePendTasks.length===0 && (
+                    <div style={{ padding:"16px 12px",textAlign:"center" }}>
+                      <span className="px8" style={{ color:T.textDim,fontSize:"9px" }}>No pending tasks — tap + NEW to add one</span>
+                    </div>
+                  )}
+                  {mobilePendTasks.map(function(t){
+                    var pc = prioColor[t.priority]||T.textDim;
+                    var pb = prioBadge[t.priority]||t.priority;
+                    return (
+                      <div key={t.id}
+                        onClick={function(){ setPage("dashboard"); }}
+                        style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderBottom:"1px solid "+T.bgCard,cursor:"pointer",background:"transparent" }}>
+                        <div style={{ width:6,height:6,borderRadius:"50%",background:pc,flexShrink:0 }}/>
+                        <span className="px8" style={{ color:T.text,fontSize:"9px",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{t.title}</span>
+                        <span className="px8" style={{ color:pc,fontSize:"7px",border:"1px solid "+pc,padding:"1px 4px",flexShrink:0 }}>{pb}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })()}
