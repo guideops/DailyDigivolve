@@ -10,3 +10,9 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code workspace
+.claude/
+
+# Test output
+test-results/
