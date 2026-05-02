@@ -1142,16 +1142,18 @@ export default function App({ session }) {
     var MAX = 72; // max px offset from centre (stage ~260px wide, sprite 84px)
     function step() {
       if (cancelled) return;
+      if (Math.random() < 0.35) { setTimeout(step, 1500 + Math.random() * 2000); return; }
       var move = 14 + Math.random() * 22;
       var dir  = _petDirRef.current ? 1 : -1;
       setPetX(function(x) {
         var next = x + dir * move;
         if (next > MAX)  { _petDirRef.current = false; setPetFacingRight(false); return MAX; }
         if (next < -MAX) { _petDirRef.current = true;  setPetFacingRight(true);  return -MAX; }
-        // 20 % chance to randomly turn around
+        // 20 % chance to randomly turn around — stay in place so transition doesn't drift the wrong way
         if (Math.random() < 0.20) {
           _petDirRef.current = !_petDirRef.current;
           setPetFacingRight(_petDirRef.current);
+          return x;
         }
         return next;
       });
@@ -3666,8 +3668,8 @@ export default function App({ session }) {
           DAILY<span style={{ color:accent }}>DIGIVOLVE</span>
         </div>
         <div style={{ display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",flexShrink:1,minWidth:0 }}>
-          {/* Grouped dropdowns */}
-          {NAV_GROUPS.map(function(g){
+          {/* Grouped dropdowns (P.E.T + FILEHAVEN) */}
+          {NAV_GROUPS.slice(0,2).map(function(g){
             var isOpen    = openGroup === g.id;
             var hasActive = g.pages.some(function(p){ return p.id === page; });
             var activeLabel = hasActive ? g.pages.find(function(p){ return p.id===page; }).label : null;
@@ -3703,6 +3705,39 @@ export default function App({ session }) {
             onClick={function(){ setPage("chat"); setOpenGroup(null); }}>
             💬 CHAT
           </button>
+
+          {/* CYBERSPACE — grouped dropdown */}
+          {(function(){
+            var g = NAV_GROUPS[2];
+            var isOpen    = openGroup === g.id;
+            var hasActive = g.pages.some(function(p){ return p.id === page; });
+            var activeLabel = hasActive ? g.pages.find(function(p){ return p.id===page; }).label : null;
+            return (
+              <div key={g.id} style={{ position:"relative" }}
+                onMouseEnter={function(){ clearTimeout(navCloseTimer.current); setOpenGroup(g.id); }}
+                onMouseLeave={function(){ navCloseTimer.current = setTimeout(function(){ setOpenGroup(null); }, 150); }}>
+                <button
+                  className={"nav-pill"+(hasActive?" group-active":"")+(isOpen?" active":"")}
+                  onClick={function(){ setOpenGroup(isOpen ? null : g.id); }}>
+                  {g.icon} {activeLabel ? g.label+" · "+activeLabel : g.label}
+                  <span style={{ marginLeft:5,fontSize:"8px",opacity:0.6 }}>{isOpen?"▲":"▼"}</span>
+                </button>
+                {isOpen && (
+                  <div style={{ position:"absolute",top:"100%",left:0,zIndex:400,border:"2px solid "+T.pixelBorder,boxShadow:"3px 3px 0 "+T.pixelBorder,minWidth:130,overflow:"hidden" }}>
+                    {g.pages.map(function(p){
+                      return (
+                        <button key={p.id} className={"nav-drop-item"+(page===p.id?" active":"")}
+                          onClick={function(){ setPage(p.id); setOpenGroup(null); }}>
+                          <span style={{ width:14,textAlign:"center",flexShrink:0 }}>{p.icon}</span>
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* HOME — standalone */}
           <button className={"nav-pill"+(page==="dashboard"?" active":"")}
@@ -3819,7 +3854,7 @@ export default function App({ session }) {
                 )}
                 {/* Speech bubble — appears on click, auto-hides after 30 s */}
                 {showSpeech && (
-                  <div style={{ position:"absolute",top:10,left:"50%",background:T.bgCard,border:"2px solid "+(isSleeping?T.lavender:accent),boxShadow:"2px 2px 0 "+(isSleeping?T.lavender:accent),padding:"5px 10px",zIndex:4,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)",maxWidth:220,whiteSpace:"normal",textAlign:"center",cursor:"pointer" }}
+                  <div style={{ position:"absolute",top:isMobileHome?"38%":10,left:"50%",background:T.bgCard,border:"2px solid "+(isSleeping?T.lavender:accent),boxShadow:"2px 2px 0 "+(isSleeping?T.lavender:accent),padding:"5px 10px",zIndex:4,animation:"fadeUp 0.3s ease",transform:"translateX(-50%)",maxWidth:220,whiteSpace:"normal",textAlign:"center",cursor:"pointer" }}
                     onClick={function(){ setShowSpeech(false); clearTimeout(speechDismissTimer.current); }}>
                     <span className="px8" style={{ color:isSleeping?T.lavender:accent,fontSize:"11px" }}>{speech}</span>
                     <div style={{ position:"absolute",bottom:-8,left:"50%",transform:"translateX(-50%)",borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid "+(isSleeping?T.lavender:accent) }}/>
@@ -3838,25 +3873,28 @@ export default function App({ session }) {
                 {/* Sprite — walks left/right when idle, sleepy when resting */}
                 <div style={{
                     position:"absolute",
-                    bottom:isMobileHome?"20%":36, zIndex:2,
+                    bottom:isMobileHome?"13%":20, zIndex:2,
                     left:"50%",
-                    transform:"translateX(calc(-50% + "+petX+"px)) scaleX("+((!isSleeping&&!isCountdown&&petFacingRight)?-1:1)+")",
+                    transform:"translateX(calc(-50% + "+petX+"px))",
                     transition:isSleeping?"none":"transform 0.9s ease-in-out",
-                    animation:isSleeping?"sleepBob 4s ease-in-out infinite":"bob 2s ease-in-out infinite",
                     cursor:"pointer",
-                    transformOrigin:"bottom center",
                   }}
                   onClick={function(){
                     if (isSleeping || isCountdown) { handleWakeUp(sleepState, sleepLog, true); return; }
                     showSpeechBubble(null); // show current speech for 30 s
                   }}>
+                  <div style={{ transform:"scaleX("+((!isSleeping&&!isCountdown&&petFacingRight)?-1:1)+")", transformOrigin:"bottom center" }}>
+                  <div style={{ animation:isSleeping?"sleepBob 4s ease-in-out infinite":"bob 2s ease-in-out infinite" }}>
                   {activeDigi&&<DigiSprite digimonId={activeDigi.speciesId} size={isMobileHome?130:84}
+                    animate
                     mood={isSleeping||isCountdown?"sleepy"
                       :showFeedPanel?"eat"
                       :nlvl==="critical"||nlvl==="unstable"?"hurt"
                       :nlvl==="dormant"?"sad"
                       :bond>=90?"happy"
                       :"walk"}/>}
+                  </div>
+                  </div>
                 </div>
                 {/* Mobile home: action buttons on left + right sides */}
                 {isMobileHome && (function(){
@@ -3890,8 +3928,8 @@ export default function App({ session }) {
                     </>
                   );
                 })()}
-                {/* Ground strip — no border to avoid the thin line artifact */}
-                <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",zIndex:1 }}/>
+                {/* Ground strip — only for default background */}
+                {!activeBg.url && <div style={{ position:"absolute",bottom:0,left:0,right:0,height:36,background:"repeating-linear-gradient(90deg,"+(isSleeping?T.lavender:T.teal)+"22 0px,"+(isSleeping?T.lavender:T.teal)+"22 16px,"+(isSleeping?T.lavender:T.teal)+"11 16px,"+(isSleeping?T.lavender:T.teal)+"11 32px)",zIndex:1 }}/>}
                 {/* Wake hint when sleeping */}
                 {isSleeping && (
                   <div style={{ position:"absolute",bottom:42,left:0,right:0,textAlign:"center",zIndex:3 }}>
@@ -5255,8 +5293,8 @@ export default function App({ session }) {
         var TABS = [
           { id:"pet",        icon:"📟", label:"P.E.T.",    popup:"pet" },
           { id:"filehaven",  icon:"🗂", label:"FILEHAVEN", popup:"filehaven" },
-          { id:"cyberspace", icon:"🌐", label:"CYBERSPACE",popup:"cyberspace" },
           { id:"chat",       icon:"💬", label:"CHAT",      page:"chat" },
+          { id:"cyberspace", icon:"🌐", label:"CYBERSPACE",popup:"cyberspace" },
           { id:"home",       icon:"🐾", label:"HOME",      page:"dashboard" },
         ];
         return (
