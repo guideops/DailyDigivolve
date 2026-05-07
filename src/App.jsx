@@ -1258,7 +1258,7 @@ export default function App({ session }) {
   var streak      = tasks.reduce(function(m,t){ return Math.max(m, t.streak||0); }, 0);
   var accent      = activeInfo ? (ATTR_COLOR[activeInfo.attr]||T.teal) : T.teal;
   var pendTasks       = tasks.filter(function(t){ return !t.done; });
-  var todayStr        = new Date().toISOString().split('T')[0];
+  var _tsd = new Date(); var todayStr = _tsd.getFullYear()+'-'+String(_tsd.getMonth()+1).padStart(2,'0')+'-'+String(_tsd.getDate()).padStart(2,'0');
   var doneToday       = tasks.filter(function(t){ return t.done && t.lastCompletedDate === todayStr; });
   // Active task count = pending + completed today (excludes old once-off completions from previous days)
   var activeTodayTotal = pendTasks.length + doneToday.length;

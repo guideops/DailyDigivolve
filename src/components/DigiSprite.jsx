@@ -266,7 +266,7 @@ function SvgFallback({ digimonId, mood, size, animate }) {
 export default function DigiSprite({ digimonId, mood, size, animate }) {
   mood    = mood    || "happy";
   size    = size    || 64;
-  animate = animate !== false;
+  animate = animate !== false && mood !== "sleepy";
 
   var config = getSpriteConfig(digimonId);
 
